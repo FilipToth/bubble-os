@@ -1,14 +1,24 @@
 #![no_std]
 #![no_main]
 
+mod core_requirements;
+mod efi;
+
 use core::panic::PanicInfo;
+use efi::{EfiHandle, EfiSystemTable};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    loop { }
+    loop {}
 }
 
 #[no_mangle]
-extern fn efi_main() {
-    
+extern "C" fn efi_main(_image_handle: EfiHandle, system_table: *mut EfiSystemTable) {
+    // register efi system table
+    unsafe {
+        efi::register_efi_system_table(system_table);
+    }
+
+    efi::output_text("Hello, World?\n");
+    loop {}
 }
