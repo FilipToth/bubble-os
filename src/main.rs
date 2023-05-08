@@ -3,6 +3,7 @@
 
 mod core_requirements;
 mod efi;
+mod print;
 
 use core::panic::PanicInfo;
 use efi::{EfiHandle, EfiSystemTable};
@@ -19,6 +20,6 @@ extern "C" fn efi_main(_image_handle: EfiHandle, system_table: *mut EfiSystemTab
         efi::register_efi_system_table(system_table);
     }
 
-    efi::output_text("Hello, World?\n");
+    print!("Hello, World?\n");
     loop {}
 }
