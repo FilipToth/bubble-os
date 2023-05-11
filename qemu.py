@@ -23,7 +23,7 @@ def run_qemu():
     os.system(f"""
         qemu-system-x86_64 \
             -enable-kvm \
-            -m 512 \
+            -m 128 \
             -nographic \
             -bios {ovmf_path} \
             -device driver=e1000,netdev=n0 \

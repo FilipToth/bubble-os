@@ -6,7 +6,7 @@ mod efi;
 mod print;
 
 use core::panic::PanicInfo;
-use efi::{EfiHandle, EfiSystemTable};
+use efi::{EfiHandle, EfiMemoryType, EfiSystemTable};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -19,6 +19,8 @@ extern "C" fn efi_main(_image_handle: EfiHandle, system_table: *mut EfiSystemTab
     unsafe {
         efi::register_efi_system_table(system_table);
     }
+
+    efi::get_memory_descriptor();
 
     print!("Hello, World?\n");
     loop {}

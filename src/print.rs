@@ -1,4 +1,4 @@
-use core::fmt::{Write, Result};
+use core::fmt::{Result, Write};
 
 pub struct EfiWriter;
 

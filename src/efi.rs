@@ -1,3 +1,4 @@
+use crate::print;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
 static EFI_SYSTEM_TABLE: AtomicPtr<EfiSystemTable> = AtomicPtr::new(core::ptr::null_mut());
@@ -109,20 +110,71 @@ pub fn get_acpi_table() -> Option<usize> {
     acpi_table
 }
 
+pub fn get_memory_descriptor() {
+    let system_table = EFI_SYSTEM_TABLE.load(Ordering::SeqCst);
+    if system_table.is_null() {
+        return;
+    }
+
+    let mut memory_map = [0u8; 8 * 0x400];
+    unsafe {
+        let mut memory_map_size: usize = core::mem::size_of_val(&memory_map);
+        let mut map_key: usize = 0;
+        let mut descriptor_size: usize = 0;
+        let mut descriptor_version: u32 = 0;
+
+        let mut map_ptr = core::ptr::addr_of_mut!(memory_map[0]);
+        let boot_services = (*system_table).boot_services;
+        ((*boot_services).get_memory_map)(
+            &mut memory_map_size,
+            map_ptr,
+            &mut map_key,
+            &mut descriptor_size,
+            &mut descriptor_version,
+        );
+
+        // let mut descriptors: Vec<EfiMemoryDescriptor> = Vec::new();
+        let mut free_memory = 0;
+        let mut total_offset = 0;
+        loop {
+            if total_offset >= memory_map_size {
+                break;
+            }
+
+            let descriptor = map_ptr as *mut EfiMemoryDescriptor;
+            map_ptr = map_ptr.add(descriptor_size);
+            total_offset += descriptor_size;
+
+            let descriptor = *descriptor;
+            let mem_type_id = descriptor.mem_type;
+            let mem_type = EfiMemoryType::from(mem_type_id);
+            
+            if !mem_type.is_available_after_boot_services_exit() {
+                continue;
+            }
+            
+            // one efi page is 4096 bytes
+            free_memory += descriptor.number_of_pages * 4096;
+        }
+
+        print!("Free Memory: {} bytes\n", free_memory)
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
-struct EfiMemoryDescriptor {
+pub struct EfiMemoryDescriptor {
     // type of memory region
-    typ: u32,
-    physical_start: u64,
-    virtual_start: u64,
-    number_of_pages: u64,
-    attribute: u64,
+    pub mem_type: u32,
+    pub physical_start: u64,
+    pub virtual_start: u64,
+    pub number_of_pages: u64,
+    pub attribute: u64,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-enum EfiMemoryType {
+pub enum EfiMemoryType {
     ReservedMemoryType,
     LoaderCode,
     LoaderData,
@@ -252,6 +304,7 @@ struct EfiBootServices {
         descriptor_size: &mut usize,
         descriptor_version: &mut u32,
     ) -> EfiStatus,
+
     _allocate_pool: usize,
     _free_pool: usize,
     _create_event: usize,
