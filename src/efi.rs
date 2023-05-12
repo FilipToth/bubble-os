@@ -110,19 +110,22 @@ pub fn get_acpi_table() -> Option<usize> {
     acpi_table
 }
 
-pub fn get_memory_descriptor() {
+pub fn get_memory_descriptor() -> Result<EfiMemoryResult, EfiGetMemoryError> {
     let system_table = EFI_SYSTEM_TABLE.load(Ordering::SeqCst);
     if system_table.is_null() {
-        return;
+        return Err(EfiGetMemoryError::MissingSystemTable);
     }
 
+    // create a memory map buffer, since we don't
+    // know the actual size yet, let's allocate 8kB
+    // we could probably get away with 4 or maybe 2
     let mut memory_map = [0u8; 8 * 0x400];
-    unsafe {
-        let mut memory_map_size: usize = core::mem::size_of_val(&memory_map);
-        let mut map_key: usize = 0;
-        let mut descriptor_size: usize = 0;
-        let mut descriptor_version: u32 = 0;
+    let mut memory_map_size: usize = core::mem::size_of_val(&memory_map);
+    let mut map_key: usize = 0;
+    let mut descriptor_size: usize = 0;
+    let mut descriptor_version: u32 = 0;
 
+    unsafe {
         let mut map_ptr = core::ptr::addr_of_mut!(memory_map[0]);
         let boot_services = (*system_table).boot_services;
         ((*boot_services).get_memory_map)(
@@ -148,16 +151,44 @@ pub fn get_memory_descriptor() {
             let descriptor = *descriptor;
             let mem_type_id = descriptor.mem_type;
             let mem_type = EfiMemoryType::from(mem_type_id);
-            
+
             if !mem_type.is_available_after_boot_services_exit() {
                 continue;
             }
-            
+
             // one efi page is 4096 bytes
             free_memory += descriptor.number_of_pages * 4096;
         }
 
-        print!("Free Memory: {} bytes\n", free_memory)
+        let result = EfiMemoryResult {
+            free_memory: free_memory,
+            map_key: map_key,
+        };
+
+        return Ok(result);
+    }
+}
+
+pub struct EfiMemoryResult {
+    pub free_memory: u64,
+    pub map_key: usize,
+}
+
+#[derive(Debug)]
+pub enum EfiGetMemoryError {
+    MissingSystemTable,
+}
+
+pub fn exit_boot_servies(image_handle: EfiHandle, map_key: usize) {
+    let system_table = EFI_SYSTEM_TABLE.load(Ordering::SeqCst);
+    if system_table.is_null() {
+        return;
+    }
+
+    unsafe {
+        let boot_services = (*(system_table)).boot_services;
+        let ret = ((*boot_services).exit_boot_services)(image_handle, map_key);
+        assert!(ret.0 == 0, "Failed to exit boot services, with EFI status code: {:?}", ret);
     }
 }
 
