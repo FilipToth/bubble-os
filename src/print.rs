@@ -4,7 +4,7 @@ pub struct EfiWriter;
 
 impl Write for EfiWriter {
     fn write_str(&mut self, s: &str) -> Result {
-        crate::efi::output_text(s);
+        crate::serial::serial_write_str(s);
         Ok(())
     }
 }

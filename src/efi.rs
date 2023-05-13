@@ -13,6 +13,7 @@ pub unsafe fn register_efi_system_table(system_table: *mut EfiSystemTable) {
         .unwrap();
 }
 
+#[allow(dead_code)]
 pub fn output_text(text: &str) {
     let system_table = EFI_SYSTEM_TABLE.load(Ordering::SeqCst);
     if system_table.is_null() {

@@ -17,16 +17,18 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 extern "C" fn efi_main(image_handle: EfiHandle, system_table: *mut EfiSystemTable) {
+    serial::serial_init();
+
     // register efi system table
     unsafe {
         efi::register_efi_system_table(system_table);
     }
 
-    serial::serial_init();
-    serial::serial_write_str("Hello, Bubble from serial port!\n");
+    print!("Hello, world!\n");
 
     let memory = efi::get_memory_descriptor().unwrap();
     efi::exit_boot_servies(image_handle, memory.map_key);
+    print!("Exited boot services!\n");
     
     loop {}
 }

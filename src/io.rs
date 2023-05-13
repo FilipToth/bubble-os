@@ -20,6 +20,3 @@ pub fn inb(port: u16) -> u8 {
 
     ret
 }
-
-// http://www.randomhacks.net/2015/11/09/bare-metal-rust-cpu-port-io/
-// https://stackoverflow.com/questions/64815258/what-is-the-correct-rust-inline-assembly-format
