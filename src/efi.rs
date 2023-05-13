@@ -1,4 +1,3 @@
-use crate::print;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
 static EFI_SYSTEM_TABLE: AtomicPtr<EfiSystemTable> = AtomicPtr::new(core::ptr::null_mut());
@@ -188,7 +187,11 @@ pub fn exit_boot_servies(image_handle: EfiHandle, map_key: usize) {
     unsafe {
         let boot_services = (*(system_table)).boot_services;
         let ret = ((*boot_services).exit_boot_services)(image_handle, map_key);
-        assert!(ret.0 == 0, "Failed to exit boot services, with EFI status code: {:?}", ret);
+        assert!(
+            ret.0 == 0,
+            "Failed to exit boot services, with EFI status code: {:?}",
+            ret
+        );
     }
 }
 

@@ -3,7 +3,9 @@
 
 mod core_requirements;
 mod efi;
+mod io;
 mod print;
+mod serial;
 
 use core::panic::PanicInfo;
 use efi::{EfiHandle, EfiSystemTable};
@@ -20,8 +22,11 @@ extern "C" fn efi_main(image_handle: EfiHandle, system_table: *mut EfiSystemTabl
         efi::register_efi_system_table(system_table);
     }
 
-    print!("Hello, bubble!\n");
+    serial::serial_init();
+    serial::serial_write_str("Hello, Bubble from serial port!\n");
+
     let memory = efi::get_memory_descriptor().unwrap();
     efi::exit_boot_servies(image_handle, memory.map_key);
+    
     loop {}
 }
