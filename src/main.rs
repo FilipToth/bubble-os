@@ -10,6 +10,7 @@ mod io;
 mod print;
 mod serial;
 mod gdt;
+mod interrupts;
 
 use core::panic::PanicInfo;
 use efi::{EfiHandle, EfiSystemTable};
@@ -42,12 +43,21 @@ extern "C" fn efi_main(image_handle: EfiHandle, system_table: *mut EfiSystemTabl
     gdt::load_gdt();
     print!("GDT loaded...\n");
 
+    // interrupts & idt
+    unsafe {
+        interrupts::init_idt();
+    }
+
     // renenable interrups
     unsafe {
         asm!("sti");
     }
 
-    // interrupts
+    // test interrupt
+    unsafe {
+        asm!("int 0x30");
+    }
+
 
     // memory handling
 
