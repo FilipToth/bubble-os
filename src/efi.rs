@@ -193,6 +193,8 @@ pub fn exit_boot_servies(image_handle: EfiHandle, map_key: usize) {
             "Failed to exit boot services, with EFI status code: {:?}",
             ret
         );
+
+        EFI_SYSTEM_TABLE.store(core::ptr::null_mut(), Ordering::SeqCst);
     }
 }
 

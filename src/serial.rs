@@ -1,9 +1,11 @@
-use crate::{io::{inb, outb}, print};
+use crate::{
+    io::{inb, outb},
+    print,
+};
 
 static PORT: u16 = 0x3f8;
 
 pub fn serial_init() {
-
     unsafe {
         outb(PORT + 1, 0x00); // Disable all interrupts
         outb(PORT + 3, 0x80); // Enable DLAB (set baud rate divisor)
