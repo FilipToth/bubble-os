@@ -42,6 +42,7 @@ unsafe fn set_idt_descriptor(vector: u8, isr: *const (), flags: u8) {
     descriptor.reserved = 0;
 }
 
+#[cfg(all(feature = "instructions", feature = "abi_x86_interrupt"))]
 fn test_isr() {
     print!("moo! foobar");
 }

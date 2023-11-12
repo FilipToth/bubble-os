@@ -6,4 +6,10 @@ edition = "2021"
 [dependencies]
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 
+[features]
+default = ["nightly", "instructions"]
+instructions = []
+nightly = ["abi_x86_interrupt"]
+abi_x86_interrupt = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
