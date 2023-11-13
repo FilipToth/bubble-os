@@ -29,7 +29,7 @@ impl GDTSegmentDescriptor {
 }
 
 #[repr(C, align(0x1000))]
-struct GDT {
+pub struct GDT {
     null_descriptor: GDTSegmentDescriptor,
     kernel_mode_code_segment: GDTSegmentDescriptor,
     kernel_mode_data_segment: GDTSegmentDescriptor,
@@ -38,14 +38,14 @@ struct GDT {
     // task_state_segment: GDTSegmentDescriptor
 }
 
-#[repr(C, packed)]
+#[repr(C, packed(2))]
 struct GDTDescriptor {
     size: u16,
     offset: u64
 }
 
 lazy_static! {
-    static ref GLOB_DESC_TABLE: GDT = GDT {
+    pub static ref GLOB_DESC_TABLE: GDT = GDT {
         null_descriptor: GDTSegmentDescriptor::new(0, 0, 0, 0, 0, 0),
         kernel_mode_code_segment: GDTSegmentDescriptor::encode(0x00400000, 0x003FFFFF, 0x9A, 0xC),
         kernel_mode_data_segment: GDTSegmentDescriptor::encode(0x00800000, 0x003FFFFF, 0x92, 0xC),

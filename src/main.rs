@@ -55,7 +55,7 @@ extern "C" fn efi_main(image_handle: EfiHandle, system_table: *mut EfiSystemTabl
 
     // test interrupt
     unsafe {
-        asm!("int 0x30");
+        asm!("int $0x00");
     }
 
 
