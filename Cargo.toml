@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+x86_64 = "0.14.11"
 
 [features]
 default = ["nightly", "instructions"]
