@@ -18,8 +18,13 @@ def run_qemu():
         print('OVMF_PATH does not exist')
         return
     
-    os.system('cargo build')
+    os.system('cargo build --profile=dev')
     
+    print('Starting qemu on default gdp stub: localhost:1234 over HTTP')
+
+    # add -s \ flag to enable gdb stub on default port
+    # -d for log specifications, -D to add a log file, int for interrupts
+
     os.system(f"""
         qemu-system-x86_64 \
             -enable-kvm \
@@ -27,6 +32,10 @@ def run_qemu():
             -nographic \
             -bios {ovmf_path} \
             -device driver=e1000,netdev=n0 \
+            -d int \
+            -D qemu.log \
+            -no-reboot \
+            -no-shutdown \
             -netdev user,id=n0,tftp=target/x86_64-unknown-uefi/debug,bootfile=bubble-os.efi
     """)
 

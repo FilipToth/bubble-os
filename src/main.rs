@@ -1,25 +1,38 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 #[macro_use]
 extern crate lazy_static;
 
 mod core_requirements;
 mod efi;
+mod gdt;
+mod interrupts;
 mod io;
 mod print;
 mod serial;
-mod gdt;
-mod interrupts;
 
+use core::arch::asm;
 use core::panic::PanicInfo;
 use efi::{EfiHandle, EfiSystemTable};
-use core::arch::asm;
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
     print!("\n\nPanic!\n");
-    loop {}
+
+    let payload = info.payload().downcast_ref::<&str>();
+    if let Some(msg) = payload {
+        print!("Payload info: {}", msg);
+    } else {
+        print!("No additional panic payload\n");
+    }
+
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
 }
 
 #[no_mangle]
@@ -33,31 +46,26 @@ extern "C" fn efi_main(image_handle: EfiHandle, system_table: *mut EfiSystemTabl
 
     // enter long mode
 
-    // disable interrupts
     unsafe {
-        // asm: cli
+        // disable interrupts
         asm!("cli");
-    }
 
-    // gdt
-    gdt::load_gdt();
-    print!("GDT loaded...\n");
-
-    // interrupts & idt
-    unsafe {
-        interrupts::init_idt();
-    }
-
-    // renenable interrups
-    unsafe {
+        gdt::load_gdt();
         asm!("sti");
-    }
 
-    // test interrupt
-    unsafe {
-        asm!("int $0x00");
-    }
+        print!("GDT loaded...\n");
+        interrupts::init_interrupts();
 
+        // reenable interrupts
+        print!("Initialized idt, ret from func\n");
+
+        // for some reason we crash when we do sti...
+        asm!("sti");
+        print!("reenabled interrupts\n");
+
+        // call test interrupt
+        asm!("int 0x34");
+    }
 
     // memory handling
 

@@ -13,4 +13,7 @@ instructions = []
 nightly = ["abi_x86_interrupt"]
 abi_x86_interrupt = []
 
+[profile.dev]
+debug = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
