@@ -19,7 +19,7 @@ clean:
 	@rm -r build
 
 run: $(iso)
-	@qemu-system-x86_64 -nographic -cdrom $(iso)
+	@qemu-system-x86_64 -nographic -m 128M -cdrom $(iso)
 
 iso: $(iso)
 

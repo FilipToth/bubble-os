@@ -65,18 +65,26 @@ pub extern fn rust_main(boot_info_addr: usize) {
     print!("[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n", multiboot_start, multiboot_end);
 
     // memory
-    let memory_end = map_tag.memory_areas()
-                            .last()
-                            .unwrap()
-                            .end_address();
-    
-    let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
-    for _ in 0..10 {
-        let _ = allocator.falloc();
-    }
 
-    let frame = allocator.falloc().unwrap();
-    print!("[ OK ] Allocated page frame at 0x{:x}\n", frame.get_address() as u64);
+    // for some reason when getting the last memory area,
+    // it's always padded to 4GB, the second last area
+    // actually corresponds to the memory available
+    let mem_areas = map_tag.memory_areas();
+    let memory_end = mem_areas[mem_areas.len() - 2].end_address();
+    
+    print!("[ OK ] Memory end: 0x{:x}\n", memory_end);
+
+    let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
+    for i in 0.. {
+        let alloc_res = allocator.falloc();
+        match alloc_res {
+            Some(_) => continue,
+            None => {
+                print!("[ OK ] Allocated {} page frames to fill memory map", i + 1);
+                break;
+            }
+        }
+    }
 
     loop {};
 }
