@@ -5,10 +5,12 @@ extern crate rlibc;
 extern crate multiboot2;
 
 mod io;
+mod mem;
 
 use core::{panic::PanicInfo};
 
 use crate::io::print;
+use crate::mem::{SimplePageFrameAllocator, PageFrameAllocator};
 
 #[no_mangle]
 pub extern fn rust_main(boot_info_addr: usize) {
@@ -60,7 +62,21 @@ pub extern fn rust_main(boot_info_addr: usize) {
     let multiboot_end = (boot_info_addr + boot_info.total_size()) as u64;
 
     print!("[ OK ] Identified kernel at start: 0x{:x} end: 0x{:x}\n", kernel_start, kernel_end);
-    print!("[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}", multiboot_start, multiboot_end);
+    print!("[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n", multiboot_start, multiboot_end);
+
+    // memory
+    let memory_end = map_tag.memory_areas()
+                            .last()
+                            .unwrap()
+                            .end_address();
+    
+    let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
+    for _ in 0..10 {
+        let _ = allocator.falloc();
+    }
+
+    let frame = allocator.falloc().unwrap();
+    print!("[ OK ] Allocated page frame at 0x{:x}\n", frame.get_address() as u64);
 
     loop {};
 }
