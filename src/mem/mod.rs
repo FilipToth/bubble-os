@@ -1,8 +1,12 @@
+mod paging;
 mod simple_page_frame_allocator;
 
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
 
-pub static FRAME_SIZE: usize = 4096;
+pub type VirtualAddress = usize;
+pub type PhysicalAddress = usize;
+
+pub static PAGE_SIZE: usize = 4096;
 
 #[derive(Debug)]
 pub struct PageFrame {
@@ -11,12 +15,12 @@ pub struct PageFrame {
 
 impl PageFrame {
     fn from_address(addr: usize) -> PageFrame {
-        let number = addr / FRAME_SIZE;
+        let number = addr / PAGE_SIZE;
         PageFrame { frame_number: number }
     }
 
-    pub fn get_address(&self) -> usize {
-        self.frame_number * FRAME_SIZE
+    pub fn start_address(&self) -> PhysicalAddress {
+        self.frame_number * PAGE_SIZE
     }
 
     fn clone(&self) -> PageFrame {

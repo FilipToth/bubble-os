@@ -1,8 +1,12 @@
 #![no_std]
 #![feature(lang_items)]
+#![feature(ptr_internals)]
 
 extern crate rlibc;
 extern crate multiboot2;
+
+#[macro_use]
+extern crate bitflags;
 
 mod io;
 mod mem;

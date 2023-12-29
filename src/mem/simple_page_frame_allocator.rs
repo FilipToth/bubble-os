@@ -1,4 +1,4 @@
-use super::{PageFrame, PageFrameAllocator, FRAME_SIZE};
+use super::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 
 pub struct SimplePageFrameAllocator {
     frame_head: PageFrame,
@@ -21,14 +21,14 @@ impl SimplePageFrameAllocator {
 
 impl PageFrameAllocator for SimplePageFrameAllocator {
     fn falloc(&mut self) -> Option<PageFrame> {
-        let end_addr = self.mem_end.get_address();
-        let head_addr = self.frame_head.get_address();
+        let end_addr = self.mem_end.start_address();
+        let head_addr = self.frame_head.start_address();
 
-        if end_addr - (head_addr + FRAME_SIZE) < 4096 {
+        if end_addr - (head_addr + PAGE_SIZE) < 4096 {
             return None;
         }
 
-        let next_frame = PageFrame::from_address(head_addr + FRAME_SIZE);
+        let next_frame = PageFrame::from_address(head_addr + PAGE_SIZE);
         self.frame_head = next_frame.clone();
         Some(next_frame)
     }
