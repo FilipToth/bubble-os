@@ -97,7 +97,7 @@ pub extern fn rust_main(boot_info_addr: usize) {
 
 #[no_mangle]
 pub extern fn rust_main_test(boot_info_addr: usize) {
-    test::run_tests();
+    test::run_tests(boot_info_addr);
     loop {};
 }
 
