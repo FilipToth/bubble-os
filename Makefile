@@ -16,9 +16,11 @@ all: $(kernel)
 
 clean:
 	cargo clean
-	@rm -r build
+	rm -r build
 
-run: $(iso)
+run: kernel_start iso run_without_building
+
+run_without_building:
 	@qemu-system-x86_64 -nographic -m 128M -cdrom $(iso)
 
 iso: $(iso)
@@ -28,14 +30,27 @@ $(iso): $(kernel) $(grub_cfg)
 	cp $(kernel) build/isofiles/boot/kernel.bin
 	cp $(grub_cfg) build/isofiles/boot/grub
 	grub2-mkrescue -o $(iso) build/isofiles 2> /dev/null
-	rm -r build/isofiles
+# rm -r build/isofiles
 
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
-	ld -n --gc-sections -T $(linker_script) -o $(kernel) $(assembly_object_files) $(rust_os)
+	ld -n --gc-sections -T $(linker_script) -o $(kernel) build/arch/$(arch)/kernel_start.o $(assembly_object_files) $(rust_os)
 kernel:
 	RUST_TARGET_PATH=$$(pwd) xargo build --target $(target)
+
+test: kernel_start_test $(iso) run_without_building
+
+kernel_start:
+	mkdir -p build/arch/$(arch)/
+	echo "building: kernel_start"
+	nasm -felf64 src/arch/$(arch)/kernel_start.asm -o build/arch/$(arch)/kernel_start.o
+
+kernel_start_test:
+	mkdir -p build/arch/$(arch)/
+	echo "building: kernel_start_test"
+	nasm -felf64 src/arch/$(arch)/kernel_start_test.asm -o build/arch/$(arch)/kernel_start.o
 
 # compile assembly files
 build/arch/$(arch)/%.o: src/arch/$(arch)/%.s
 	mkdir -p $(shell dirname $@)
+	echo $<
 	nasm -felf64 $< -o $@

@@ -33,7 +33,7 @@ impl PageFrameAllocator for SimplePageFrameAllocator {
         Some(next_frame)
     }
 
-    fn free(&mut self) {
+    fn free(&mut self, _frame: PageFrame) {
         todo!()
     }
 }

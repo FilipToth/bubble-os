@@ -95,6 +95,25 @@ impl ActivePageTable {
         self.map_to(page, frame, flags, allocator);
     }
 
+    pub fn unmap<A>(&mut self, page: Page, allocator: &mut A)
+        where A: PageFrameAllocator
+    {
+        assert!(self.translate_to_phys(page.start_address()).is_some());
+
+        let p1 = self.get_p4_mut()
+                     .next_table_mut(page.p4_index())
+                     .and_then(|p3| p3.next_table_mut(page.p3_index()))
+                     .and_then(|p2| p2.next_table_mut(page.p2_index()))
+                     .expect("Mapping code doesn't support huge pages");
+
+        p1[page.p1_index()].set_to_unused();
+
+        // We could also free the tables once all pages are empty...
+
+        let frame = p1[page.p1_index()].get_frame().unwrap();
+        allocator.free(frame);
+    }
+
     pub fn translate_to_phys(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
         let offset = addr % PAGE_SIZE;
         self.translate_page(Page::for_address(addr))

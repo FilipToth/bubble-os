@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(lang_items)]
 #![feature(ptr_internals)]
+#![feature(custom_test_frameworks)]
 
 extern crate rlibc;
 extern crate multiboot2;
@@ -10,6 +11,7 @@ extern crate bitflags;
 
 mod io;
 mod mem;
+mod test;
 
 use core::{panic::PanicInfo};
 
@@ -90,6 +92,12 @@ pub extern fn rust_main(boot_info_addr: usize) {
         }
     }
 
+    loop {};
+}
+
+#[no_mangle]
+pub extern fn rust_main_test(boot_info_addr: usize) {
+    test::run_tests();
     loop {};
 }
 

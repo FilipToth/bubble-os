@@ -1,0 +1,3 @@
+// after we remap the kernel and create a heap, we will have to use
+// the simple page frame allocator... After all of that is done,
+// I'll create an allocator basec on linked lists...

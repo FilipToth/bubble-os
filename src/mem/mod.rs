@@ -1,4 +1,5 @@
 mod paging;
+mod linked_list_allocator;
 mod simple_page_frame_allocator;
 
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
@@ -30,5 +31,5 @@ impl PageFrame {
 
 pub trait PageFrameAllocator {
     fn falloc(&mut self) -> Option<PageFrame>;
-    fn free(&mut self);
+    fn free(&mut self, frame: PageFrame);
 }
