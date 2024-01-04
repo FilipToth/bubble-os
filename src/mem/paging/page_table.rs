@@ -4,6 +4,7 @@ use core::ops::{Index, IndexMut};
 use crate::mem::paging::entry::*;
 use crate::mem::PageFrameAllocator;
 use crate::mem::paging::TABLE_ENTRY_COUNT;
+use crate::print;
 
 pub const P4: *mut PageTable<PageLevel4> = 0xFFFFFFFF_FFFFF000 as *mut _;
 
@@ -58,7 +59,7 @@ impl<L> PageTable<L> where L: HierarchicalPageLevel {
 
     pub fn next_table_create<A>(&mut self, index: usize, allocator: &mut A) -> &mut PageTable<L::NextLevel>
         where A: PageFrameAllocator
-    {
+    {       
         if self.next_table(index).is_none() {
             assert!(!self.entries[index].flags().contains(EntryFlags::HUGE_PAGE), "Mapping code doesn't support huge pages");
 

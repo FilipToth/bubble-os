@@ -1,9 +1,13 @@
 use core::ptr::Unique;
 
+use x86_64::VirtAddr;
+use x86_64::instructions::tlb;
+
 use crate::mem::PageFrameAllocator;
 use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::{PhysicalAddress, VirtualAddress};
+use crate::print;
 
 pub mod entry;
 pub mod page_table;
@@ -71,13 +75,13 @@ impl ActivePageTable {
         where A: PageFrameAllocator
     {
         let p4 = self.get_p4_mut();
-        let mut p3 = p4.next_table_create(page.p4_index(), allocator);
-        let mut p2 = p3.next_table_create(page.p3_index(), allocator);
-        let mut p1 = p2.next_table_create(page.p2_index(), allocator);
-
-        assert!(p1[page.p1_index()].is_unused());
+        let p3 = p4.next_table_create(page.p4_index(), allocator);
+        let p2 = p3.next_table_create(page.p3_index(), allocator);
+        let p1 = p2.next_table_create(page.p2_index(), allocator);
 
         let entry = &mut p1[page.p1_index()];
+        assert!(entry.is_unused());
+
         entry.set(frame, flags | EntryFlags::PRESENT);
     }
 
@@ -106,12 +110,23 @@ impl ActivePageTable {
                      .and_then(|p2| p2.next_table_mut(page.p2_index()))
                      .expect("Mapping code doesn't support huge pages");
 
-        p1[page.p1_index()].set_to_unused();
+        // we also need to flush the TLB cache
+        // manually, if we don't do this, reading
+        // out of pages would still be possible
+        // after unmapping due to them still
+        // being in the TLB cache.
 
+        let entry = &mut p1[page.p1_index()];
+        let virt_addr = VirtAddr::new(page.start_address() as u64);
+
+        entry.set_to_unused();
+        tlb::flush(virt_addr)
+        
         // We could also free the tables once all pages are empty...
+        // TODO: Implement allocator.free   
 
-        let frame = p1[page.p1_index()].get_frame().unwrap();
-        allocator.free(frame);
+        // let frame = entry.get_frame().unwrap();
+        // allocator.free(frame);
     }
 
     pub fn translate_to_phys(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {

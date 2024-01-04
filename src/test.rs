@@ -1,6 +1,8 @@
 use multiboot2::BootInformation;
 
-use crate::{print, mem::{SimplePageFrameAllocator, PageFrameAllocator}};
+use crate::print;
+use crate::mem::{SimplePageFrameAllocator, PageFrameAllocator};
+use crate::mem::paging::{ActivePageTable, Page, entry::EntryFlags};
 
 pub struct TestUnit<'a> {
     function: &'a dyn Fn() -> bool,
@@ -54,9 +56,11 @@ pub fn run_tests(boot_info_addr: usize) {
     TestUnit::new(&test_boot_info, "Test Boot Info");
     TestUnit::new(&test_memory_map, "Test Memory Map");
     TestUnit::new(&test_page_frame_allocator, "Test Page Frame Allocator");
+    TestUnit::new(&test_paging, "Test Paging");
+    TestUnit::new(&test_frame_allocator_fill_memory, "Test Page Frame Allocator Fill Memory");
 }
 
-pub fn test_boot_info() -> bool {
+fn test_boot_info() -> bool {
     unsafe {
         assert_true!(BOOT_INFO_ADDR.is_some());
         let boot_info_addr = BOOT_INFO_ADDR.unwrap();
@@ -72,7 +76,7 @@ pub fn test_boot_info() -> bool {
     return true;
 }
 
-pub fn test_memory_map() -> bool {
+fn test_memory_map() -> bool {
     unsafe {
         assert_true!(BOOT_INFO.is_some());
         let boot_info = BOOT_INFO.as_ref().unwrap();
@@ -104,7 +108,7 @@ pub fn test_memory_map() -> bool {
     return true;
 }
 
-pub fn test_page_frame_allocator() -> bool {
+fn test_page_frame_allocator() -> bool {
     unsafe {
         assert_true!(MULTIBOOT_MEM_END.is_some());
         let mem_start = MULTIBOOT_MEM_END.as_ref().unwrap();
@@ -114,6 +118,61 @@ pub fn test_page_frame_allocator() -> bool {
 
         let mut allocator = SimplePageFrameAllocator::new(mem_start.clone(), mem_end.clone());
 
+        let frame_res = allocator.falloc();
+        assert_true!(frame_res.is_some());
+
+        PAGE_FRAME_ALLOCATOR = Some(allocator);
+    }
+
+    return true;
+}
+
+fn test_paging() -> bool {
+    unsafe {
+        // test map
+        assert_true!(PAGE_FRAME_ALLOCATOR.is_some());
+        let allocator = PAGE_FRAME_ALLOCATOR.as_mut().unwrap();
+
+        let mut page_table = ActivePageTable::new();
+
+        let addr = 42 * 512 * 512 * 4096;
+        let page = Page::for_address(addr);
+        let frame = allocator.falloc();
+
+        let unmapped_addr = page_table.translate_to_phys(addr);
+        assert_true!(unmapped_addr.is_none());
+
+        page_table.map(page, EntryFlags::empty(), allocator);
+        let mapped_addr = page_table.translate_to_phys(addr);
+        assert_true!(mapped_addr.is_some());
+
+        let next_frame = allocator.falloc();
+        assert_true!(next_frame.is_some());
+        
+        let last_num = frame.unwrap().frame_number;
+        let next_num = next_frame.unwrap().frame_number;
+        let num_diff = next_num - last_num;
+
+        assert_true!(num_diff == 4);
+
+        let unmap_page = Page::for_address(addr);
+        page_table.unmap(unmap_page, allocator);
+
+        let unmapped_addr = page_table.translate_to_phys(addr);
+        assert_true!(unmapped_addr.is_none());
+    }
+
+    return true;
+}
+
+fn test_frame_allocator_fill_memory() -> bool {
+    unsafe {
+        assert_true!(PAGE_FRAME_ALLOCATOR.is_some());
+        let allocator = PAGE_FRAME_ALLOCATOR.as_mut().unwrap();
+
+        assert_true!(MEM_END.is_some());
+        let mem_end = MEM_END.as_ref().unwrap();
+        
         let mut last_page_num = 0;
         for i in 0.. {
             let alloc_res = allocator.falloc();
@@ -134,11 +193,6 @@ pub fn test_page_frame_allocator() -> bool {
                 None => break
             }
         }
-
-        let next_falloc = allocator.falloc();
-        assert_true!(next_falloc.is_none());
-
-        PAGE_FRAME_ALLOCATOR = Some(allocator);
     }
 
     return true;

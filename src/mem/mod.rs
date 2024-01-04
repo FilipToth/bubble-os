@@ -1,4 +1,4 @@
-mod paging;
+pub mod paging;
 mod linked_list_allocator;
 mod simple_page_frame_allocator;
 

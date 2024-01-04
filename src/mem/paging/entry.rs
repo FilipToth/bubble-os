@@ -1,4 +1,4 @@
-use crate::mem::PageFrame;
+use crate::{mem::PageFrame, print};
 
 bitflags! {
     pub struct EntryFlags: u64 {
@@ -33,7 +33,8 @@ impl PageTableEntry {
     }
 
     pub fn get_frame(&self) -> Option<PageFrame> {
-        if self.flags().contains(EntryFlags::PRESENT) {
+        
+        if self.flags().contains(EntryFlags::PRESENT) {            
             Some(PageFrame::from_address(
                 (self.entry as usize) & 0x000FFFFF_FFFFF000
             ))
@@ -44,7 +45,8 @@ impl PageTableEntry {
 
     pub fn set(&mut self, frame: PageFrame, flags: EntryFlags) {
         // make sure we have a valid address, if not, this is an os bug
-        assert!(frame.start_address() & 0x000FFFFF_FFFFF000 == 0);
-        self.entry = (frame.start_address() as u64) | flags.bits();
+        let addr = frame.start_address();
+        assert!(addr & !0x000FFFFF_FFFFF000 == 0);
+        self.entry = (addr as u64) | flags.bits();
     }
 }
