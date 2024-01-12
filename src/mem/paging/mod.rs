@@ -2,14 +2,15 @@ use core::ptr::Unique;
 
 use x86_64::VirtAddr;
 use x86_64::instructions::tlb;
+use x86_64::structures::paging::FrameAllocator;
 
 use crate::mem::PageFrameAllocator;
 use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::{PhysicalAddress, VirtualAddress};
-use crate::print;
 
 pub mod entry;
+pub mod temp_page;
 pub mod page_table;
 
 use self::page_table::{P4, PageLevel4};
@@ -17,11 +18,19 @@ use self::page_table::PageTable;
 
 const TABLE_ENTRY_COUNT: usize = 512;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Page {
     page_number: usize
 }
 
 impl Page {
+    /// Creates a new unmapped page to for corresponding
+    /// virtual address.
+    /// 
+    /// # Arguments
+    /// 
+    /// - `addr` the virtual address for the page to be
+    /// mapped on to
     pub fn for_address(addr: VirtualAddress) -> Page {
         assert!(addr < 0x0000_8000_0000_0000 || addr >= 0xFFFF_8000_0000_0000);
         Page { page_number: addr / PAGE_SIZE }
@@ -48,6 +57,7 @@ impl Page {
     }
 }
 
+/// A page table that is currently loaded in the CPU
 pub struct ActivePageTable {
     p4: Unique<PageTable<PageLevel4>>
 }
@@ -71,6 +81,16 @@ impl ActivePageTable {
         }
     }
 
+    /// Maps the specified page to the specified page frame
+    /// using the provided flags.
+    /// 
+    /// # Arguments
+    /// 
+    /// - `page` the page to be mapped
+    /// - `frame` the page frame for the page to be mapped on to
+    /// - `flags` the page table entry flags to be used
+    /// - `allocator` needs a page frame allocator to create
+    /// page tables
     pub fn map_to<A>(&mut self, page: Page, frame: PageFrame, flags: EntryFlags, allocator: &mut A)
         where A: PageFrameAllocator
     {
@@ -85,6 +105,14 @@ impl ActivePageTable {
         entry.set(frame, flags | EntryFlags::PRESENT);
     }
 
+    /// Maps the page to an unused page frame
+    /// 
+    /// # Arguments
+    /// 
+    /// - `page` the page to be mapped
+    /// - `flags` the page frame for the page to be mapped on to
+    /// - `allocator` needs a page frame allocator to create
+    /// page tables
     pub fn map<A>(&mut self, page: Page, flags: EntryFlags, allocator: &mut A)
         where A: PageFrameAllocator
     {
@@ -92,13 +120,29 @@ impl ActivePageTable {
         self.map_to(page, frame, flags, allocator);
     }
 
+    /// Maps a page to its exact corresponding page frame
+    /// 
+    /// # Arguments
+    /// 
+    /// - `frame` the page frame for the page to be mapped on to
+    /// - `flags` the page table entry flags to be used
+    /// - `allocator` needs a page frame allocator to create
+    /// page tables 
     pub fn map_identity<A>(&mut self, frame: PageFrame, flags: EntryFlags, allocator: &mut A)
         where A: PageFrameAllocator
     {
         let page = Page::for_address(frame.start_address());
         self.map_to(page, frame, flags, allocator);
     }
-
+    
+    /// Removes the page mapping, frees all frames contained
+    /// in the page
+    /// 
+    /// # Arguments
+    /// 
+    /// - `page` the page to be unmapped
+    /// - `allocator` the page frame allocator to perform
+    /// the freeing of the page frames
     pub fn unmap<A>(&mut self, page: Page, allocator: &mut A)
         where A: PageFrameAllocator
     {
@@ -129,6 +173,12 @@ impl ActivePageTable {
         // allocator.free(frame);
     }
 
+    /// Translates a virtual address to a physical one.
+    /// 
+    /// # Arguments
+    /// 
+    /// - `addr` the virtual address to be mapped
+    ///
     pub fn translate_to_phys(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
         let offset = addr % PAGE_SIZE;
         self.translate_page(Page::for_address(addr))
@@ -186,5 +236,26 @@ impl ActivePageTable {
           .and_then(|p1| p1[page.p1_index()].get_frame())
           .or_else(huge_page)
     }
-    
+}
+
+/// A page table which isn't loaded in the CPU.
+pub struct InactivePageTable {
+    p4_frame: PageFrame
+}
+
+impl InactivePageTable {
+    /// Instantiates an inactive page table
+    /// for a frame to be used for the p4.
+    /// 
+    /// # Arguments
+    /// 
+    /// - `frame` the frame to be used for the p4
+    pub fn new(frame: PageFrame) -> InactivePageTable {
+        // we need to zero the frame, but the frame
+        // isn't yet mapped to a virtual address,
+        // therefore we need to create a temporary
+        // mapping.
+
+        InactivePageTable { p4_frame: frame }
+    }
 }
