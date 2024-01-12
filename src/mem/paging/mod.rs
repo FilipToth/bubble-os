@@ -2,7 +2,6 @@ use core::ptr::Unique;
 
 use x86_64::VirtAddr;
 use x86_64::instructions::tlb;
-use x86_64::structures::paging::FrameAllocator;
 
 use crate::mem::PageFrameAllocator;
 use crate::mem::{PAGE_SIZE, PageFrame};
@@ -15,6 +14,7 @@ pub mod page_table;
 
 use self::page_table::{P4, PageLevel4};
 use self::page_table::PageTable;
+use self::temp_page::TempPage;
 
 const TABLE_ENTRY_COUNT: usize = 512;
 
@@ -250,12 +250,22 @@ impl InactivePageTable {
     /// # Arguments
     /// 
     /// - `frame` the frame to be used for the p4
-    pub fn new(frame: PageFrame) -> InactivePageTable {
-        // we need to zero the frame, but the frame
+    pub fn new(frame: PageFrame, active_table: &mut ActivePageTable, temp_page: &mut TempPage) -> InactivePageTable {
+        // we need to null the frame, but the frame
         // isn't yet mapped to a virtual address,
         // therefore we need to create a temporary
         // mapping.
+        
+        {
+            let table = temp_page.map_table_frame(frame.clone(), active_table);
 
+            table.null_all_entries();
+            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
+
+            // drop the table
+        }
+
+        temp_page.unmap(active_table);
         InactivePageTable { p4_frame: frame }
     }
 }
