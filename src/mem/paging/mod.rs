@@ -24,7 +24,7 @@ pub struct Page {
 }
 
 impl Page {
-    /// Creates a new unmapped page to for corresponding
+    /// Instantiates a new unmapped page to for corresponding
     /// virtual address.
     /// 
     /// # Arguments
