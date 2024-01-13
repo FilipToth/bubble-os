@@ -46,7 +46,7 @@ impl TempPage {
     /// The start virtual address of the temporary
     /// page
     pub fn map(&mut self, frame: PageFrame, active_table: &mut ActivePageTable) -> VirtualAddress {
-        let already_mapped = active_table.translate_page(self.page).is_none();
+        let already_mapped = active_table.translate_to_phys(self.page.start_address()).is_none();
         assert!(already_mapped, "Temp page is already mapped");
 
         active_table.map_to(self.page, frame, EntryFlags::WRITABLE, &mut self.allocator);
