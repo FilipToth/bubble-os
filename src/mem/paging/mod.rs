@@ -1,11 +1,13 @@
 use core::ops::{Deref, DerefMut};
 
+use multiboot2::BootInformation;
 use x86_64::instructions::tlb;
 use x86_64::registers::control;
 
 use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::VirtualAddress;
+use crate::print;
 
 pub mod entry;
 pub mod temp_page;
@@ -14,6 +16,8 @@ pub mod page_mapper;
 
 use self::page_mapper::Mapper;
 use self::temp_page::TempPage;
+
+use super::PageFrameAllocator;
 
 const TABLE_ENTRY_COUNT: usize = 512;
 
@@ -153,4 +157,43 @@ impl InactivePageTable {
         temp_page.unmap(active_table);
         InactivePageTable { p4_frame: frame }
     }
+}
+
+pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
+    where A: PageFrameAllocator
+{
+    let mut temp_page = TempPage::new(Page { page_number: 0xA0000ABC }, allocator);
+
+    let active_table = unsafe {
+        ActivePageTable::new()
+    };
+
+    let inactive_table = {
+        let frame = allocator.falloc().expect("Cannot allocate more frames");
+        InactivePageTable::new(frame, &mut active_table, &mut temp_page)
+    };
+
+    active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
+        let elf_sections = boot_info.elf_sections().unwrap();
+        for section in elf_sections {
+            if !section.is_allocated() {
+                // not loaded in memory :(
+                continue;
+            }
+
+            // check page alignment
+            let aligned = (section.start_address() as usize) % PAGE_SIZE == 0;
+            assert!(aligned, "ELF Sections need to be aligned to the page size");
+
+            print!("Creating elf mapping: 0x{:#x}, size: 0x{:#x}", section.start_address(), section.size());
+
+            let flags = EntryFlags::WRITABLE; // ::PRESENT will be set automaitcally
+            let start_frame = PageFrame::from_address(section.start_address() as usize);
+            let end_frame = PageFrame::from_address(section.end_address() as usize);
+
+            for frame in PageFrame::range(start_frame, end_frame) {
+                mapper.map_identity(frame, flags, allocator);
+            }
+        }
+    });
 }

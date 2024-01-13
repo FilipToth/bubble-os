@@ -9,7 +9,7 @@ pub type PhysicalAddress = usize;
 
 pub static PAGE_SIZE: usize = 4096;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PageFrame {
     pub frame_number: usize
 }
@@ -26,6 +26,29 @@ impl PageFrame {
 
     fn clone(&self) -> PageFrame {
         PageFrame { frame_number: self.frame_number }
+    }
+
+    fn range(start: PageFrame, end: PageFrame) -> PageFrameIter {
+        PageFrameIter { start: start, end: end }
+    }
+}
+
+struct PageFrameIter {
+    start: PageFrame,
+    end: PageFrame
+}
+
+impl Iterator for PageFrameIter {
+    type Item = PageFrame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start > self.end {
+            return None;
+        }
+        
+        let current = self.start.clone();
+        current.frame_number += 1;
+        Some(current)
     }
 }
 
