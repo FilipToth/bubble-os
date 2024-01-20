@@ -45,7 +45,7 @@ impl Iterator for PageFrameIter {
         if self.start > self.end {
             return None;
         }
-        
+
         let mut current = self.start.clone();
         current.frame_number += 1;
         Some(current)

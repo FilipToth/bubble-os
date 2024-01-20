@@ -7,6 +7,7 @@ use x86_64::registers::control;
 use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::VirtualAddress;
+use crate::print;
 
 pub mod entry;
 pub mod temp_page;
@@ -28,9 +29,9 @@ pub struct Page {
 impl Page {
     /// Instantiates a new unmapped page to for corresponding
     /// virtual address.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// - `addr` the virtual address for the page to be
     /// mapped on to
     pub fn for_address(addr: VirtualAddress) -> Page {
@@ -68,13 +69,13 @@ impl ActivePageTable {
     unsafe fn new() -> ActivePageTable {
         ActivePageTable { mapper: Mapper::new() }
     }
-    
+
     /// Calls the provided closure on the
     /// Inactive page table. Loads the table
     /// into the recursive map.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// - `temp_page` requires a temporary
     /// page to store a backup to the old
     /// mappings in order to restore them
@@ -89,7 +90,7 @@ impl ActivePageTable {
             let active_table_addr = control::Cr3::read().0
                                                 .start_address()
                                                 .as_u64() as usize;
-            
+
             // need this to restore active table
             // after calling the supplied closure
             let p4_backup = PageFrame::from_address(active_table_addr);
@@ -107,17 +108,17 @@ impl ActivePageTable {
 
             // inner scope drops the temp page
         }
-        
+
         temp_page.unmap(self);
     }
 }
 
 impl Deref for ActivePageTable {
     type Target = Mapper;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.mapper
-    }   
+    }
 }
 
 impl DerefMut for ActivePageTable {
@@ -134,16 +135,16 @@ pub struct InactivePageTable {
 impl InactivePageTable {
     /// Instantiates an inactive page table
     /// for a frame to be used for the p4.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// - `frame` the frame to be used for the p4
     pub fn new(frame: PageFrame, active_table: &mut ActivePageTable, temp_page: &mut TempPage) -> InactivePageTable {
         // we need to null the frame, but the frame
         // isn't yet mapped to a virtual address,
         // therefore we need to create a temporary
         // mapping.
-        
+
         {
             let table = temp_page.map_table_frame(frame.clone(), active_table);
 
@@ -173,7 +174,7 @@ pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
         InactivePageTable::new(frame, &mut active_table, &mut temp_page)
     };
 
-    /* active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
+    active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
         let elf_sections = boot_info.elf_sections().unwrap();
         for section in elf_sections {
             if !section.is_allocated() {
@@ -195,5 +196,5 @@ pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
                 mapper.map_identity(frame, flags, allocator);
             }
         }
-    }); */
+    });
 }

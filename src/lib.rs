@@ -34,36 +34,14 @@ pub extern fn rust_main(boot_info_addr: usize) {
     };
 
     let map_tag = boot_info.memory_map_tag().unwrap();
-    for mem_area in map_tag.memory_areas() {
-        print!("    Memory Area: start: 0x{:x}, len: 0x{:x}\n", mem_area.start_address(), mem_area.size());
-    }
-
     print!("\n[ OK ] Kernel Init Done, Entering Rust 64-Bit Mode\n");
 
-    let mut kernel_start = 0;
-    let mut kernel_end = 0;
-
-    let mut count = 0;
     let elf_sections = boot_info.elf_sections().unwrap();
-    for section in elf_sections {
-        let addr = section.start_address();
-        let length = section.size();
-        let flags = section.flags().bits();
+    let kernel_start = elf_sections.clone().map(|s| s.start_address()).min().unwrap();
+    let kernel_end = elf_sections.map(|s| s.start_address() + s.size()).max().unwrap();
 
-        if addr < kernel_start {
-            kernel_start = addr;
-        } else if addr > kernel_end {
-            kernel_end = addr;
-        }
-
-        print!("    ELF Section at 0x{:x}, with length 0x{:x} and flags 0x{:x}\n", addr, length, flags);
-        count += 1;
-    }
-
-    print!("\n[ OK ] ELF Section Count: {:}\n", count);
-
-    let multiboot_start = boot_info_addr as u64;
-    let multiboot_end = (boot_info_addr + boot_info.total_size()) as u64;
+    let multiboot_start = boot_info_addr;
+    let multiboot_end = multiboot_start + (boot_info.total_size() as usize);
 
     print!("[ OK ] Identified kernel at start: 0x{:x} end: 0x{:x}\n", kernel_start, kernel_end);
     print!("[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n", multiboot_start, multiboot_end);
@@ -76,17 +54,16 @@ pub extern fn rust_main(boot_info_addr: usize) {
 
     let mem_areas = map_tag.memory_areas();
     let memory_end = mem_areas[mem_areas.len() - 2].end_address();
-    
+
     print!("[ OK ] Memory end: 0x{:x}\n", memory_end);
 
     let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
-    
+
     // for some reason I have to allocate
     // and empty page here or else it
     // panics and faults
-    
-    let _ = allocator.falloc().unwrap();
 
+    let _ = allocator.falloc().unwrap();
     remap_kernel(&mut allocator, &boot_info);
 
     print!("[ OK ] RAN KERNEL REMAP\n");
@@ -110,6 +87,6 @@ fn panic(info: &PanicInfo) -> ! {
     let file = location.file();
     let line = location.line() + 1;
 
-    print!("PANIC on line {:?} in {:?}", line, file);
+    print!("PANIC on line {:?} in {:?}\n\n\n", line, file);
     loop {}
 }
