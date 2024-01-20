@@ -16,6 +16,7 @@ mod test;
 use core::{panic::PanicInfo};
 
 use crate::io::print;
+use crate::mem::paging::remap_kernel;
 use crate::mem::{SimplePageFrameAllocator, PageFrameAllocator};
 
 #[no_mangle]
@@ -39,6 +40,9 @@ pub extern fn rust_main(boot_info_addr: usize) {
 
     print!("\n[ OK ] Kernel Init Done, Entering Rust 64-Bit Mode\n");
 
+    let mut kernel_start = 0;
+    let mut kernel_end = 0;
+
     let mut count = 0;
     let elf_sections = boot_info.elf_sections().unwrap();
     for section in elf_sections {
@@ -46,23 +50,17 @@ pub extern fn rust_main(boot_info_addr: usize) {
         let length = section.size();
         let flags = section.flags().bits();
 
+        if addr < kernel_start {
+            kernel_start = addr;
+        } else if addr > kernel_end {
+            kernel_end = addr;
+        }
+
         print!("    ELF Section at 0x{:x}, with length 0x{:x} and flags 0x{:x}\n", addr, length, flags);
         count += 1;
     }
 
     print!("\n[ OK ] ELF Section Count: {:}\n", count);
-
-    let kernel_start = boot_info.elf_sections()
-                                .unwrap()
-                                .map(|s| s.start_address())
-                                .min()
-                                .unwrap();
-    
-    let kernel_end = boot_info.elf_sections()
-                              .unwrap()
-                              .map(|s| s.start_address() + s.size())
-                              .max()
-                              .unwrap();
 
     let multiboot_start = boot_info_addr as u64;
     let multiboot_end = (boot_info_addr + boot_info.total_size()) as u64;
@@ -75,22 +73,23 @@ pub extern fn rust_main(boot_info_addr: usize) {
     // for some reason when getting the last memory area,
     // it's always padded to 4GB, the second last area
     // actually corresponds to the memory available
+
     let mem_areas = map_tag.memory_areas();
     let memory_end = mem_areas[mem_areas.len() - 2].end_address();
     
     print!("[ OK ] Memory end: 0x{:x}\n", memory_end);
 
     let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
-    for i in 0.. {
-        let alloc_res = allocator.falloc();
-        match alloc_res {
-            Some(_) => continue,
-            None => {
-                print!("[ OK ] Allocated {} page frames to fill memory map", i + 1);
-                break;
-            }
-        }
-    }
+    
+    // for some reason I have to allocate
+    // and empty page here or else it
+    // panics and faults
+    
+    let _ = allocator.falloc().unwrap();
+
+    remap_kernel(&mut allocator, &boot_info);
+
+    print!("[ OK ] RAN KERNEL REMAP\n");
 
     loop {};
 }

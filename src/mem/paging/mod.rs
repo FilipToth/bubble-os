@@ -7,7 +7,6 @@ use x86_64::registers::control;
 use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::VirtualAddress;
-use crate::print;
 
 pub mod entry;
 pub mod temp_page;
@@ -162,18 +161,19 @@ impl InactivePageTable {
 pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
     where A: PageFrameAllocator
 {
-    let mut temp_page = TempPage::new(Page { page_number: 0xA0000ABC }, allocator);
+    let temporary_page_comp = Page { page_number: 0xFABCDABC };
+    let mut temp_page = TempPage::new(temporary_page_comp, allocator).unwrap();
 
-    let active_table = unsafe {
-        ActivePageTable::new()
+    let mut active_table = unsafe {
+         ActivePageTable::new()
     };
 
-    let inactive_table = {
-        let frame = allocator.falloc().expect("Cannot allocate more frames");
+    let mut inactive_table = {
+        let frame = allocator.falloc().expect("Cannot allocate pages!");
         InactivePageTable::new(frame, &mut active_table, &mut temp_page)
     };
 
-    active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
+    /* active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
         let elf_sections = boot_info.elf_sections().unwrap();
         for section in elf_sections {
             if !section.is_allocated() {
@@ -195,5 +195,5 @@ pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
                 mapper.map_identity(frame, flags, allocator);
             }
         }
-    });
+    }); */
 }

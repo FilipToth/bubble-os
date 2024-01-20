@@ -1,6 +1,7 @@
-use crate::{mem::PageFrame, print};
+use crate::{mem::PageFrame};
 
 bitflags! {
+    #[derive(Clone, Copy)]
     pub struct EntryFlags: u64 {
         const PRESENT = 1 << 0;
         const WRITABLE = 1 << 1;

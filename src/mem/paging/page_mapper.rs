@@ -10,6 +10,7 @@ use crate::mem::{PhysicalAddress, VirtualAddress};
 use crate::mem::paging::page_table::{PageTable, PageLevel4, P4};
 
 use crate::mem::paging::{Page, TABLE_ENTRY_COUNT};
+use crate::print;
 
 pub struct Mapper {
     p4: Unique<PageTable<PageLevel4>>
@@ -100,14 +101,17 @@ impl Mapper {
         where A: PageFrameAllocator
     {
         assert!(self.translate_to_phys(page.start_address()).is_some());
-
         let p1 = self.get_p4_mut()
                      .next_table_mut(page.p4_index())
-                     .and_then(|p3| p3.next_table_mut(page.p3_index()))
-                     .and_then(|p2| p2.next_table_mut(page.p2_index()))
-                     .expect("Mapping code doesn't support huge pages");
+                     .and_then(|p3| p3.next_table_mut(page.p3_index()));
+                     // .and_then(|p2| p2.next_table_mut(page.p2_index()));
+        
+        let p2 = page.p2_index();
+        print!("[ OK ] p2: 0x{:x}", p2);
+    
+                     // .expect("Mapping code doesn't support huge pages");
 
-        // we also need to flush the TLB cache
+/*         // we also need to flush the TLB cache
         // manually, if we don't do this, reading
         // out of pages would still be possible
         // after unmapping due to them still
@@ -123,7 +127,7 @@ impl Mapper {
         // TODO: Implement allocator.free   
 
         // let frame = entry.get_frame().unwrap();
-        // allocator.free(frame);
+        // allocator.free(frame); */
     }
 
     /// Translates a virtual address to a physical one.
@@ -183,7 +187,8 @@ impl Mapper {
                 None
             })
         };
-    
+        
+        print!("Test\n");
         p3.and_then(|p3| p3.next_table(page.p3_index()))
           .and_then(|p2| p2.next_table(page.p2_index()))
           .and_then(|p1| p1[page.p1_index()].get_frame())

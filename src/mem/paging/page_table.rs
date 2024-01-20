@@ -4,7 +4,6 @@ use core::ops::{Index, IndexMut};
 use crate::mem::paging::entry::*;
 use crate::mem::PageFrameAllocator;
 use crate::mem::paging::TABLE_ENTRY_COUNT;
-use crate::print;
 
 pub const P4: *mut PageTable<PageLevel4> = 0xFFFFFFFF_FFFFF000 as *mut _;
 

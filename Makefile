@@ -20,7 +20,7 @@ clean:
 
 run: kernel_start iso run_without_building
 
-debug_run: kernel_start run_wait_for_debugger
+debug_run: kernel_start iso run_wait_for_debugger
 
 run_without_building:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s
@@ -37,7 +37,7 @@ $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub
 	cp $(kernel) build/isofiles/boot/kernel.bin
 	cp $(grub_cfg) build/isofiles/boot/grub
-	grub2-mkrescue -o $(iso) build/isofiles 2> /dev/null
+	grub-mkrescue -o $(iso) build/isofiles 2> /dev/null
 # rm -r build/isofiles
 
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)

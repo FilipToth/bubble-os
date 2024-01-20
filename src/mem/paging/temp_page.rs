@@ -20,14 +20,14 @@ impl TempPage {
     /// - `page` page structure to make temporary
     /// - `allocator` needs a page frame allocator to
     /// create page tables for mappings
-    pub fn new<A>(page: Page, allocator: &mut A) -> TempPage
+    pub fn new<A>(page: Page, allocator: &mut A) -> Option<TempPage>
         where A: PageFrameAllocator
     {
-        let fixed = FixedAllocator::new(allocator);
-        TempPage {
+        let fixed = FixedAllocator::new(allocator);        
+        Some(TempPage {
             page: page,
             allocator: fixed
-        }
+        })
     }
 
     /// Creates a mapping for the temporary page
@@ -74,7 +74,10 @@ impl TempPage {
 }
 
 struct FixedAllocator {
-    alloc_pool: [Option<PageFrame>; 3]
+    // arrays don't work for some reason
+    frame_1: Option<PageFrame>,
+    frame_2: Option<PageFrame>,
+    frame_3: Option<PageFrame>,
 }
 
 impl FixedAllocator {
@@ -82,32 +85,38 @@ impl FixedAllocator {
         where A: PageFrameAllocator
     {
         let mut f = || allocator.falloc();
-        let pool = [f(), f(), f()];
-
-        FixedAllocator { alloc_pool: pool }
+        FixedAllocator {
+            frame_1: f(),
+            frame_2: f(),
+            frame_3: f()
+        }
     }
 }
 
 impl PageFrameAllocator for FixedAllocator {
     fn falloc(&mut self) -> Option<PageFrame> {
-        for frame in &mut self.alloc_pool {
-            match frame {
-                Some(_) => return frame.take(),
-                None => continue
-            }
+        // I know, it's ugly, but
+        // arrays didn't work
+        if self.frame_1.is_some() {
+            self.frame_1.take()
+        } else if self.frame_2.is_some() {
+            self.frame_2.take()
+        } else if self.frame_3.is_some() {
+            self.frame_3.take()
+        } else {
+            None
         }
-
-        None
     }
 
     fn free(&mut self, frame: PageFrame) {
-        for owned_frame in &mut self.alloc_pool {
-            if owned_frame.is_none() {
-                *owned_frame = Some(frame);
-                return;
-            }
+        if self.frame_1.is_none() {
+            self.frame_1 = Some(frame)
+        } else if self.frame_2.is_none() {
+            self.frame_2 = Some(frame)
+        } else if self.frame_3.is_none() {
+            self.frame_3 = Some(frame)
+        } else {
+            panic!("Fixed allocator cannot free another frame")
         }
-
-        panic!("Fixed allocator cannot free another frame.");
     }
 }
