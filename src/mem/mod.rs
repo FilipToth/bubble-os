@@ -49,13 +49,13 @@ impl Iterator for PageFrameIter {
     type Item = PageFrame;
 
     fn next(&mut self) -> Option<PageFrame> {
-        if self.start <= self.end {
-            let frame = self.start.clone();
-            self.start.frame_number += 1;
-            Some(frame)
-        } else {
-            None
+        if self.start > self.end {
+            return None;
         }
+
+        let frame = self.start.clone();
+        self.start.frame_number += 1;
+        Some(frame)
     }
 }
 

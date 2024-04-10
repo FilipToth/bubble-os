@@ -1,11 +1,13 @@
 use core::ops::{Deref, DerefMut};
 
 use multiboot2::BootInformation;
+use x86_64::PhysAddr;
 use x86_64::instructions::tlb;
-use x86_64::registers::control;
+use x86_64::registers::control::{self, Cr3Flags};
+use x86_64::structures::paging::PhysFrame;
 
 use crate::mem::paging::entry::EntryFlags;
-use crate::mem::VirtualAddress;
+use crate::mem::{VirtualAddress, PhysicalAddress};
 use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::print;
 
@@ -15,6 +17,7 @@ pub mod page_table;
 pub mod temp_page;
 
 use self::page_mapper::Mapper;
+use self::page_table::PageTable;
 use self::temp_page::TempPage;
 
 use super::PageFrameAllocator;
@@ -116,6 +119,24 @@ impl ActivePageTable {
         }
 
         temp_page.unmap(self);
+    }
+
+    pub fn switch(&self, new: InactivePageTable) -> InactivePageTable {
+        use x86_64::registers::control::Cr3;
+
+        let addr = Cr3::read().0.start_address().as_u64() as usize;
+        let old_frame = PageFrame::from_address(addr.clone());
+        let old = InactivePageTable { p4_frame: old_frame };
+
+        unsafe {
+            let new_addr = PhysAddr::new(new.p4_frame.start_address() as u64);
+            let new_frame = PhysFrame::from_start_address(new_addr)
+                .expect("Cannot create cr3 new frame swap address.");
+
+            Cr3::write(new_frame, Cr3Flags::empty());
+        }
+
+        old
     }
 }
 
@@ -219,4 +240,6 @@ where
             }
         }
     });
+
+    let _ = active_table.switch(inactive_table);
 }
