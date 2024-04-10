@@ -23,10 +23,10 @@ run: kernel_start iso run_without_building
 debug_run: kernel_start iso run_wait_for_debugger
 
 run_without_building:
-	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot -d int
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot
 
 run_wait_for_debugger:
-	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -S
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -S -d int
 
 gdb:
 	gdb "$(kernel)" -ex "target remote :1234"

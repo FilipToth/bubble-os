@@ -1,13 +1,13 @@
 use multiboot2::BootInformation;
 
+use crate::mem::paging::{entry::EntryFlags, ActivePageTable, Page};
+use crate::mem::{PageFrameAllocator, SimplePageFrameAllocator};
 use crate::print;
-use crate::mem::{SimplePageFrameAllocator, PageFrameAllocator};
-use crate::mem::paging::{ActivePageTable, Page, entry::EntryFlags};
 
 pub struct TestUnit<'a> {
     function: &'a dyn Fn() -> bool,
     succeeded: bool,
-    name: &'a str
+    name: &'a str,
 }
 
 static mut BOOT_INFO_ADDR: Option<usize> = None;
@@ -21,7 +21,7 @@ impl<'a> TestUnit<'a> {
         let mut unit = TestUnit {
             function: func,
             succeeded: false,
-            name: name
+            name: name,
         };
 
         unit.run();
@@ -57,7 +57,10 @@ pub fn run_tests(boot_info_addr: usize) {
     TestUnit::new(&test_memory_map, "Test Memory Map");
     TestUnit::new(&test_page_frame_allocator, "Test Page Frame Allocator");
     TestUnit::new(&test_paging, "Test Paging");
-    TestUnit::new(&test_frame_allocator_fill_memory, "Test Page Frame Allocator Fill Memory");
+    TestUnit::new(
+        &test_frame_allocator_fill_memory,
+        "Test Page Frame Allocator Fill Memory",
+    );
 }
 
 fn test_boot_info() -> bool {
@@ -65,7 +68,9 @@ fn test_boot_info() -> bool {
         assert_true!(BOOT_INFO_ADDR.is_some());
         let boot_info_addr = BOOT_INFO_ADDR.unwrap();
 
-        let boot_info_load_res = multiboot2::BootInformation::load(boot_info_addr as *const multiboot2::BootInformationHeader);
+        let boot_info_load_res = multiboot2::BootInformation::load(
+            boot_info_addr as *const multiboot2::BootInformationHeader,
+        );
         assert_true!(boot_info_load_res.is_ok());
 
         if let Ok(boot_info) = boot_info_load_res {
@@ -128,7 +133,7 @@ fn test_page_frame_allocator() -> bool {
 }
 
 fn test_paging() -> bool {
-/*     unsafe {
+    /*     unsafe {
         // test map
         assert_true!(PAGE_FRAME_ALLOCATOR.is_some());
         let allocator = PAGE_FRAME_ALLOCATOR.as_mut().unwrap();
@@ -148,7 +153,7 @@ fn test_paging() -> bool {
 
         let next_frame = allocator.falloc();
         assert_true!(next_frame.is_some());
-        
+
         let last_num = frame.unwrap().frame_number;
         let next_num = next_frame.unwrap().frame_number;
         let num_diff = next_num - last_num;
@@ -172,7 +177,7 @@ fn test_frame_allocator_fill_memory() -> bool {
 
         assert_true!(MEM_END.is_some());
         let mem_end = MEM_END.as_ref().unwrap();
-        
+
         let mut last_page_num = 0;
         for i in 0.. {
             let alloc_res = allocator.falloc();
@@ -186,11 +191,11 @@ fn test_frame_allocator_fill_memory() -> bool {
                         last_page_num = num;
                         continue;
                     }
-                    
+
                     assert_true!(num - 1 == last_page_num);
                     last_page_num = num;
-                },
-                None => break
+                }
+                None => break,
             }
         }
     }

@@ -1,5 +1,5 @@
-pub mod paging;
 mod linked_list_allocator;
+pub mod paging;
 mod simple_page_frame_allocator;
 
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
@@ -11,13 +11,15 @@ pub static PAGE_SIZE: usize = 4096;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PageFrame {
-    pub frame_number: usize
+    pub frame_number: usize,
 }
 
 impl PageFrame {
     fn from_address(addr: usize) -> PageFrame {
         let number = addr / PAGE_SIZE;
-        PageFrame { frame_number: number }
+        PageFrame {
+            frame_number: number,
+        }
     }
 
     pub fn start_address(&self) -> PhysicalAddress {
@@ -25,30 +27,35 @@ impl PageFrame {
     }
 
     fn clone(&self) -> PageFrame {
-        PageFrame { frame_number: self.frame_number }
+        PageFrame {
+            frame_number: self.frame_number,
+        }
     }
 
     fn range(start: PageFrame, end: PageFrame) -> PageFrameIter {
-        PageFrameIter { start: start, end: end }
+        PageFrameIter {
+            start: start,
+            end: end,
+        }
     }
 }
 
 struct PageFrameIter {
     start: PageFrame,
-    end: PageFrame
+    end: PageFrame,
 }
 
 impl Iterator for PageFrameIter {
     type Item = PageFrame;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.start > self.end {
-            return None;
+    fn next(&mut self) -> Option<PageFrame> {
+        if self.start <= self.end {
+            let frame = self.start.clone();
+            self.start.frame_number += 1;
+            Some(frame)
+        } else {
+            None
         }
-
-        let mut current = self.start.clone();
-        current.frame_number += 1;
-        Some(current)
     }
 }
 

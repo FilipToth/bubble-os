@@ -2,17 +2,20 @@ use core::marker::PhantomData;
 use core::ops::{Index, IndexMut};
 
 use crate::mem::paging::entry::*;
-use crate::mem::PageFrameAllocator;
 use crate::mem::paging::TABLE_ENTRY_COUNT;
+use crate::mem::PageFrameAllocator;
 
 pub const P4: *mut PageTable<PageLevel4> = 0xFFFFFFFF_FFFFF000 as *mut _;
 
 pub struct PageTable<L: PageTableLevel> {
     entries: [PageTableEntry; TABLE_ENTRY_COUNT],
-    level: PhantomData<L>
+    level: PhantomData<L>,
 }
 
-impl<L> Index<usize> for PageTable<L> where L: PageTableLevel {
+impl<L> Index<usize> for PageTable<L>
+where
+    L: PageTableLevel,
+{
     type Output = PageTableEntry;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -20,13 +23,19 @@ impl<L> Index<usize> for PageTable<L> where L: PageTableLevel {
     }
 }
 
-impl<L> IndexMut<usize> for PageTable<L> where L: PageTableLevel {
+impl<L> IndexMut<usize> for PageTable<L>
+where
+    L: PageTableLevel,
+{
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.entries[index]
     }
 }
 
-impl<L> PageTable<L> where L: PageTableLevel {
+impl<L> PageTable<L>
+where
+    L: PageTableLevel,
+{
     pub fn null_all_entries(&mut self) {
         for entry in self.entries.iter_mut() {
             entry.set_to_unused();
@@ -34,7 +43,10 @@ impl<L> PageTable<L> where L: PageTableLevel {
     }
 }
 
-impl<L> PageTable<L> where L: HierarchicalPageLevel {
+impl<L> PageTable<L>
+where
+    L: HierarchicalPageLevel,
+{
     pub fn next_table(&self, index: usize) -> Option<&PageTable<L::NextLevel>> {
         let addr = self.next_table_address(index);
         addr.map(|a| unsafe { &*(a as *const _) })
@@ -56,11 +68,19 @@ impl<L> PageTable<L> where L: HierarchicalPageLevel {
         }
     }
 
-    pub fn next_table_create<A>(&mut self, index: usize, allocator: &mut A) -> &mut PageTable<L::NextLevel>
-        where A: PageFrameAllocator
-    {       
+    pub fn next_table_create<A>(
+        &mut self,
+        index: usize,
+        allocator: &mut A,
+    ) -> &mut PageTable<L::NextLevel>
+    where
+        A: PageFrameAllocator,
+    {
         if self.next_table(index).is_none() {
-            assert!(!self.entries[index].flags().contains(EntryFlags::HUGE_PAGE), "Mapping code doesn't support huge pages");
+            assert!(
+                !self.entries[index].flags().contains(EntryFlags::HUGE_PAGE),
+                "Mapping code doesn't support huge pages"
+            );
 
             let frame = allocator.falloc().expect("No available frames to allocate");
             self.entries[index].set(frame, EntryFlags::PRESENT | EntryFlags::WRITABLE);

@@ -1,4 +1,4 @@
-use crate::{mem::PageFrame};
+use crate::mem::PageFrame;
 
 bitflags! {
     #[derive(Clone, Copy)]
@@ -17,7 +17,7 @@ bitflags! {
 }
 
 pub struct PageTableEntry {
-    entry: u64
+    entry: u64,
 }
 
 impl PageTableEntry {
@@ -34,10 +34,9 @@ impl PageTableEntry {
     }
 
     pub fn get_frame(&self) -> Option<PageFrame> {
-        
-        if self.flags().contains(EntryFlags::PRESENT) {            
+        if self.flags().contains(EntryFlags::PRESENT) {
             Some(PageFrame::from_address(
-                (self.entry as usize) & 0x000FFFFF_FFFFF000
+                (self.entry as usize) & 0x000FFFFF_FFFFF000,
             ))
         } else {
             None

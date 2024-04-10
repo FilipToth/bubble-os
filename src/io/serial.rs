@@ -1,5 +1,5 @@
-use crate::print;
 use crate::io::io::{inb, outb};
+use crate::print;
 
 static PORT: u16 = 0x3f8;
 

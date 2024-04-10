@@ -4,15 +4,15 @@ use multiboot2::BootInformation;
 use x86_64::instructions::tlb;
 use x86_64::registers::control;
 
-use crate::mem::{PAGE_SIZE, PageFrame};
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::VirtualAddress;
+use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::print;
 
 pub mod entry;
-pub mod temp_page;
-pub mod page_table;
 pub mod page_mapper;
+pub mod page_table;
+pub mod temp_page;
 
 use self::page_mapper::Mapper;
 use self::temp_page::TempPage;
@@ -23,7 +23,7 @@ const TABLE_ENTRY_COUNT: usize = 512;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Page {
-    page_number: usize
+    page_number: usize,
 }
 
 impl Page {
@@ -36,7 +36,9 @@ impl Page {
     /// mapped on to
     pub fn for_address(addr: VirtualAddress) -> Page {
         assert!(addr < 0x0000_8000_0000_0000 || addr >= 0xFFFF_8000_0000_0000);
-        Page { page_number: addr / PAGE_SIZE }
+        Page {
+            page_number: addr / PAGE_SIZE,
+        }
     }
 
     pub fn start_address(&self) -> VirtualAddress {
@@ -62,12 +64,14 @@ impl Page {
 
 /// A page table that is currently loaded in the CPU
 pub struct ActivePageTable {
-    mapper: Mapper
+    mapper: Mapper,
 }
 
 impl ActivePageTable {
     unsafe fn new() -> ActivePageTable {
-        ActivePageTable { mapper: Mapper::new() }
+        ActivePageTable {
+            mapper: Mapper::new(),
+        }
     }
 
     /// Calls the provided closure on the
@@ -83,13 +87,12 @@ impl ActivePageTable {
     /// to load
     /// - `f` the closure to call
     pub fn with<F>(&mut self, temp_page: &mut TempPage, table: &mut InactivePageTable, f: F)
-        where F: FnOnce(&mut Mapper)
+    where
+        F: FnOnce(&mut Mapper),
     {
         {
             // maybe this works, maybe it doesn't...
-            let active_table_addr = control::Cr3::read().0
-                                                .start_address()
-                                                .as_u64() as usize;
+            let active_table_addr = control::Cr3::read().0.start_address().as_u64() as usize;
 
             // need this to restore active table
             // after calling the supplied closure
@@ -97,7 +100,10 @@ impl ActivePageTable {
             let p4_table = temp_page.map_table_frame(p4_backup.clone(), self);
 
             // overwrite the recursive mapping
-            self.get_p4_mut()[511].set(table.p4_frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
+            self.get_p4_mut()[511].set(
+                table.p4_frame.clone(),
+                EntryFlags::PRESENT | EntryFlags::WRITABLE,
+            );
             tlb::flush_all();
 
             f(self);
@@ -129,7 +135,7 @@ impl DerefMut for ActivePageTable {
 
 /// A page table which isn't loaded in the CPU.
 pub struct InactivePageTable {
-    p4_frame: PageFrame
+    p4_frame: PageFrame,
 }
 
 impl InactivePageTable {
@@ -139,7 +145,11 @@ impl InactivePageTable {
     /// # Arguments
     ///
     /// - `frame` the frame to be used for the p4
-    pub fn new(frame: PageFrame, active_table: &mut ActivePageTable, temp_page: &mut TempPage) -> InactivePageTable {
+    pub fn new(
+        frame: PageFrame,
+        active_table: &mut ActivePageTable,
+        temp_page: &mut TempPage,
+    ) -> InactivePageTable {
         // we need to null the frame, but the frame
         // isn't yet mapped to a virtual address,
         // therefore we need to create a temporary
@@ -160,14 +170,15 @@ impl InactivePageTable {
 }
 
 pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
-    where A: PageFrameAllocator
+where
+    A: PageFrameAllocator,
 {
-    let temporary_page_comp = Page { page_number: 0xFABCDABC };
-    let mut temp_page = TempPage::new(temporary_page_comp, allocator).unwrap();
-
-    let mut active_table = unsafe {
-         ActivePageTable::new()
+    let temporary_page_comp = Page {
+        page_number: 0xFABCDABC,
     };
+
+    let mut temp_page = TempPage::new(temporary_page_comp, allocator).unwrap();
+    let mut active_table = unsafe { ActivePageTable::new() };
 
     let mut inactive_table = {
         let frame = allocator.falloc().expect("Cannot allocate pages!");
@@ -175,6 +186,13 @@ pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
     };
 
     active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
+        // remap multiboot info structure
+        let multiboot_start = PageFrame::from_address(boot_info.start_address());
+        let multiboot_end = PageFrame::from_address(boot_info.end_address() - 1);
+        for frame in PageFrame::range(multiboot_start, multiboot_end) {
+            mapper.map_identity(frame, EntryFlags::PRESENT, allocator);
+        }
+
         let elf_sections = boot_info.elf_sections().unwrap();
         for section in elf_sections {
             if !section.is_allocated() {
@@ -186,13 +204,17 @@ pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
             let aligned = (section.start_address() as usize) % PAGE_SIZE == 0;
             assert!(aligned, "ELF Sections need to be aligned to the page size");
 
-            print!("Creating elf mapping: 0x{:#x}, size: 0x{:#x}", section.start_address(), section.size());
+            // need to offset the end frame by one to prevent having the end frame
+            // and the starting frame of the next elf section from being the same
+            // and the page already being used, thus failing an assert when mapping...
 
             let flags = EntryFlags::WRITABLE; // ::PRESENT will be set automaitcally
             let start_frame = PageFrame::from_address(section.start_address() as usize);
-            let end_frame = PageFrame::from_address(section.end_address() as usize);
+            let end_frame = PageFrame::from_address((section.end_address() - 1) as usize);
 
-            for frame in PageFrame::range(start_frame, end_frame) {
+            // let a = end_frame.start_address();
+            let range = PageFrame::range(start_frame, end_frame);
+            for frame in range {
                 mapper.map_identity(frame, flags, allocator);
             }
         }

@@ -5,7 +5,7 @@ use super::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 pub struct SimplePageFrameAllocator {
     frame_head: PageFrame,
     // mem_start: PageFrame,
-    mem_end: PageFrame
+    mem_end: PageFrame,
 }
 
 impl SimplePageFrameAllocator {
@@ -16,7 +16,7 @@ impl SimplePageFrameAllocator {
         SimplePageFrameAllocator {
             frame_head: start_frame,
             // mem_start: start_frame,
-            mem_end: end_frame
+            mem_end: end_frame,
         }
     }
 }

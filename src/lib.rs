@@ -3,8 +3,8 @@
 #![feature(ptr_internals)]
 #![feature(custom_test_frameworks)]
 
-extern crate rlibc;
 extern crate multiboot2;
+extern crate rlibc;
 
 #[macro_use]
 extern crate bitflags;
@@ -13,22 +13,29 @@ mod io;
 mod mem;
 mod test;
 
-use core::{panic::PanicInfo};
+use core::panic::PanicInfo;
 
 use crate::io::print;
 use crate::mem::paging::remap_kernel;
-use crate::mem::{SimplePageFrameAllocator, PageFrameAllocator};
+use crate::mem::{PageFrameAllocator, SimplePageFrameAllocator};
 
 #[no_mangle]
-pub extern fn rust_main(boot_info_addr: usize) {
-    let boot_info_load_res = unsafe { multiboot2::BootInformation::load(boot_info_addr as *const multiboot2::BootInformationHeader) };
+pub extern "C" fn rust_main(boot_info_addr: usize) {
+    let boot_info_load_res = unsafe {
+        multiboot2::BootInformation::load(
+            boot_info_addr as *const multiboot2::BootInformationHeader,
+        )
+    };
     let boot_info = match boot_info_load_res {
         Ok(info) => {
             print!("[ OK ] Boot info successfully loaded!\n");
             info
-        },
+        }
         Err(e) => {
-            print!("Couldn't load boot info at addr: {:x}\nErr: {:?}\n", boot_info_addr, e);
+            print!(
+                "Couldn't load boot info at addr: {:x}\nErr: {:?}\n",
+                boot_info_addr, e
+            );
             return;
         }
     };
@@ -37,14 +44,30 @@ pub extern fn rust_main(boot_info_addr: usize) {
     print!("\n[ OK ] Kernel Init Done, Entering Rust 64-Bit Mode\n");
 
     let elf_sections = boot_info.elf_sections().unwrap();
-    let kernel_start = elf_sections.clone().map(|s| s.start_address()).min().unwrap();
-    let kernel_end = elf_sections.map(|s| s.start_address() + s.size()).max().unwrap();
+    let kernel_start = elf_sections
+        .clone()
+        .map(|s| s.start_address())
+        .min()
+        .unwrap();
+    let kernel_end = elf_sections
+        .clone()
+        .map(|s| s.start_address() + s.size())
+        .max()
+        .unwrap();
+    let count = elf_sections.count();
+    // print!("[ OK ] elf: {:#?}\n", count);
 
     let multiboot_start = boot_info_addr;
     let multiboot_end = multiboot_start + (boot_info.total_size() as usize);
 
-    print!("[ OK ] Identified kernel at start: 0x{:x} end: 0x{:x}\n", kernel_start, kernel_end);
-    print!("[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n", multiboot_start, multiboot_end);
+    print!(
+        "[ OK ] Identified kernel at start: 0x{:x} end: 0x{:x}\n",
+        kernel_start, kernel_end
+    );
+    print!(
+        "[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n",
+        multiboot_start, multiboot_end
+    );
 
     // memory
 
@@ -68,18 +91,18 @@ pub extern fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] RAN KERNEL REMAP\n");
 
-    loop {};
+    loop {}
 }
 
 #[no_mangle]
-pub extern fn rust_main_test(boot_info_addr: usize) {
+pub extern "C" fn rust_main_test(boot_info_addr: usize) {
     test::run_tests(boot_info_addr);
-    loop {};
+    loop {}
 }
 
 #[no_mangle]
 #[lang = "eh_personality"]
-pub extern fn eh_personality() {}
+pub extern "C" fn eh_personality() {}
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
