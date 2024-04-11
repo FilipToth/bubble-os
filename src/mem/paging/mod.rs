@@ -1,15 +1,14 @@
 use core::ops::{Deref, DerefMut};
 
 use multiboot2::BootInformation;
-use x86_64::PhysAddr;
 use x86_64::instructions::tlb;
-use x86_64::registers::control::{self, Cr3Flags};
+use x86_64::registers::control::{self, Cr3, Cr3Flags};
 use x86_64::structures::paging::PhysFrame;
+use x86_64::PhysAddr;
 
 use crate::mem::paging::entry::EntryFlags;
-use crate::mem::{VirtualAddress, PhysicalAddress};
+use crate::mem::VirtualAddress;
 use crate::mem::{PageFrame, PAGE_SIZE};
-use crate::print;
 
 pub mod entry;
 pub mod page_mapper;
@@ -17,7 +16,6 @@ pub mod page_table;
 pub mod temp_page;
 
 use self::page_mapper::Mapper;
-use self::page_table::PageTable;
 use self::temp_page::TempPage;
 
 use super::PageFrameAllocator;
@@ -122,11 +120,11 @@ impl ActivePageTable {
     }
 
     pub fn switch(&self, new: InactivePageTable) -> InactivePageTable {
-        use x86_64::registers::control::Cr3;
-
         let addr = Cr3::read().0.start_address().as_u64() as usize;
         let old_frame = PageFrame::from_address(addr.clone());
-        let old = InactivePageTable { p4_frame: old_frame };
+        let old = InactivePageTable {
+            p4_frame: old_frame,
+        };
 
         unsafe {
             let new_addr = PhysAddr::new(new.p4_frame.start_address() as u64);
@@ -229,7 +227,7 @@ where
             // and the starting frame of the next elf section from being the same
             // and the page already being used, thus failing an assert when mapping...
 
-            let flags = EntryFlags::WRITABLE; // ::PRESENT will be set automaitcally
+            let flags = EntryFlags::from_elf_section_flags(&section);
             let start_frame = PageFrame::from_address(section.start_address() as usize);
             let end_frame = PageFrame::from_address((section.end_address() - 1) as usize);
 

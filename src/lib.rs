@@ -15,6 +15,8 @@ mod test;
 
 use core::panic::PanicInfo;
 
+use x86_64::registers::model_specific::{Efer, EferFlags};
+
 use crate::io::print;
 use crate::mem::paging::remap_kernel;
 use crate::mem::{PageFrameAllocator, SimplePageFrameAllocator};
@@ -54,8 +56,6 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         .map(|s| s.start_address() + s.size())
         .max()
         .unwrap();
-    let count = elf_sections.count();
-    // print!("[ OK ] elf: {:#?}\n", count);
 
     let multiboot_start = boot_info_addr;
     let multiboot_end = multiboot_start + (boot_info.total_size() as usize);
@@ -87,6 +87,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     // panics and faults
 
     let _ = allocator.falloc().unwrap();
+    enable_nxe_bit();
     remap_kernel(&mut allocator, &boot_info);
 
     print!("[ OK ] RAN KERNEL REMAP\n");
@@ -112,4 +113,10 @@ fn panic(info: &PanicInfo) -> ! {
 
     print!("PANIC on line {:?} in {:?}\n\n\n", line, file);
     loop {}
+}
+
+fn enable_nxe_bit() {
+    unsafe {
+        Efer::update(|efer| *efer |= EferFlags::NO_EXECUTE_ENABLE);
+    };
 }
