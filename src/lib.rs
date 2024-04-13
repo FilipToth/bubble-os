@@ -15,6 +15,7 @@ mod test;
 
 use core::panic::PanicInfo;
 
+use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
@@ -87,7 +88,10 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     // panics and faults
 
     let _ = allocator.falloc().unwrap();
+
     enable_nxe_bit();
+    enable_write_protect_bit();
+
     remap_kernel(&mut allocator, &boot_info);
 
     print!("[ OK ] RAN KERNEL REMAP\n");
@@ -119,4 +123,15 @@ fn enable_nxe_bit() {
     unsafe {
         Efer::update(|efer| *efer |= EferFlags::NO_EXECUTE_ENABLE);
     };
+}
+
+fn enable_write_protect_bit() {
+    // makes .code and .rodata immutable,
+    // write page flags are ignored by the
+    // CPU in ring 0.
+
+    let write_protect = Cr0::read() | Cr0Flags::WRITE_PROTECT;
+    unsafe {
+        Cr0::write(write_protect);
+    }
 }
