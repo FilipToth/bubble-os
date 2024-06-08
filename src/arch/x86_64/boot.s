@@ -26,30 +26,30 @@ no_multiboot:
 cpuid_check:
     ; Check if CPUID is supported by attempting to flip the ID bit (bit 21) in
     ; the FLAGS register. If we can flip it, CPUID is available.
- 
+
     ; Copy FLAGS in to EAX via stack
     pushfd
     pop eax
- 
+
     ; Copy to ECX as well for comparing later on
     mov ecx, eax
- 
+
     ; Flip the ID bit
     xor eax, 1 << 21
- 
+
     ; Copy EAX to FLAGS via the stack
     push eax
     popfd
- 
+
     ; Copy FLAGS back to EAX (with the flipped bit if CPUID is supported)
     pushfd
     pop eax
- 
+
     ; Restore FLAGS from the old version stored in ECX (i.e. flipping the ID bit
     ; back if it was ever flipped).
     push ecx
     popfd
- 
+
     ; Compare EAX and ECX. If they are equal then that means the bit wasn't
     ; flipped, and CPUID isn't supported.
     xor eax, ecx
@@ -89,7 +89,7 @@ set_up_page_tables:
 
     ; map first P4 entry to P3 table
     mov eax, p3_table
-    or eax, 0b11 ; present + 
+    or eax, 0b11 ; present +
     mov [p4_table], eax
 
     ; map first P3 entry to P2 table
@@ -150,7 +150,7 @@ start:
 
     ; load the 64-bit GDT
     lgdt [gdt64.pointer]
-    
+
     jmp gdt64.code:long_mode_start
 
 section .bss

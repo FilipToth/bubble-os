@@ -19,11 +19,14 @@ clean:
 	rm -r build
 
 run: kernel_start iso run_without_building
-
+int_run: kernel_start iso run_without_building_debug_interrupts
 debug_run: kernel_start iso run_wait_for_debugger
 
 run_without_building:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot
+
+run_without_building_debug_interrupts:
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot -d int
 
 run_wait_for_debugger:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -S -d int

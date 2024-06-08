@@ -188,7 +188,7 @@ impl InactivePageTable {
     }
 }
 
-pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
+pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation) -> ActivePageTable
 where
     A: PageFrameAllocator,
 {
@@ -240,4 +240,5 @@ where
     });
 
     let _ = active_table.switch(inactive_table);
+    active_table
 }
