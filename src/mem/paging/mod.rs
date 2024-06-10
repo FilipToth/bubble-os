@@ -22,7 +22,7 @@ use super::PageFrameAllocator;
 
 const TABLE_ENTRY_COUNT: usize = 512;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Page {
     page_number: usize,
 }
@@ -60,6 +60,32 @@ impl Page {
 
     fn p1_index(&self) -> usize {
         (self.page_number >> 0) & 0o777
+    }
+
+    pub fn range(start: Page, end: Page) -> PageIter {
+        PageIter {
+            start: start,
+            end: end
+        }
+    }
+}
+
+pub struct PageIter {
+    start: Page,
+    end: Page,
+}
+
+impl Iterator for PageIter {
+    type Item = Page;
+
+    fn next(&mut self) -> Option<Page> {
+        if self.start > self.end {
+            return None;
+        }
+
+        let frame = self.start.clone();
+        self.start.page_number += 1;
+        Some(frame)
     }
 }
 

@@ -4,6 +4,7 @@
 #![feature(custom_test_frameworks)]
 #![feature(allocator_api)]
 #![feature(global_allocator)]
+#![feature(const_mut_refs)]
 
 extern crate multiboot2;
 extern crate rlibc;
@@ -16,21 +17,23 @@ extern crate bitflags;
 mod io;
 mod mem;
 mod test;
+mod utils;
 
 use core::alloc::Layout;
 use core::panic::PanicInfo;
 
 use alloc::boxed::Box;
 use alloc::vec;
-use mem::heap::LockedHeapAllocator;
+use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
 use crate::mem::heap;
+use crate::utils::safe;
 
 #[global_allocator]
-static mut HEAP_ALLOCATOR: LockedHeapAllocator = LockedHeapAllocator::empty();
+static mut HEAP_ALLOCATOR: safe::Safe<LinkedListHeap> = safe::Safe::new(LinkedListHeap::empty());
 
 #[no_mangle]
 pub extern "C" fn rust_main(boot_info_addr: usize) {
@@ -58,15 +61,18 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     mem::init(&boot_info);
 
-    unsafe {
+/*     unsafe {
         heap::init_heap();
-    }
+    } */
 
     print!("[ OK ] Initialized kernel heap...\n\n\n");
 
-    let simple_layout = Layout::new::<u8>();
-    let ptr = unsafe { alloc::alloc::alloc(simple_layout) };
-    // unsafe { ptr.write(3 as u8 ) }
+    // let simple_layout = Layout::new::<u8>();
+    // let ptr = unsafe { alloc::alloc::alloc(simple_layout) };
+    // unsafe { ptr.write(22 as u8) }
+
+    // let read = unsafe { ptr.read() };
+    // print!("[ OK ] addr: {:?}\n", read);
 
 /*     let v = vec![4, 3, 2, 1];
     print!("[ OK ] first heap test: {:?}\n", v[0]); */

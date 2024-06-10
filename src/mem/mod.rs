@@ -120,11 +120,10 @@ pub fn init(boot_info: &BootInformation) {
     print!("[ OK ] RAN KERNEL REMAP\n");
 
     // map heap pages
-    let heap_start = PageFrame::from_address(HEAP_START);
-    let heap_end = PageFrame::from_address(HEAP_START + HEAP_SIZE - 1);
+    let heap_start = Page::for_address(HEAP_START);
+    let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
 
-    for page in PageFrame::range(heap_start, heap_end) {
-        print!("[ OK ] mapping heap page, addr: 0x{:x}\n", page.start_address());
-        active_table.map_identity(page, EntryFlags::WRITABLE, &mut allocator);
+    for page in Page::range(heap_start, heap_end) {
+        active_table.map(page, EntryFlags::PRESENT | EntryFlags::WRITABLE, &mut allocator);
     }
 }
