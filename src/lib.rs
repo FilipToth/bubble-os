@@ -20,6 +20,7 @@ mod test;
 mod utils;
 
 use core::alloc::Layout;
+use core::borrow::BorrowMut;
 use core::panic::PanicInfo;
 
 use alloc::boxed::Box;
@@ -42,6 +43,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             boot_info_addr as *const multiboot2::BootInformationHeader,
         )
     };
+
     let boot_info = match boot_info_load_res {
         Ok(info) => {
             print!("[ OK ] Boot info successfully loaded!\n");
@@ -61,32 +63,29 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     mem::init(&boot_info);
 
-/*     unsafe {
+    unsafe {
         heap::init_heap();
-    } */
+    }
 
-    print!("[ OK ] Initialized kernel heap...\n\n\n");
+    print!("[ OK ] Initialized kernel heap...\n");
 
-    // let simple_layout = Layout::new::<u8>();
-    // let ptr = unsafe { alloc::alloc::alloc(simple_layout) };
-    // unsafe { ptr.write(22 as u8) }
+    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
+    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
+    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
+    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
 
-    // let read = unsafe { ptr.read() };
-    // print!("[ OK ] addr: {:?}\n", read);
+    let l = Layout::new::<u8>();
+    let ptr = unsafe { alloc::alloc::alloc(l) };
+    unsafe { ptr.write(5 as u8); };
+    print!("[ OK ] p1_test_value: {:?}\n", unsafe { ptr.read() });
 
-/*     let v = vec![4, 3, 2, 1];
-    print!("[ OK ] first heap test: {:?}\n", v[0]); */
+    let l2 = Layout::new::<u8>();
+    let ptr2 = unsafe { alloc::alloc::alloc(l2) };
+    unsafe { ptr2.write(7 as u8); };
 
-    // let mut heap_test = Box::new(20);
-    // *heap_test -= 10;
-    // print!("[ OK ] Ran second heap test: {:?}\n", *heap_test);
-
-
-/*     let l = Layout::new::<u8>();
-    let ptr = unsafe { alloc::alloc::alloc(l) }; */
-    // unsafe { ptr.write(5 as u8); };
-
-/*     print!("[ OK ] addr: {:?}\n", ptr as usize); */
+    print!("[ OK ] p2_test_addr: 0x{:x}\n", ptr2 as usize);
+    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
+    print!("[ OK ] p2_test_value: {:?}\n", unsafe { ptr2.read() } );
 
     loop {}
 }

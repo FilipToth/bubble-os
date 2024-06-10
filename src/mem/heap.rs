@@ -3,161 +3,111 @@ use core::{
     ptr::NonNull, ops::DerefMut,
 };
 
-use spinning_top::Spinlock;
-
 use crate::{print, HEAP_ALLOCATOR};
+use crate::utils::safe::Safe;
 
 pub const HEAP_START: usize = 0o_000_002_000_000_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB
 
 struct Block {
-    prev: Option<WrapperLocked<Block>>,
-    next: Option<WrapperLocked<Block>>,
+    next: Option<&'static mut Block>,
     used: bool,
     size: usize,
-    address: usize
+    address: usize,
 }
 
 impl Block {
-    fn new(address: usize, size: usize, prev: Option<WrapperLocked<Block>>) -> Block {
-        Block { prev: prev, next: None, used: false, size: size, address: address }
+    const fn new(address: usize, size: usize) -> Block {
+        Block { next: None, used: false, size: size, address: address }
     }
 }
 
-struct LinkedListHeap {
+pub struct LinkedListHeap {
     heap_start: usize,
     heap_end: usize,
     size: usize,
-    head: Option<WrapperLocked<Block>>,
+
+    /// this is not the head reference,
+    /// this block's .next is the actual
+    /// head, rust disallows mutable references
+    /// in cosnt functions.
+    head: Block,
 }
 
 impl LinkedListHeap {
-    const fn empty() -> Self {
-        Self { heap_start: 0, heap_end: 0, size: 0, head: None }
-    }
-
-/*     fn new(heap_start: usize, heap_end: usize) -> Self {
-        let heap_size = heap_end - heap_start;
-        let mut start_block = Block::new(heap_start, heap_size, None);
-        let start_block_ptr = get_block_ptr(&mut start_block);
-
-        Self {
-            heap_start: heap_start,
-            heap_end: heap_end,
-            size: heap_size,
-            head: start_block_ptr.clone(),
-            start: start_block_ptr,
-        }
-    } */
-}
-
-pub struct LockedHeapAllocator(Spinlock<LinkedListHeap>);
-
-impl LockedHeapAllocator {
     pub const fn empty() -> Self {
-        LockedHeapAllocator(Spinlock::new(LinkedListHeap::empty()))
+        let head = Block::new(0, 0);
+        Self { heap_start: 0, heap_end: 0, size: 0, head: head }
     }
 
     fn init(&mut self, heap_start: usize, heap_end: usize) {
         let heap_size = heap_end - heap_start;
-        let mut start_block = Block::new(heap_start, heap_size, None);
-        let start_block_ptr = get_block_ptr(&mut start_block);
+        // let mut start_block = Block::new(heap_start, heap_size);
+        // let start_block_ptr = get_block_ptr(&mut start_block);
+        let start_block = match create_block(heap_start, heap_size) {
+            Some(b) => b,
+            None => unreachable!()
+        };
 
-        print!("[ OK ] heap_start_block: {:?}\n", start_block.address);
+        self.heap_start = heap_start;
+        self.heap_end = heap_end;
+        self.size = heap_size;
 
-        // initialize heap spinlock
-        {
-            let mut heap = self.0.lock();
-            heap.heap_start = heap_start;
-            heap.heap_end = heap_end;
-            heap.size = heap_size;
-            heap.head = start_block_ptr;
-        }
-
-        self.verify_heap();
+        self.head.next = Some(start_block);
     }
 
-    fn verify_heap(&self) {
-        let heap = self.0.lock();
-
-        let head = heap.head.clone();
-        let head_is_some = head.is_some();
-
-        let block = unsafe { head.unwrap().0.as_ref() };
-        let next_is_some = block.next.is_some();
-
-        print!("[ OK ] Running kernel heap verification\n");
-        print!("[ OK ] head_is_some: {:?}\n", head_is_some);
-        print!("[ OK ] head address: 0x{:x}\n", block.address);
-        print!("[ OK ] next_is_some: {:?}\n", next_is_some);
-    }
-
-    fn allocate_internal(&self, layout: Layout) -> Result<*mut u8, AllocError> {
-        let heap = self.0.lock();
-        let head = heap.head.clone();
-        let block = unsafe { head.unwrap().0.as_ref() };
-
-        print!("[ OK ] block: 0x{:x}\n", block.address);
-
-        return Ok(block.address as *mut u8);
-
-/*         let heap = self.0.lock();
-        print!("[ OK ] Alloc heap start: 0x{:x}\n", heap.heap_start);
-
-        if heap.head.is_none() {
-            return Err(AllocError);
-        }
-
-        let mut head = heap.head.clone();
-        let temp = unsafe { head.clone().unwrap().0.as_ref() };
-        print!("[ OK ] temp_a: 0x{:x}\n", temp.address);
-
-
+    fn allocate_internal(&mut self, size: usize, align: usize) -> Result<*mut u8, AllocError> {
+        let mut head = &mut self.head;
         loop {
-            if head.is_none() {
+            let Some(ref mut block) = head.next else {
                 break;
-            }
+            };
 
-            let mut block = unsafe { head.clone().unwrap().0.as_mut() };
-            print!("block_addr: 0x{:x}\n", block.address);
-
-            let alloc_start = align_up(block.address, layout.align());
-            let alloc_end = alloc_start.saturating_add(layout.size());
-            let aligned_size = alloc_end - alloc_start;
-
-            if !block.used && block.size >= aligned_size {
+            if !block.used && block.size >= size {
                 // found block, split up
-                let block_size = block.size;
-                let remainder_size = block_size - aligned_size;
+                let remainder_size = block.size - size;
+                let remainder_addr = block.address + size;
 
-                let remainder_addr = block.address + aligned_size;
-                let mut remainder_next = Block::new(remainder_addr, remainder_size, head);
+                let mut remainder_next = match create_block(remainder_addr, remainder_size) {
+                    Some(b) => b,
+                    None => unreachable!()
+                };
 
-                let old_next = block.next.clone();
-                remainder_next.next = old_next;
-
-                block.next = get_block_ptr(&mut remainder_next);
+                remainder_next.next = block.next.take();
+                block.next = Some(remainder_next);
 
                 block.used = true;
-                block.size = aligned_size;
+                block.size = size;
 
-                print!("alloc block: addr->0x{:x}, size->0x{:x}, next->{:?}\n", block.address, block.size, block.next.is_some());
-
-                return Ok(block.address as *mut u8);
+                let addr = block.address + core::mem::size_of::<Block>();
+                return Ok(addr as *mut u8);
             }
 
-            print!("[ ERR ] nextblock is_some: {:?}\n", block.next.is_some());
-            head = block.next.clone();
+            head = head.next.as_mut().unwrap();
         }
 
         return Err(AllocError);
-        */
+    }
+
+    /// Aligns a layout such that th0x2f8a01000000e allocated memory region
+    /// is also capable of holding the block structure.
+    fn block_align_size(&self, layout: Layout) -> (usize, usize) {
+        let layout = layout.align_to(core::mem::align_of::<Block>())
+                        .expect("Couldn't align block")
+                        .pad_to_align();
+
+        let size = layout.size() + core::mem::size_of::<Block>();
+        (size, layout.align())
     }
 }
 
-unsafe impl<'a> Allocator for LockedHeapAllocator {
+unsafe impl<'a> Allocator for Safe<LinkedListHeap> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        let block = self.allocate_internal(layout);
+        let mut allocator = self.lock();
+
+        let (size, align) = allocator.block_align_size(layout);
+        let block = allocator.allocate_internal(size, align);
+
         if let Err(_) = block {
             return Err(AllocError)
         }
@@ -173,9 +123,13 @@ unsafe impl<'a> Allocator for LockedHeapAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for LockedHeapAllocator {
+unsafe impl GlobalAlloc for Safe<LinkedListHeap> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let block = self.allocate_internal(layout);
+        let mut allocator = self.lock();
+
+        let (size, align) = allocator.block_align_size(layout);
+        let block = allocator.allocate_internal(size, align);
+
         match block {
             Ok(ptr) => ptr,
             Err(_) => core::ptr::null_mut()
@@ -187,8 +141,25 @@ unsafe impl GlobalAlloc for LockedHeapAllocator {
     }
 }
 
-fn get_block_ptr(block: &mut Block) -> Option<WrapperLocked<Block>> {
-    Some(WrapperLocked(NonNull::<Block>::new(block as *mut _).unwrap()))
+fn create_block(addr: usize, size: usize) -> Option<&'static mut Block> {
+    let is_correct_align = align_up(addr, core::mem::align_of::<Block>()) == addr;
+    let can_hold_structure = size >= core::mem::size_of::<Block>();
+
+    if !is_correct_align || !can_hold_structure {
+        return None;
+    }
+
+    // something fishy is happening with the
+    // pointers, when reading out of the
+    // reference, the addr is suddenly zero
+
+    let mut block = Block::new(addr, size);
+
+    let block_ptr = addr as *mut Block;
+    unsafe { block_ptr.write(block) };
+
+    let reference = unsafe { &mut *block_ptr };
+    return Some(reference);
 }
 
 /// Align downwards. Returns the greatest x with alignment `align`
@@ -209,16 +180,7 @@ pub fn align_up(addr: usize, align: usize) -> usize {
     align_down(addr + align - 1, align)
 }
 
-struct WrapperLocked<A>(NonNull<A>);
-unsafe impl<A> Send for WrapperLocked<A> {}
-unsafe impl<A> Sync for WrapperLocked<A> {}
-
-impl<T> Clone for WrapperLocked<T> {
-    fn clone(&self) -> Self {
-        WrapperLocked(self.0.clone())
-    }
-}
-
 pub unsafe fn init_heap() {
-    HEAP_ALLOCATOR.init(HEAP_START, HEAP_START + HEAP_SIZE);
+    let mut allocator = HEAP_ALLOCATOR.lock();
+    allocator.init(HEAP_START, HEAP_START + HEAP_SIZE);
 }
