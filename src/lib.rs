@@ -5,11 +5,12 @@
 #![feature(allocator_api)]
 #![feature(global_allocator)]
 #![feature(const_mut_refs)]
+#![feature(strict_provenance)]
 
+extern crate alloc;
 extern crate multiboot2;
 extern crate rlibc;
 extern crate spinning_top;
-extern crate alloc;
 
 #[macro_use]
 extern crate bitflags;
@@ -69,23 +70,29 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Initialized kernel heap...\n");
 
-    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
-    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
-    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
-    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
-
     let l = Layout::new::<u8>();
     let ptr = unsafe { alloc::alloc::alloc(l) };
-    unsafe { ptr.write(5 as u8); };
+
+    unsafe {
+        ptr.write(5 as u8);
+    };
+
     print!("[ OK ] p1_test_value: {:?}\n", unsafe { ptr.read() });
 
     let l2 = Layout::new::<u8>();
-    let ptr2 = unsafe { alloc::alloc::alloc(l2) };
-    unsafe { ptr2.write(7 as u8); };
+    let ptr2 = unsafe { alloc::alloc::alloc(l) };
 
-    print!("[ OK ] p2_test_addr: 0x{:x}\n", ptr2 as usize);
-    let mut v = vec![5, 3, 1, 9, 8, 12, 19, 81, 12, 44, 22];
-    print!("[ OK ] p2_test_value: {:?}\n", unsafe { ptr2.read() } );
+    unsafe {
+        ptr.write(5 as u8);
+    };
+
+    print!("[ OK ] p1_test_value: {:?}\n", unsafe { ptr.read() });
+
+
+    unsafe { alloc::alloc::dealloc(ptr2, l2) }
+    unsafe { alloc::alloc::dealloc(ptr, l) }
+
+    let x = vec![4, 3, 2, 5];
 
     loop {}
 }

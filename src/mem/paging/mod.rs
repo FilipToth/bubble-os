@@ -65,7 +65,7 @@ impl Page {
     pub fn range(start: Page, end: Page) -> PageIter {
         PageIter {
             start: start,
-            end: end
+            end: end,
         }
     }
 }

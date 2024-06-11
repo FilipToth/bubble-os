@@ -1,10 +1,11 @@
 use core::{
-    alloc::{AllocError, Allocator, Layout, GlobalAlloc},
-    ptr::NonNull, ops::DerefMut,
+    alloc::{AllocError, Allocator, GlobalAlloc, Layout},
+    ops::DerefMut,
+    ptr::NonNull,
 };
 
-use crate::{print, HEAP_ALLOCATOR};
 use crate::utils::safe::Safe;
+use crate::{print, HEAP_ALLOCATOR};
 
 pub const HEAP_START: usize = 0o_000_002_000_000_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB
@@ -18,7 +19,12 @@ struct Block {
 
 impl Block {
     const fn new(address: usize, size: usize) -> Block {
-        Block { next: None, used: false, size: size, address: address }
+        Block {
+            next: None,
+            used: false,
+            size: size,
+            address: address,
+        }
     }
 }
 
@@ -37,7 +43,12 @@ pub struct LinkedListHeap {
 impl LinkedListHeap {
     pub const fn empty() -> Self {
         let head = Block::new(0, 0);
-        Self { heap_start: 0, heap_end: 0, size: 0, head: head }
+        Self {
+            heap_start: 0,
+            heap_end: 0,
+            size: 0,
+            head: head,
+        }
     }
 
     fn init(&mut self, heap_start: usize, heap_end: usize) {
@@ -46,7 +57,7 @@ impl LinkedListHeap {
         // let start_block_ptr = get_block_ptr(&mut start_block);
         let start_block = match create_block(heap_start, heap_size) {
             Some(b) => b,
-            None => unreachable!()
+            None => unreachable!(),
         };
 
         self.heap_start = heap_start;
@@ -70,7 +81,7 @@ impl LinkedListHeap {
 
                 let mut remainder_next = match create_block(remainder_addr, remainder_size) {
                     Some(b) => b,
-                    None => unreachable!()
+                    None => unreachable!(),
                 };
 
                 remainder_next.next = block.next.take();
@@ -89,12 +100,56 @@ impl LinkedListHeap {
         return Err(AllocError);
     }
 
-    /// Aligns a layout such that th0x2f8a01000000e allocated memory region
+    fn dealloc_internal(&mut self, addr: usize, size: usize) {
+        let block_size = core::mem::size_of::<Block>();
+        let block_addr = addr - block_size;
+
+        let block_ptr = block_addr as *mut Block;
+        let block = unsafe { &mut *block_ptr };
+
+        block.used = false;
+        self.merge_right(block);
+
+        // move head to current free block
+        if block.address >= self.head.address {
+            return;
+        }
+
+        self.head.next = Some(block);
+    }
+
+    /// Merges a free block with the next block if it's free
+    fn merge_right(&mut self, block: &mut Block) {
+        let Some(ref mut next) = block.next else {
+            return;
+        };
+
+        if next.used {
+            return;
+        }
+
+        // merge
+        let new_size = block.size + next.size;
+        block.size = new_size;
+
+        // set new next
+        let Some(ref mut new_next) = next.next else {
+            block.next = None;
+            return;
+        };
+
+        let new_next_ptr = new_next.address as *mut Block;
+        let new_next_ref = unsafe { &mut *new_next_ptr };
+        block.next = Some(new_next_ref);
+    }
+
+    /// Aligns a layout such that that the allocated memory region
     /// is also capable of holding the block structure.
     fn block_align_size(&self, layout: Layout) -> (usize, usize) {
-        let layout = layout.align_to(core::mem::align_of::<Block>())
-                        .expect("Couldn't align block")
-                        .pad_to_align();
+        let layout = layout
+            .align_to(core::mem::align_of::<Block>())
+            .expect("Couldn't align block")
+            .pad_to_align();
 
         let size = layout.size() + core::mem::size_of::<Block>();
         (size, layout.align())
@@ -109,7 +164,7 @@ unsafe impl<'a> Allocator for Safe<LinkedListHeap> {
         let block = allocator.allocate_internal(size, align);
 
         if let Err(_) = block {
-            return Err(AllocError)
+            return Err(AllocError);
         }
 
         let block = block.unwrap();
@@ -118,8 +173,9 @@ unsafe impl<'a> Allocator for Safe<LinkedListHeap> {
         Ok(slice)
     }
 
-    unsafe fn deallocate(&self, _ptr: NonNull<u8>, _layout: Layout) {
-        todo!()
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        let mut allocator = self.lock();
+        allocator.dealloc_internal(ptr.addr().get(), layout.size());
     }
 }
 
@@ -132,12 +188,13 @@ unsafe impl GlobalAlloc for Safe<LinkedListHeap> {
 
         match block {
             Ok(ptr) => ptr,
-            Err(_) => core::ptr::null_mut()
+            Err(_) => core::ptr::null_mut(),
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        todo!()
+        let mut allocator = self.lock();
+        allocator.dealloc_internal(ptr as usize, layout.size());
     }
 }
 

@@ -5,7 +5,13 @@ mod simple_page_frame_allocator;
 
 use multiboot2::BootInformation;
 
-use crate::{print, mem::{paging::{remap_kernel, Page, entry::EntryFlags}, heap::{HEAP_START, HEAP_SIZE}}};
+use crate::{
+    mem::{
+        heap::{HEAP_SIZE, HEAP_START},
+        paging::{entry::EntryFlags, remap_kernel, Page},
+    },
+    print,
+};
 
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
 
@@ -124,6 +130,10 @@ pub fn init(boot_info: &BootInformation) {
     let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
 
     for page in Page::range(heap_start, heap_end) {
-        active_table.map(page, EntryFlags::PRESENT | EntryFlags::WRITABLE, &mut allocator);
+        active_table.map(
+            page,
+            EntryFlags::PRESENT | EntryFlags::WRITABLE,
+            &mut allocator,
+        );
     }
 }
