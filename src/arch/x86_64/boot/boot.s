@@ -166,7 +166,7 @@ p2_table:
 
 ; stack
 stack_bottom:
-    resb 64
+    resb 4096 * 4
 stack_top:
 
 

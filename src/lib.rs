@@ -6,6 +6,7 @@
 #![feature(global_allocator)]
 #![feature(const_mut_refs)]
 #![feature(strict_provenance)]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 extern crate multiboot2;
@@ -15,12 +16,17 @@ extern crate spinning_top;
 #[macro_use]
 extern crate bitflags;
 
+#[macro_use]
+extern crate lazy_static;
+
+mod arch;
 mod io;
 mod mem;
 mod test;
 mod utils;
 
 use core::alloc::Layout;
+use core::arch::asm;
 use core::borrow::BorrowMut;
 use core::panic::PanicInfo;
 
@@ -59,6 +65,9 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         }
     };
 
+    arch::x86_64::idt::load_idt();
+    unsafe { asm!("int 0x34") };
+
     enable_nxe_bit();
     enable_write_protect_bit();
 
@@ -69,30 +78,6 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     }
 
     print!("[ OK ] Initialized kernel heap...\n");
-
-    let l = Layout::new::<u8>();
-    let ptr = unsafe { alloc::alloc::alloc(l) };
-
-    unsafe {
-        ptr.write(5 as u8);
-    };
-
-    print!("[ OK ] p1_test_value: {:?}\n", unsafe { ptr.read() });
-
-    let l2 = Layout::new::<u8>();
-    let ptr2 = unsafe { alloc::alloc::alloc(l) };
-
-    unsafe {
-        ptr.write(5 as u8);
-    };
-
-    print!("[ OK ] p1_test_value: {:?}\n", unsafe { ptr.read() });
-
-
-    unsafe { alloc::alloc::dealloc(ptr2, l2) }
-    unsafe { alloc::alloc::dealloc(ptr, l) }
-
-    let x = vec![4, 3, 2, 5];
 
     loop {}
 }

@@ -4,11 +4,11 @@ iso := build/os-$(arch).iso
 target ?= $(arch)-bubble-os
 rust_os := target/$(target)/debug/libbubble_os.a
 
-linker_script := src/arch/$(arch)/linker.ld
-grub_cfg := src/arch/$(arch)/grub.cfg
-assembly_source_files := $(wildcard src/arch/$(arch)/*.s)
-assembly_object_files := $(patsubst src/arch/$(arch)/%.s, \
-	build/arch/$(arch)/%.o, $(assembly_source_files))
+linker_script := src/arch/$(arch)/boot/linker.ld
+grub_cfg := src/arch/$(arch)/boot/grub.cfg
+assembly_source_files := $(wildcard src/arch/$(arch)/boot/*.s)
+assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
+	build/arch/$(arch)/boot/%.o, $(assembly_source_files))
 
 .PHONY: all clean run iso kernel
 
@@ -44,24 +44,24 @@ $(iso): $(kernel) $(grub_cfg)
 # rm -r build/isofiles
 
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
-	ld -n --gc-sections -T $(linker_script) -o $(kernel) build/arch/$(arch)/kernel_start.o $(assembly_object_files) $(rust_os)
+	ld -n --gc-sections -T $(linker_script) -o $(kernel) build/arch/$(arch)/boot/kernel_start.o $(assembly_object_files) $(rust_os)
 kernel:
 	RUST_TARGET_PATH=$$(pwd) xargo build --target $(target)
 
 test: kernel_start_test $(iso) run_without_building
 
 kernel_start:
-	mkdir -p build/arch/$(arch)/
+	mkdir -p build/arch/$(arch)/boot/
 	echo "building: kernel_start"
-	nasm -felf64 src/arch/$(arch)/kernel_start.asm -o build/arch/$(arch)/kernel_start.o
+	nasm -felf64 src/arch/$(arch)/boot/kernel_start.asm -o build/arch/$(arch)/boot/kernel_start.o
 
 kernel_start_test:
-	mkdir -p build/arch/$(arch)/
+	mkdir -p build/arch/$(arch)/boot/
 	echo "building: kernel_start_test"
-	nasm -felf64 src/arch/$(arch)/kernel_start_test.asm -o build/arch/$(arch)/kernel_start.o
+	nasm -felf64 src/arch/$(arch)/boot/kernel_start_test.asm -o build/arch/$(arch)/boot/kernel_start.o
 
 # compile assembly files
-build/arch/$(arch)/%.o: src/arch/$(arch)/%.s
+build/arch/$(arch)/boot/%.o: src/arch/$(arch)/boot/%.s
 	mkdir -p $(shell dirname $@)
 	echo $<
 	nasm -felf64 $< -o $@
