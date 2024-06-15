@@ -1,4 +1,4 @@
-use core::ops::{Deref, DerefMut};
+use core::ops::{Add, Deref, DerefMut};
 
 use multiboot2::BootInformation;
 use x86_64::instructions::tlb;
@@ -70,6 +70,15 @@ impl Page {
     }
 }
 
+impl Add<usize> for Page {
+    type Output = Page;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Page { page_number: self.page_number + rhs }
+    }
+}
+
+#[derive(Clone)]
 pub struct PageIter {
     start: Page,
     end: Page,

@@ -53,7 +53,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let boot_info = match boot_info_load_res {
         Ok(info) => {
-            print!("[ OK ] Boot info successfully loaded!\n");
+            print!("[ OK ] cessfully loaded!\n");
             info
         }
         Err(e) => {
@@ -65,19 +65,25 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         }
     };
 
-    arch::x86_64::idt::load_idt();
-    unsafe { asm!("int 0x34") };
-
     enable_nxe_bit();
     enable_write_protect_bit();
 
-    mem::init(&boot_info);
+    let mut mem_controller = mem::init(&boot_info);
 
     unsafe {
         heap::init_heap();
     }
 
     print!("[ OK ] Initialized kernel heap...\n");
+
+    arch::x86_64::idt::load_idt(&mut mem_controller);
+
+    // trigger page fault
+    fn stack_overflow() {
+        stack_overflow();
+    }
+
+    stack_overflow();
 
     loop {}
 }

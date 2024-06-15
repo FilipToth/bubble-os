@@ -2,8 +2,14 @@ pub mod heap;
 mod linked_list_allocator;
 pub mod paging;
 mod simple_page_frame_allocator;
+mod stack;
+mod stack_alloc;
+mod page_frame;
 
 use multiboot2::BootInformation;
+use paging::ActivePageTable;
+use stack::Stack;
+use stack_alloc::StackAllocator;
 
 use crate::{
     mem::{
@@ -14,70 +20,42 @@ use crate::{
 };
 
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
+pub use self::page_frame::{PAGE_SIZE, PageFrame, PageFrameAllocator};
 
 pub type VirtualAddress = usize;
 pub type PhysicalAddress = usize;
 
-pub static PAGE_SIZE: usize = 4096;
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PageFrame {
-    pub frame_number: usize,
+pub struct MemoryController {
+    active_table: ActivePageTable,
+    frame_allocator: SimplePageFrameAllocator,
+    stack_allocator: StackAllocator,
 }
 
-impl PageFrame {
-    fn from_address(addr: usize) -> PageFrame {
-        let number = addr / PAGE_SIZE;
-        PageFrame {
-            frame_number: number,
+impl MemoryController {
+    fn new(
+        active_table: ActivePageTable,
+        frame_allocator: SimplePageFrameAllocator,
+        stack_allocator: StackAllocator,
+    ) -> MemoryController {
+        MemoryController {
+            active_table: active_table,
+            frame_allocator: frame_allocator,
+            stack_allocator: stack_allocator,
         }
     }
 
-    pub fn start_address(&self) -> PhysicalAddress {
-        self.frame_number * PAGE_SIZE
-    }
-
-    fn clone(&self) -> PageFrame {
-        PageFrame {
-            frame_number: self.frame_number,
-        }
-    }
-
-    fn range(start: PageFrame, end: PageFrame) -> PageFrameIter {
-        PageFrameIter {
-            start: start,
-            end: end,
-        }
+    pub fn alloc_stack(&mut self, pages_to_alloc: usize) -> Option<Stack> {
+        self.stack_allocator.alloc(
+            &mut self.active_table,
+            &mut self.frame_allocator,
+            pages_to_alloc,
+        )
     }
 }
 
-struct PageFrameIter {
-    start: PageFrame,
-    end: PageFrame,
-}
-
-impl Iterator for PageFrameIter {
-    type Item = PageFrame;
-
-    fn next(&mut self) -> Option<PageFrame> {
-        if self.start > self.end {
-            return None;
-        }
-
-        let frame = self.start.clone();
-        self.start.frame_number += 1;
-        Some(frame)
-    }
-}
-
-pub trait PageFrameAllocator {
-    fn falloc(&mut self) -> Option<PageFrame>;
-    fn free(&mut self, frame: PageFrame);
-}
-
-pub fn init(boot_info: &BootInformation) {
+pub fn init(boot_info: &BootInformation) -> MemoryController {
     let map_tag = boot_info.memory_map_tag().unwrap();
-    print!("\n[ OK ] Kernel Init Done, Entering Rust 64-Bit Mode\n");
+    print!("\n[ OK ] Kernel Init Done, Entered Rust 64-Bit Mode\n");
 
     let elf_sections = boot_info.elf_sections().unwrap();
     let kernel_start = elf_sections
@@ -136,4 +114,14 @@ pub fn init(boot_info: &BootInformation) {
             &mut allocator,
         );
     }
+
+    let stack_allocator = {
+        let stack_start = heap_end + 1;
+        let stack_end = stack_start + 100;
+        let stack_range = Page::range(stack_start, stack_end);
+
+        StackAllocator::new(stack_range)
+    };
+
+    MemoryController::new(active_table, allocator, stack_allocator)
 }
