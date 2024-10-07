@@ -1,11 +1,10 @@
 use core::{
     alloc::{AllocError, Allocator, GlobalAlloc, Layout},
-    ops::DerefMut,
     ptr::NonNull,
 };
 
 use crate::utils::safe::Safe;
-use crate::{print, HEAP_ALLOCATOR};
+use crate::HEAP_ALLOCATOR;
 
 pub const HEAP_START: usize = 0o_000_002_000_000_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB
@@ -67,7 +66,7 @@ impl LinkedListHeap {
         self.head.next = Some(start_block);
     }
 
-    fn allocate_internal(&mut self, size: usize, align: usize) -> Result<*mut u8, AllocError> {
+    fn allocate_internal(&mut self, size: usize, _align: usize) -> Result<*mut u8, AllocError> {
         let mut head = &mut self.head;
         loop {
             let Some(ref mut block) = head.next else {
@@ -79,7 +78,7 @@ impl LinkedListHeap {
                 let remainder_size = block.size - size;
                 let remainder_addr = block.address + size;
 
-                let mut remainder_next = match create_block(remainder_addr, remainder_size) {
+                let remainder_next = match create_block(remainder_addr, remainder_size) {
                     Some(b) => b,
                     None => unreachable!(),
                 };
@@ -100,7 +99,7 @@ impl LinkedListHeap {
         return Err(AllocError);
     }
 
-    fn dealloc_internal(&mut self, addr: usize, size: usize) {
+    fn dealloc_internal(&mut self, addr: usize, _size: usize) {
         let block_size = core::mem::size_of::<Block>();
         let block_addr = addr - block_size;
 
@@ -210,7 +209,7 @@ fn create_block(addr: usize, size: usize) -> Option<&'static mut Block> {
     // pointers, when reading out of the
     // reference, the addr is suddenly zero
 
-    let mut block = Block::new(addr, size);
+    let block = Block::new(addr, size);
 
     let block_ptr = addr as *mut Block;
     unsafe { block_ptr.write(block) };

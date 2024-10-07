@@ -46,7 +46,7 @@ $(iso): $(kernel) $(grub_cfg)
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
 	ld -n --gc-sections -T $(linker_script) -o $(kernel) build/arch/$(arch)/boot/kernel_start.o $(assembly_object_files) $(rust_os)
 kernel:
-	RUST_TARGET_PATH=$$(pwd) xargo build --target $(target)
+	RUST_TARGET_PATH=$(shell pwd) xargo build --target $(target)
 
 test: kernel_start_test $(iso) run_without_building
 

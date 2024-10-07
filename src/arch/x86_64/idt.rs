@@ -42,7 +42,6 @@ extern "x86-interrupt" fn page_fault_isr(
 
 extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
     print!("[ OK ] Debug isr called!\n");
-    loop {}
 }
 
 pub fn load_idt(mem_controller: &mut MemoryController) {

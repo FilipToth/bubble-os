@@ -25,13 +25,7 @@ mod mem;
 mod test;
 mod utils;
 
-use core::alloc::Layout;
-use core::arch::asm;
-use core::borrow::BorrowMut;
 use core::panic::PanicInfo;
-
-use alloc::boxed::Box;
-use alloc::vec;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
@@ -76,14 +70,17 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Initialized kernel heap...\n");
 
-    arch::x86_64::idt::load_idt(&mut mem_controller);
+    arch::x86_64::gdt::init_gdt();
+    print!("[ OK ] Initialized kernel GDT\n");
 
-    // trigger page fault
-    fn stack_overflow() {
-        stack_overflow();
+    arch::x86_64::idt::load_idt(&mut mem_controller);
+    print!("[ OK ] Initialized kernel interrupts\n");
+
+    unsafe {
+        core::arch::asm!("int 0x34");
     }
 
-    stack_overflow();
+    print!("[ OK ] Returned from interrupt\n");
 
     loop {}
 }
