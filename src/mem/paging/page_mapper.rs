@@ -51,8 +51,6 @@ impl Mapper {
         let p1 = p2.next_table_create(page.p2_index(), allocator);
 
         let entry = &mut p1[page.p1_index()];
-
-        // this assert is causing the issues...
         assert!(entry.is_unused());
 
         entry.set(frame, flags | EntryFlags::PRESENT);
@@ -88,6 +86,30 @@ impl Mapper {
     {
         let page = Page::for_address(frame.start_address());
         self.map_to(page, frame, flags, allocator);
+    }
+
+    /// Maps a range of pages to its exact corresponding page frame
+    ///
+    /// # Arguments
+    ///
+    /// - `start` the start page frame for the mapping
+    /// - `end` the end page frame for the mapping
+    /// - `flags` the page table entry flags to be used
+    /// - `allocator` needs a page frame allocator to create
+    /// page tables
+    pub fn map_range_identity<A>(
+        &mut self,
+        start: PageFrame,
+        end: PageFrame,
+        flags: EntryFlags,
+        allocator: &mut A,
+    ) where
+        A: PageFrameAllocator,
+    {
+        let range = PageFrame::range(start, end);
+        for frame in range {
+            self.map_identity(frame, flags, allocator);
+        }
     }
 
     /// Removes the page mapping, frees all frames contained
@@ -127,6 +149,26 @@ impl Mapper {
 
         // let frame = entry.get_frame().unwrap();
         // allocator.free(frame);
+    }
+
+    /// Checks whether a page has already been mapped.
+    ///
+    /// # Arguments
+    ///
+    /// - `page` the page to be checked
+    /// - `allocator` the page frame allocator used to
+    /// get the page indices
+    pub fn is_unused<A>(&mut self, page: Page, allocator: &mut A) -> bool
+    where
+        A: PageFrameAllocator,
+    {
+        let p4 = self.get_p4_mut();
+        let p3 = p4.next_table_create(page.p4_index(), allocator);
+        let p2 = p3.next_table_create(page.p3_index(), allocator);
+        let p1 = p2.next_table_create(page.p2_index(), allocator);
+
+        let entry = &mut p1[page.p1_index()];
+        entry.is_unused()
     }
 
     /// Translates a virtual address to a physical one.

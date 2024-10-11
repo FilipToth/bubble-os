@@ -1,3 +1,6 @@
+use core::cell::RefCell;
+
+use alloc::rc::Rc;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{mem::MemoryController, print};
@@ -44,8 +47,7 @@ extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
     print!("[ OK ] Debug isr called!\n");
 }
 
-pub fn load_idt(mem_controller: &mut MemoryController) {
-    let double_fault_stack = mem_controller.alloc_stack(1).unwrap();
-
+pub fn load_idt() {
+    // TODO: Initialize interrupt stack
     IDT.load();
 }

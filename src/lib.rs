@@ -8,6 +8,7 @@
 #![feature(strict_provenance)]
 #![feature(abi_x86_interrupt)]
 
+extern crate acpi;
 extern crate alloc;
 extern crate multiboot2;
 extern crate rlibc;
@@ -47,12 +48,15 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let boot_info = match boot_info_load_res {
         Ok(info) => {
-            print!("[ OK ] cessfully loaded!\n");
+            print!(
+                "[ OK ] Successfully loaded boot info at addr: 0x{:x}\n",
+                boot_info_addr
+            );
             info
         }
         Err(e) => {
             print!(
-                "Couldn't load boot info at addr: {:x}\nErr: {:?}\n",
+                "Couldn't load boot info at addr: 0x{:x}\nErr: {:?}\n",
                 boot_info_addr, e
             );
             return;
@@ -62,7 +66,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     enable_nxe_bit();
     enable_write_protect_bit();
 
-    let mut mem_controller = mem::init(&boot_info);
+    mem::init(&boot_info);
 
     unsafe {
         heap::init_heap();
@@ -73,7 +77,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     arch::x86_64::gdt::init_gdt();
     print!("[ OK ] Initialized kernel GDT\n");
 
-    arch::x86_64::idt::load_idt(&mut mem_controller);
+    arch::x86_64::idt::load_idt();
     print!("[ OK ] Initialized kernel interrupts\n");
 
     unsafe {
@@ -81,6 +85,8 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     }
 
     print!("[ OK ] Returned from interrupt\n");
+
+    arch::x86_64::acpi::init_acpi(&boot_info);
 
     loop {}
 }

@@ -74,7 +74,9 @@ impl Add<usize> for Page {
     type Output = Page;
 
     fn add(self, rhs: usize) -> Self::Output {
-        Page { page_number: self.page_number + rhs }
+        Page {
+            page_number: self.page_number + rhs,
+        }
     }
 }
 
@@ -243,9 +245,12 @@ where
         // remap multiboot info structure
         let multiboot_start = PageFrame::from_address(boot_info.start_address());
         let multiboot_end = PageFrame::from_address(boot_info.end_address() - 1);
-        for frame in PageFrame::range(multiboot_start, multiboot_end) {
-            mapper.map_identity(frame, EntryFlags::PRESENT, allocator);
-        }
+        mapper.map_range_identity(
+            multiboot_start,
+            multiboot_end,
+            EntryFlags::PRESENT,
+            allocator,
+        );
 
         let elf_sections = boot_info.elf_sections().unwrap();
         for section in elf_sections {
@@ -266,11 +271,7 @@ where
             let start_frame = PageFrame::from_address(section.start_address() as usize);
             let end_frame = PageFrame::from_address((section.end_address() - 1) as usize);
 
-            // let a = end_frame.start_address();
-            let range = PageFrame::range(start_frame, end_frame);
-            for frame in range {
-                mapper.map_identity(frame, flags, allocator);
-            }
+            mapper.map_range_identity(start_frame, end_frame, flags, allocator);
         }
     });
 

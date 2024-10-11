@@ -1,13 +1,14 @@
 pub mod heap;
 mod linked_list_allocator;
+mod page_frame;
 pub mod paging;
 mod simple_page_frame_allocator;
 mod stack;
 mod stack_alloc;
-mod page_frame;
 
 use multiboot2::BootInformation;
 use paging::ActivePageTable;
+use spin::Mutex;
 use stack::Stack;
 use stack_alloc::StackAllocator;
 
@@ -19,17 +20,19 @@ use crate::{
     print,
 };
 
+pub use self::page_frame::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
-pub use self::page_frame::{PAGE_SIZE, PageFrame, PageFrameAllocator};
 
 pub type VirtualAddress = usize;
 pub type PhysicalAddress = usize;
 
 pub struct MemoryController {
-    active_table: ActivePageTable,
-    frame_allocator: SimplePageFrameAllocator,
-    stack_allocator: StackAllocator,
+    pub active_table: ActivePageTable,
+    pub frame_allocator: SimplePageFrameAllocator,
+    pub stack_allocator: StackAllocator,
 }
+
+pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::new(None);
 
 impl MemoryController {
     fn new(
@@ -53,7 +56,7 @@ impl MemoryController {
     }
 }
 
-pub fn init(boot_info: &BootInformation) -> MemoryController {
+pub fn init(boot_info: &BootInformation) {
     let map_tag = boot_info.memory_map_tag().unwrap();
     print!("\n[ OK ] Kernel Init Done, Entered Rust 64-Bit Mode\n");
 
@@ -97,7 +100,6 @@ pub fn init(boot_info: &BootInformation) -> MemoryController {
     // for some reason I have to allocate
     // and empty page here or else it
     // panics and faults
-
     let _ = allocator.falloc().unwrap();
 
     let mut active_table = remap_kernel(&mut allocator, &boot_info);
@@ -123,5 +125,8 @@ pub fn init(boot_info: &BootInformation) -> MemoryController {
         StackAllocator::new(stack_range)
     };
 
-    MemoryController::new(active_table, allocator, stack_allocator)
+    let controller = MemoryController::new(active_table, allocator, stack_allocator);
+
+    let mut guard = GLOBAL_MEMORY_CONTROLLER.lock();
+    *guard = Some(controller);
 }

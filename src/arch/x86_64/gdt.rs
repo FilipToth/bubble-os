@@ -14,7 +14,7 @@ const STACK_SIZE: usize = 1024 * 8 * 16;
 struct Selectors {
     tss: SegmentSelector,
     code: SegmentSelector,
-    data: SegmentSelector
+    data: SegmentSelector,
 }
 
 lazy_static! {
@@ -32,7 +32,11 @@ lazy_static! {
         let code = gdt.add_entry(Descriptor::kernel_code_segment());
         let data = gdt.add_entry(Descriptor::kernel_data_segment());
 
-        let selectors = Selectors { tss: tss, code: code, data: data };
+        let selectors = Selectors {
+            tss: tss,
+            code: code,
+            data: data,
+        };
         (gdt, selectors)
     };
 }
