@@ -8,7 +8,6 @@
 #![feature(strict_provenance)]
 #![feature(abi_x86_interrupt)]
 
-extern crate acpi;
 extern crate alloc;
 extern crate multiboot2;
 extern crate rlibc;

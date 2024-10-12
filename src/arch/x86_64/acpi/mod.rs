@@ -1,27 +1,39 @@
-use core::{borrow::BorrowMut, cell::RefCell, ptr::NonNull};
-
-use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use multiboot2::{BootInformation, MaybeDynSized, TagHeader};
-use rsdt::{parse_rsdt, AcpiSDTHeader};
+use mcfg::parse_mcfg;
+use multiboot2::BootInformation;
+use rsdt::parse_rsdt;
 
 use crate::{
     mem::{
         paging::{entry::EntryFlags, Page},
-        MemoryController, PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
+        PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
     },
     print,
 };
 
 mod rsdt;
+mod mcfg;
+
+#[repr(C)]
+pub struct AcpiSDTHeader {
+    pub signature: [u8; 4],
+    pub length: u32,
+    pub revision: u8,
+    pub checksum: u8,
+    pub oem_id: [u8; 6],
+    pub oem_table_id: [u8; 8],
+    pub oem_revision: u32,
+    pub creator_id: u32,
+    pub creator_revision: u32,
+}
 
 pub fn init_acpi(boot_info: &BootInformation) {
     let Some(rsdp) = boot_info.rsdp_v1_tag() else {
-        print!("[ ERR ] Cannot find RSDP v1");
+        print!("[ ERR ] Cannot find RSDP v1\n");
         loop {}
     };
 
     if !rsdp.checksum_is_valid() {
-        print!("[ ERR ] Invalid RSDP v2 checksum");
+        print!("[ ERR ] Invalid RSDP v2 checksum\n");
         loop {}
     }
 
@@ -29,11 +41,13 @@ pub fn init_acpi(boot_info: &BootInformation) {
     acpi_mapping(rsdt_address, PAGE_SIZE);
 
     let rsdt = parse_rsdt(rsdt_address);
-    print!(
-        "[ OK ] Got RSDT with length: 0x{:x}, sizeof header: 0x{:x}\n",
-        rsdt.length,
-        core::mem::size_of::<AcpiSDTHeader>()
-    );
+
+    match (rsdt.mcfg) {
+        Some(mcfg) => parse_mcfg(mcfg),
+        None => {
+            print!("[ ERR ] MCFG Not found\n")
+        }
+    }
 }
 
 fn acpi_mapping(physical_address: usize, size: usize) {
@@ -59,4 +73,13 @@ fn acpi_mapping(physical_address: usize, size: usize) {
     for frame in range {
         table.map_identity(frame, EntryFlags::PRESENT, allocator);
     }
+}
+
+pub fn complies_table_checksum(slice: &[u8]) -> bool {
+    let mut sum: u8 = 0;
+    for &byte in slice {
+        sum = sum.wrapping_add(byte);
+    }
+
+    sum == 0
 }
