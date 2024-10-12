@@ -23,7 +23,7 @@ int_run: kernel_start iso run_without_building_debug_interrupts
 debug_run: kernel_start iso run_wait_for_debugger
 
 run_without_building:
-	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -device pci-serial,chardev=serial0
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35
 
 run_without_building_debug_interrupts:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot -machine q35 -d int

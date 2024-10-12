@@ -85,7 +85,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Returned from interrupt\n");
 
-    arch::x86_64::acpi::init_acpi(&boot_info);
+    let devices = arch::x86_64::acpi::init_acpi(&boot_info);
 
     loop {}
 }

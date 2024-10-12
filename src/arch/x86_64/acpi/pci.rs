@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{mem::PAGE_SIZE, print};
 
 use super::{acpi_mapping, mcfg::Mcfg};
@@ -18,7 +20,86 @@ struct PciDeviceHeader {
     bist: u8,
 }
 
-fn enumerate_function(dev_addr: usize, function: usize, device: usize, bus: u8) {
+#[derive(Debug, PartialEq)]
+pub enum PciDeviceClass {
+    Unknown,
+    NonVGACompatibleUnclassifiedDevice,
+    VGACompatibleUnclassifiedDevice,
+    SATAController,
+    EthernetController,
+    VGACompatibleController,
+    HostBridge,
+    ISABridge,
+    SMBusController,
+}
+
+pub struct PciDevice {
+    pub pci_base_addr: usize,
+    pub vendor: u16,
+    pub device_class: PciDeviceClass,
+}
+
+pub struct PciDevices {
+    pub devices: Vec<PciDevice>,
+}
+
+impl PciDevices {
+    fn new() -> PciDevices {
+        PciDevices {
+            devices: Vec::new(),
+        }
+    }
+
+    fn add_device(&mut self, dev: PciDevice) {
+        self.devices.push(dev);
+    }
+
+    pub fn get_device(&self, class: PciDeviceClass) -> Option<&PciDevice> {
+        for device in &self.devices {
+            if device.device_class != class {
+                continue;
+            }
+
+            return Some(device);
+        }
+
+        None
+    }
+}
+
+fn get_device_class(class: u8, subclass: u8) -> PciDeviceClass {
+    match class {
+        0x00 => match subclass {
+            0x00 => PciDeviceClass::NonVGACompatibleUnclassifiedDevice,
+            0x01 => PciDeviceClass::VGACompatibleUnclassifiedDevice,
+            _ => PciDeviceClass::Unknown,
+        },
+        0x01 => match subclass {
+            0x06 => PciDeviceClass::SATAController,
+            _ => PciDeviceClass::Unknown,
+        },
+        0x02 => match subclass {
+            0x00 => PciDeviceClass::EthernetController,
+            _ => PciDeviceClass::Unknown,
+        },
+        0x03 => match subclass {
+            0x00 => PciDeviceClass::VGACompatibleController,
+            _ => PciDeviceClass::Unknown,
+        },
+        0x06 => match subclass {
+            0x00 => PciDeviceClass::HostBridge,
+            0x01 => PciDeviceClass::ISABridge,
+            _ => PciDeviceClass::Unknown,
+        },
+        0x0C => match subclass {
+            0x05 => PciDeviceClass::SMBusController,
+            _ => PciDeviceClass::Unknown,
+        },
+        _ => PciDeviceClass::Unknown,
+    }
+}
+
+fn enumerate_function(dev_addr: usize, function: usize, devices: &mut PciDevices) {
     let offset = (function as usize) << 12;
     let func_addr = dev_addr + offset;
     acpi_mapping(func_addr, PAGE_SIZE);
@@ -29,13 +110,19 @@ fn enumerate_function(dev_addr: usize, function: usize, device: usize, bus: u8) 
         return;
     }
 
-    print!(
-        "[ PCI ] function (f: {}, d: {}, b: {}), vendor: 0x{:X}, dev_id: 0x{:X}\n",
-        function, device, bus, header.vendor_id, header.device_id
-    );
+    let device_class = get_device_class(header.dev_class, header.subclass);
+    print!("[ PCI ] Found {:?}\n", device_class);
+
+    let device = PciDevice {
+        pci_base_addr: func_addr,
+        vendor: header.vendor_id,
+        device_class,
+    };
+
+    devices.add_device(device);
 }
 
-fn enumerate_device(bus_addr: usize, device: usize, bus: u8) {
+fn enumerate_device(bus_addr: usize, device: usize, devices: &mut PciDevices) {
     let offset = (device as usize) << 15;
     let dev_addr = bus_addr + offset;
     acpi_mapping(dev_addr, PAGE_SIZE);
@@ -46,13 +133,12 @@ fn enumerate_device(bus_addr: usize, device: usize, bus: u8) {
         return;
     }
 
-    print!("[ PCI ] device {}, bus {} PRESENT\n", device, bus);
     for function in 0..8 {
-        enumerate_function(dev_addr, function, device, bus);
+        enumerate_function(dev_addr, function, devices);
     }
 }
 
-fn enumerate_bus(base_addr: usize, bus: u8) {
+fn enumerate_bus(base_addr: usize, bus: u8, devices: &mut PciDevices) {
     let offset = (bus as usize) << 20;
     let bus_addr = base_addr + offset;
     acpi_mapping(bus_addr, PAGE_SIZE);
@@ -63,19 +149,21 @@ fn enumerate_bus(base_addr: usize, bus: u8) {
         return;
     }
 
-    print!("[ PCI ] bus {} PRESENT\n", bus);
     for device in 0..32 {
-        enumerate_device(bus_addr, device, bus);
+        enumerate_device(bus_addr, device, devices);
     }
 }
 
-pub fn enumerate_pci(mcfg: Mcfg) {
+pub fn enumerate_pci(mcfg: Mcfg) -> PciDevices {
+    let mut devices = PciDevices::new();
     for entry in mcfg.entries {
         let start = entry.bus_start_num;
         let end = entry.bus_end_num;
 
         for bus in start..end {
-            enumerate_bus(entry.pcie_config_addr as usize, bus);
+            enumerate_bus(entry.pcie_config_addr as usize, bus, &mut devices);
         }
     }
+
+    devices
 }
