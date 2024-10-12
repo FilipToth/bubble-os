@@ -3,7 +3,7 @@ use crate::print;
 use super::{complies_table_checksum, AcpiSDTHeader};
 
 pub struct Rsdt {
-    pub mcfg: Option<&'static AcpiSDTHeader>
+    pub mcfg: Option<&'static AcpiSDTHeader>,
 }
 
 pub fn parse_rsdt(address: usize) -> Rsdt {
@@ -32,12 +32,15 @@ pub fn parse_rsdt(address: usize) -> Rsdt {
         let header = unsafe { &*(*ptr as *const AcpiSDTHeader) };
 
         let signature = core::str::from_utf8(&header.signature).unwrap();
-        print!("[ OK ] Found RSDT Table with Signature: {}, rev: {}\n", signature, header.revision);
+        print!(
+            "[ OK ] Found RSDT Table with Signature: {}, rev: {}\n",
+            signature, header.revision
+        );
 
         match signature {
             "MCFG" => {
                 mcfg = Some(header);
-            },
+            }
             _ => {}
         }
 

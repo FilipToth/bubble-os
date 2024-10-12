@@ -5,16 +5,16 @@ use crate::print;
 use super::{complies_table_checksum, AcpiSDTHeader};
 
 #[repr(C)]
-struct McfgDeviceEntry {
-    pcie_config_addr: u64,
-    pci_segment_group: u16,
-    bus_start_num: u8,
-    bug_end_num: u8,
-    reserved: u32
+pub struct McfgDeviceEntry {
+    pub pcie_config_addr: u64,
+    pub pci_segment_group: u16,
+    pub bus_start_num: u8,
+    pub bus_end_num: u8,
+    pub reserved: u32,
 }
 
-struct Mcfg {
-    entries: Vec<&'static McfgDeviceEntry>
+pub struct Mcfg {
+    pub entries: Vec<&'static McfgDeviceEntry>,
 }
 
 pub fn parse_mcfg(mcfg: &'static AcpiSDTHeader) -> Mcfg {
@@ -44,7 +44,5 @@ pub fn parse_mcfg(mcfg: &'static AcpiSDTHeader) -> Mcfg {
         curr_addr += entry_size;
     }
 
-    Mcfg {
-        entries: entries
-    }
+    Mcfg { entries: entries }
 }

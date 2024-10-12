@@ -1,5 +1,6 @@
 use mcfg::parse_mcfg;
 use multiboot2::BootInformation;
+use pci::enumerate_pci;
 use rsdt::parse_rsdt;
 
 use crate::{
@@ -10,8 +11,9 @@ use crate::{
     print,
 };
 
-mod rsdt;
 mod mcfg;
+mod pci;
+mod rsdt;
 
 #[repr(C)]
 pub struct AcpiSDTHeader {
@@ -42,12 +44,15 @@ pub fn init_acpi(boot_info: &BootInformation) {
 
     let rsdt = parse_rsdt(rsdt_address);
 
-    match (rsdt.mcfg) {
+    let mcfg = match rsdt.mcfg {
         Some(mcfg) => parse_mcfg(mcfg),
         None => {
-            print!("[ ERR ] MCFG Not found\n")
+            print!("[ ERR ] MCFG Not found\n");
+            loop {}
         }
-    }
+    };
+
+    enumerate_pci(mcfg);
 }
 
 fn acpi_mapping(physical_address: usize, size: usize) {
