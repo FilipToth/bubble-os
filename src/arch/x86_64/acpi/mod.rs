@@ -12,7 +12,7 @@ use crate::{
 };
 
 mod mcfg;
-mod pci;
+pub mod pci;
 mod rsdt;
 
 #[repr(C)]

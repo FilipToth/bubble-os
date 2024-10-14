@@ -19,6 +19,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate lazy_static;
 
+mod ahci;
 mod arch;
 mod io;
 mod mem;
