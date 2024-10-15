@@ -1,4 +1,9 @@
-use crate::arch::x86_64::acpi::pci::PciDevice;
+use port::{probe_ports, HBAPort};
+use x86_64::registers::control;
+
+use crate::{arch::x86_64::acpi::{acpi_mapping, pci::{PciDevice, PciDeviceHeaderType0}}, mem::PAGE_SIZE, print};
+
+mod port;
 
 enum FisType {
     RegH2D = 0x27,
@@ -375,4 +380,46 @@ impl FisDMASetup {
     }
 }
 
-pub fn init_ahci(controller: PciDevice) {}
+#[repr(C)]
+struct HBAMemory {
+    // host capability
+    cap: u32,
+    // global host control
+    ghc: u32,
+    // interrupt status
+    is: u32,
+    // port implemented
+    pi: u32,
+    // version
+    vs: u32,
+    // command completion coalescing control
+    ccc_ctl: u32,
+    // command completion coalescing ports
+    ccc_pts: u32,
+    // enclosure management location
+    em_lock: u32,
+    // enclosure management control
+    em_ctl: u32,
+    // host capabilities extended
+    cap2: u32,
+    // BIOS/OS handoff control and status
+    bohc: u32,
+    // reserved
+    rsv: [u8; 0xA0 - 0x2C],
+    // vendor specific registers
+    vendor: [u8; 0x100 - 0xA0],
+    // port control registers
+    ports: [HBAPort; 32],
+}
+
+pub fn init_ahci(controller: &PciDevice) {
+    let addr = controller.pci_base_addr;
+    let header = unsafe { &*(addr as *const PciDeviceHeaderType0) };
+
+    // TODO: proper memory management
+    let hba_mem = unsafe { &*(header.bar5 as *const HBAMemory) };
+    acpi_mapping(header.bar5 as usize, PAGE_SIZE);
+
+    let ports = probe_ports(hba_mem);
+    print!("[ AHCI ] Found {} SATA Port/s\n", ports.len());
+}

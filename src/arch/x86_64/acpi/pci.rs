@@ -5,7 +5,7 @@ use crate::{mem::PAGE_SIZE, print};
 use super::{acpi_mapping, mcfg::Mcfg};
 
 #[repr(C)]
-struct PciDeviceHeader {
+pub struct PciDeviceHeader {
     vendor_id: u16,
     device_id: u16,
     command: u16,
@@ -18,6 +18,29 @@ struct PciDeviceHeader {
     latency_timer: u8,
     header_type: u8,
     bist: u8,
+}
+
+#[repr(C)]
+pub struct PciDeviceHeaderType0 {
+    pub header: PciDeviceHeader,
+    pub bar0: u32,
+    pub bar1: u32,
+    pub bar2: u32,
+    pub bar3: u32,
+    pub bar4: u32,
+    pub bar5: u32,
+    pub cardbus_cis_ptr: u32,
+    pub subsystem_vendor_id: u16,
+    pub subsystem_id: u16,
+    pub expansion_rom_base_addr: u32,
+    pub capabilities_ptr: u8,
+    pub rsv0: u8,
+    pub rsv1: u16,
+    pub rsv2: u32,
+    pub interrupt_line: u8,
+    pub interrupt_pin: u8,
+    pub min_grant: u8,
+    pub max_latency: u8,
 }
 
 #[derive(Debug, PartialEq)]

@@ -10,7 +10,6 @@ use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::mem::{PhysicalAddress, VirtualAddress};
 
 use crate::mem::paging::{Page, TABLE_ENTRY_COUNT};
-use crate::print;
 
 pub struct Mapper {
     p4: Unique<PageTable<PageLevel4>>,

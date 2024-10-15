@@ -55,7 +55,7 @@ pub fn init_acpi(boot_info: &BootInformation) -> PciDevices {
     enumerate_pci(mcfg)
 }
 
-fn acpi_mapping(physical_address: usize, size: usize) {
+pub fn acpi_mapping(physical_address: usize, size: usize) {
     let start_frame = PageFrame::from_address(physical_address);
     let end_frame = PageFrame::from_address(physical_address + size);
 

@@ -27,6 +27,8 @@ mod test;
 mod utils;
 
 use core::panic::PanicInfo;
+use ahci::init_ahci;
+use arch::x86_64::acpi::pci::PciDeviceClass;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
@@ -87,6 +89,8 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     print!("[ OK ] Returned from interrupt\n");
 
     let devices = arch::x86_64::acpi::init_acpi(&boot_info);
+    let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
+    init_ahci(sata_controller);
 
     loop {}
 }

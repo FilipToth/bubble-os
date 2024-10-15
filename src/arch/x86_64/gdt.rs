@@ -7,10 +7,6 @@ use x86_64::{
     },
 };
 
-use crate::print;
-
-const STACK_SIZE: usize = 1024 * 8 * 16;
-
 struct Selectors {
     tss: SegmentSelector,
     code: SegmentSelector,
