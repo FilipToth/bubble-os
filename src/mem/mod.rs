@@ -11,6 +11,7 @@ use paging::ActivePageTable;
 use spin::Mutex;
 use stack::Stack;
 use stack_alloc::StackAllocator;
+use x86_64::structures::idt::Entry;
 
 use crate::{
     mem::{
@@ -53,6 +54,23 @@ impl MemoryController {
             &mut self.frame_allocator,
             pages_to_alloc,
         )
+    }
+
+    pub fn identity_map(&mut self, start: PageFrame, end: PageFrame, entry_flags: EntryFlags) {
+        let allocator = &mut self.frame_allocator;
+        let table = &mut self.active_table;
+
+        let page = Page::for_address(start.start_address());
+        let unused = table.is_unused(page, allocator);
+        if !unused {
+            // already mapped
+            return;
+        }
+
+        let range = PageFrame::range(start, end);
+        for frame in range {
+            table.map_identity(frame, entry_flags, allocator);
+        }
     }
 }
 

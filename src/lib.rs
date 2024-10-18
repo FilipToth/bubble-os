@@ -26,9 +26,9 @@ mod mem;
 mod test;
 mod utils;
 
-use core::panic::PanicInfo;
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
+use core::panic::PanicInfo;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};

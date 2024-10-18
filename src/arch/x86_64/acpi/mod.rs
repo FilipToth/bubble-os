@@ -62,22 +62,7 @@ pub fn acpi_mapping(physical_address: usize, size: usize) {
     let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
     let controller = controller.as_mut().unwrap();
 
-    let allocator = &mut controller.frame_allocator;
-    let table = &mut controller.active_table;
-
-    let page = Page::for_address(physical_address);
-    let unused = table.is_unused(page, allocator);
-    if !unused {
-        // already mapped
-        return;
-    }
-
-    // table.map_range_identity(start_frame, end_frame, EntryFlags::WRITABLE, allocator);
-
-    let range = PageFrame::range(start_frame, end_frame);
-    for frame in range {
-        table.map_identity(frame, EntryFlags::PRESENT, allocator);
-    }
+    controller.identity_map(start_frame, end_frame, EntryFlags::WRITABLE);
 }
 
 pub fn complies_table_checksum(slice: &[u8]) -> bool {
