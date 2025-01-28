@@ -1,3 +1,5 @@
+use core::cell::UnsafeCell;
+
 #[repr(C)]
 pub struct HBAMemory {
     // host capability
@@ -115,43 +117,43 @@ pub struct HBACommandHeader {
 }
 
 impl HBACommandHeader {
-    fn get_cfl(&self) -> u8 {
+    pub fn get_cfl(&self) -> u8 {
         self.cfl_a_w_p & 0b0001_1111
     }
 
-    fn get_atapi_bit(&self) -> u8 {
+    pub fn get_atapi_bit(&self) -> u8 {
         self.cfl_a_w_p & 0b0010_0000
     }
 
-    fn get_write_bit(&self) -> u8 {
+    pub fn get_write_bit(&self) -> u8 {
         self.cfl_a_w_p & 0b0100_0000
     }
 
-    fn get_prefetchable(&self) -> u8 {
+    pub fn get_prefetchable(&self) -> u8 {
         self.cfl_a_w_p & 0b1000_0000
     }
 
-    fn get_reset_bit(&self) -> u8 {
+    pub fn get_reset_bit(&self) -> u8 {
         self.r_b_c_rsv0_pmp & 0b0000_0001
     }
 
-    fn get_bist_bit(&self) -> u8 {
+    pub fn get_bist_bit(&self) -> u8 {
         self.r_b_c_rsv0_pmp & 0b0000_0010
     }
 
-    fn get_clear_busy_bit(&self) -> u8 {
+    pub fn get_clear_busy_bit(&self) -> u8 {
         self.r_b_c_rsv0_pmp & 0b0000_0100
     }
 
-    fn get_port_multiplier_port(&self) -> u8 {
+    pub fn get_port_multiplier_port(&self) -> u8 {
         self.r_b_c_rsv0_pmp & 0b1111_0000
     }
 
-    fn set_cfl(&mut self, val: u8) {
-        self.cfl_a_w_p = (self.cfl_a_w_p & 0b0001_1111) | (val & 0b0001_1111);
+    pub fn set_cfl(&mut self, val: u8) {
+        self.cfl_a_w_p = (self.cfl_a_w_p & !0b0001_1111) | (val & 0b0001_1111);
     }
 
-    fn set_atapi_bit(&mut self, val: bool) {
+    pub fn set_atapi_bit(&mut self, val: bool) {
         if val {
             self.cfl_a_w_p |= 0b0010_0000;
         } else {
@@ -159,7 +161,7 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_write_bit(&mut self, val: bool) {
+    pub fn set_write_bit(&mut self, val: bool) {
         if val {
             self.cfl_a_w_p |= 0b0100_0000;
         } else {
@@ -167,7 +169,7 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_prefetchable_bit(&mut self, val: bool) {
+    pub fn set_prefetchable_bit(&mut self, val: bool) {
         if val {
             self.cfl_a_w_p |= 0b1000_0000;
         } else {
@@ -175,7 +177,7 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_reset_bit(&mut self, val: bool) {
+    pub fn set_reset_bit(&mut self, val: bool) {
         if val {
             self.r_b_c_rsv0_pmp |= 0b0000_0001;
         } else {
@@ -183,7 +185,7 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_bist_bit(&mut self, val: bool) {
+    pub fn set_bist_bit(&mut self, val: bool) {
         if val {
             self.r_b_c_rsv0_pmp |= 0b0000_0010;
         } else {
@@ -191,7 +193,7 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_clear_busy_bit(&mut self, val: bool) {
+    pub fn set_clear_busy_bit(&mut self, val: bool) {
         if val {
             self.r_b_c_rsv0_pmp |= 0b0000_0100;
         } else {
@@ -199,7 +201,47 @@ impl HBACommandHeader {
         }
     }
 
-    fn set_pmport(&mut self, val: u8) {
-        self.r_b_c_rsv0_pmp = (self.r_b_c_rsv0_pmp & 0b1111_0000) | (val & 0b1111_0000);
+    pub fn set_pmport(&mut self, val: u8) {
+        self.r_b_c_rsv0_pmp = (self.r_b_c_rsv0_pmp & !0b1111_0000) | (val & 0b1111_0000);
+    }
+}
+
+#[repr(C)]
+pub struct HBACommandTable {
+    pub command_fis: UnsafeCell<[u8; 64]>,
+    pub atapi_command: [u8; 16],
+    rsv: [u8; 48],
+    pub prdt_entry: [HBAPrdtEntry; 1]
+}
+
+#[repr(C)]
+pub struct HBAPrdtEntry {
+    pub data_base_address: u32,
+    pub data_base_address_upper: u32,
+    rsv0: u32,
+
+    // dw3
+    dbc_rsv1_i: u32
+}
+
+impl HBAPrdtEntry {
+    pub fn get_data_byte_count(&self) -> u32 {
+        self.dbc_rsv1_i & 0x003F_FFFF
+    }
+
+    pub fn get_interrupt_on_completion(&self) -> bool {
+        (self.dbc_rsv1_i & 0x8000_0000) != 0
+    }
+
+    pub fn set_data_byte_count(&mut self, val: u32) {
+        self.dbc_rsv1_i = (self.dbc_rsv1_i & !0x003F_FFFF) | (val & 0x003F_FFFF);
+    }
+
+    pub fn set_interrupt_on_completion(&mut self, val: bool) {
+        if val {
+            self.dbc_rsv1_i |= 0x8000_0000;
+        } else {
+            self.dbc_rsv1_i &= !0x8000_0000;
+        }
     }
 }

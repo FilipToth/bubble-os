@@ -1,5 +1,5 @@
 
-enum FisType {
+pub enum FisType {
     RegH2D = 0x27,
     RegD2H = 0x34,
     DMAAct = 0x39,
@@ -11,53 +11,53 @@ enum FisType {
 }
 
 #[repr(C)]
-struct FisRegH2D {
+pub struct FisRegH2D {
     // dword 0
 
     // should be 0x27
-    fis_type: u8,
+    pub fis_type: u8,
     // 3 bitfields merged into one u8,
     // pmport is the port multiplier
     // rsv0 are the three reserved bits
     // and c is the 1: command, 0: control
     pmport_rsv0_c: u8,
     // command register
-    command: u8,
+    pub command: u8,
     // feature register 7:0
-    feature_low: u8,
+    pub feature_low: u8,
 
     // dword 1
 
     // lba low register, 7:0
-    lba0: u8,
+    pub lba0: u8,
     // lba mid register, 15:8
-    lba1: u8,
+    pub lba1: u8,
     // lba high register, 23:16
-    lba2: u8,
+    pub lba2: u8,
     // device register
-    device: u8,
+    pub device: u8,
 
     // dword 2
 
     // lba register, 31:24
-    lba3: u8,
+    pub lba3: u8,
     // lba register, 39:32
-    lba4: u8,
+    pub lba4: u8,
     // lba register, 47:40
-    lba5: u8,
+    pub lba5: u8,
     // feature register 15:8
-    feature_high: u8,
+    pub feature_high: u8,
 
     // dword 3
 
     // count register 7:0
-    count_low: u8,
+    pub count_low: u8,
     // count register 15:8
-    count_high: u8,
+    pub count_high: u8,
     // isochronous command completion
-    icc: u8,
+    pub icc: u8,
     // control register
-    control: u8,
+    pub control: u8,
 
     // dword 4
 
@@ -75,7 +75,7 @@ impl FisRegH2D {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0_c = (self.pmport_rsv0_c & 0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0_c = (self.pmport_rsv0_c & !0b1111_0000) | (val & 0b0000_1111);
     }
 
     fn set_control_bit(&mut self, val: bool) {
@@ -88,7 +88,7 @@ impl FisRegH2D {
 }
 
 #[repr(C)]
-struct FisRegD2H {
+pub struct FisRegD2H {
     // dword 0
 
     // should be 0x34
@@ -149,7 +149,7 @@ impl FisRegD2H {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0_i_rsv1 = (self.pmport_rsv0_i_rsv1 & 0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0_i_rsv1 = (self.pmport_rsv0_i_rsv1 & !0b1111_0000) | (val & 0b0000_1111);
     }
 
     fn set_interrupt_bit(&mut self, val: bool) {
@@ -162,7 +162,7 @@ impl FisRegD2H {
 }
 
 #[repr(C)]
-struct FisData {
+pub struct FisData {
     // dword 0
 
     // should be 0x46
@@ -183,12 +183,12 @@ impl FisData {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0 = (self.pmport_rsv0 & 0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0 = (self.pmport_rsv0 & !0b1111_0000) | (val & 0b0000_1111);
     }
 }
 
 #[repr(C)]
-struct FisPIOSetup {
+pub struct FisPIOSetup {
     // dword 0
 
     // should be 0x5F
@@ -261,7 +261,7 @@ impl FisPIOSetup {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0_d_i_rsv1 = (self.pmport_rsv0_d_i_rsv1 & 0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0_d_i_rsv1 = (self.pmport_rsv0_d_i_rsv1 & !0b1111_0000) | (val & 0b0000_1111);
     }
 
     fn set_direction(&mut self, val: bool) {
@@ -282,7 +282,7 @@ impl FisPIOSetup {
 }
 
 #[repr(C)]
-struct FisDMASetup {
+pub struct FisDMASetup {
     // dword 0
 
     // should be 0x41
@@ -346,7 +346,7 @@ impl FisDMASetup {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0_d_i_a = (self.pmport_rsv0_d_i_a & 0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0_d_i_a = (self.pmport_rsv0_d_i_a & !0b1111_0000) | (val & 0b0000_1111);
     }
 
     fn set_direction(&mut self, val: bool) {

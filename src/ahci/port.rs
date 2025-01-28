@@ -1,20 +1,6 @@
-use alloc::vec::Vec;
-
 use crate::{mem::{paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE}, print};
 
-use super::hba::{HBACommandHeader, HBAMemory, HBAPort};
-
-const HBA_PORT_IPM_ACTIVE: u32 = 1;
-const HBA_PORT_DET_PRESENT: u32 = 3;
-
-// SATA drive
-const SATA_SIG_ATA: u32 = 0x00000101;
-// SATAPI drive
-const SATA_SIG_ATAPI: u32 = 0xEB140101;
-// Enclosure management bridge
-const SATA_SIG_SEMB: u32 = 0xC33C0101;
-// Port multiplier
-const SATA_SIG_PM: u32 = 0x96690101;
+use super::{fis::{FisRegH2D, FisType}, hba::{HBACommandHeader, HBACommandTable, HBAPort}};
 
 // Start bit
 const HBA_PXCMD_ST: u32 = 0x0001;
@@ -25,22 +11,20 @@ const HBA_PXCMD_FR: u32 = 0x4000;
 // Command list running
 const HBA_PXCMD_CR: u32 = 0x8000;
 
-#[derive(PartialEq, Debug)]
-pub enum AHCIDeviceType {
-    Null,
-    SATA,
-    SEMB,
-    PM,
-    SATAPI,
-}
+const ATA_DEV_BUSY: u32 = 0x80;
+const ATA_DEV_DRQ: u32 = 0x08;
+const ATA_CMD_READ_DMA_EX: u8 = 0x25;
+const ATA_CMD_WRITE_DMA_EX: u8 = 0x35;
+
+const HBA_PXIS_TFES: u32 = 1 << 30;
 
 pub struct AHCIPort {
     port_address: usize,
 }
 
 impl AHCIPort {
-    fn new(port_address: usize) -> AHCIPort {
-        let port = AHCIPort {
+    pub fn new(port_address: usize) -> AHCIPort {
+        let mut port = AHCIPort {
             port_address: port_address,
         };
 
@@ -54,7 +38,7 @@ impl AHCIPort {
         port
     }
 
-    fn init(&mut self) {
+    pub fn init(&mut self) {
         self.stop_cmd();
         let port = self.get_port();
 
@@ -134,58 +118,108 @@ impl AHCIPort {
         port.cmd |= HBA_PXCMD_ST;
     }
 
-    fn read(sector: usize, length: usize) {}
+    pub fn read(&mut self, sector: usize, sector_count: usize, buffer: *mut u8) -> bool {
+        let port = self.get_port();
+        port.is = u32::MAX;
+
+        let mut spin: u64 = 0;
+        while (port.tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ) != 0) && spin < 1_000_000 {
+            spin += 1;
+        }
+
+        if spin == 1_000_000 {
+            // failed
+            return false;
+        }
+
+        let cmd_header = unsafe { &mut *(port.clb as *mut HBACommandHeader) };
+
+        let cfis_len = core::mem::size_of::<FisRegH2D>() / core::mem::size_of::<u32>();
+        cmd_header.set_cfl(cfis_len as u8);
+        cmd_header.set_write_bit(false);
+        cmd_header.prdtl = 1;
+
+        let cmd_table = unsafe { &mut *(cmd_header.ctba as *mut HBACommandTable) };
+        let cmd_table_size = core::mem::size_of::<HBACommandTable>();
+
+        unsafe {
+            core::ptr::write_bytes(cmd_table as *mut HBACommandTable as *mut u8, 0, cmd_table_size);
+        }
+
+        let buffer_addr = buffer as usize;
+
+        cmd_table.prdt_entry[0].data_base_address = buffer_addr as u32;
+        cmd_table.prdt_entry[0].data_base_address_upper = (buffer_addr >> 32) as u32;
+        cmd_table.prdt_entry[0].set_data_byte_count(((sector_count << 9) - 1) as u32);
+        cmd_table.prdt_entry[0].set_interrupt_on_completion(true);
+
+        let fis_cmd = unsafe { &mut *cmd_table.command_fis.get().cast::<FisRegH2D>() };
+
+        fis_cmd.fis_type = FisType::RegH2D as u8;
+        fis_cmd.control = 1;
+        fis_cmd.command = ATA_CMD_READ_DMA_EX;
+
+        let sector_low = sector as u32;
+        let sector_high = (sector >> 32) as u32;
+
+        fis_cmd.lba0 = sector_low as u8;
+        fis_cmd.lba1 = (sector_low >> 8) as u8;
+        fis_cmd.lba2 = (sector_low >> 16) as u8;
+        fis_cmd.lba3 = sector_high as u8;
+        fis_cmd.lba4 = (sector_high >> 8) as u8;
+        fis_cmd.lba5 = (sector_high >> 16) as u8;
+
+        // LBA mode
+        fis_cmd.device = 1 << 6;
+
+        fis_cmd.count_low = (sector_count & 0xFF) as u8;
+        fis_cmd.count_high = ((sector_count >> 8) & 0xFF) as u8;
+
+        self.get_port_ssts();
+
+        // set command issue, dispatch command
+        port.ci = 1;
+
+        loop {
+            print!("[ AHCI ] Port ci: {}\n", port.ci);
+            if port.ci == 0 {
+                break;
+            }
+
+            if port.is & HBA_PXIS_TFES != 0 {
+                // failed
+                return false;
+            }
+        }
+
+        if (port.is & HBA_PXIS_TFES) != 0 {
+            return false;
+        }
+
+        print!("[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n", cmd_header.prdbc);
+
+        print!("[ AHCI ] pxIS: {:b}\n", port.is);
+        print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);
+
+        // success
+        true
+    }
+
+    fn get_port_ssts(&mut self) {
+        let port = self.get_port();
+        let ssts = port.ssts;
+
+        let det = ssts & 0x0F;
+        let spd = (ssts >> 4) & 0x0F;
+        let ipm = (ssts >> 8) & 0x0F;
+
+        print!("[ AHCI ] Port det: 0x{:x}\n", det);
+        print!("[ AHCI ] Port spd: 0x{:x}\n", spd);
+        print!("[ AHCI ] Port ipm: 0x{:x}\n", ipm);
+    }
 
     fn get_port(&mut self) -> &'static mut HBAPort {
         let port = unsafe { &mut *(self.port_address as *mut HBAPort) };
         port
-    }
-}
-
-pub fn probe_ports(abar: &'static HBAMemory) -> Vec<AHCIPort> {
-    let mut pi = abar.pi;
-    let mut ports: Vec<AHCIPort> = Vec::new();
-
-    // an AHCI controller can have 32 ports
-    for i in 0..32 {
-        if pi & 1 != 0 {
-            let hba_port = &abar.ports[i];
-            let port_type = check_port_type(hba_port);
-            if port_type != AHCIDeviceType::SATA && port_type != AHCIDeviceType::SATAPI {
-                continue;
-            }
-
-            // initialize port
-            let port_address = (hba_port as *const HBAPort) as usize;
-            let mut port = AHCIPort::new(port_address);
-
-            port.init();
-            ports.push(port);
-        }
-
-        pi >>= 1;
-    }
-
-    ports
-}
-
-fn check_port_type(port: &HBAPort) -> AHCIDeviceType {
-    let status = port.ssts;
-
-    // interface power management
-    let ipm = (status >> 8) & 0x0F;
-
-    // device detection
-    let det = status & 0x0F;
-
-    if det != HBA_PORT_DET_PRESENT || ipm != HBA_PORT_IPM_ACTIVE {
-        return AHCIDeviceType::Null;
-    }
-
-    match port.sig {
-        SATA_SIG_ATAPI => AHCIDeviceType::SATAPI,
-        SATA_SIG_SEMB => AHCIDeviceType::SEMB,
-        SATA_SIG_PM => AHCIDeviceType::PM,
-        _ => AHCIDeviceType::SATA,
     }
 }
