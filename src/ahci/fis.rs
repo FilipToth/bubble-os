@@ -66,19 +66,19 @@ pub struct FisRegH2D {
 }
 
 impl FisRegH2D {
-    fn get_pmport(&self) -> u8 {
+    pub fn get_pmport(&self) -> u8 {
         self.pmport_rsv0_c & 0b0000_1111
     }
 
-    fn get_control_bit(&self) -> u8 {
+    pub fn get_control_bit(&self) -> u8 {
         self.pmport_rsv0_c & 0b1000_0000
     }
 
-    fn set_pmport(&mut self, val: u8) {
+    pub fn set_pmport(&mut self, val: u8) {
         self.pmport_rsv0_c = (self.pmport_rsv0_c & !0b1111_0000) | (val & 0b0000_1111);
     }
 
-    fn set_control_bit(&mut self, val: bool) {
+    pub fn set_control_bit(&mut self, val: bool) {
         if val {
             self.pmport_rsv0_c |= 0b1000_0000;
         } else {

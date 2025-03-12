@@ -1,3 +1,7 @@
+use core::alloc::Layout;
+
+use alloc::alloc::alloc;
+
 use crate::{mem::{paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE}, print};
 
 use super::{fis::{FisRegH2D, FisType}, hba::{HBACommandHeader, HBACommandTable, HBAPort}};
@@ -15,17 +19,20 @@ const ATA_DEV_BUSY: u32 = 0x80;
 const ATA_DEV_DRQ: u32 = 0x08;
 const ATA_CMD_READ_DMA_EX: u8 = 0x25;
 const ATA_CMD_WRITE_DMA_EX: u8 = 0x35;
+const ATA_CMD_IDENTIFY: u8 = 0xEC;
 
 const HBA_PXIS_TFES: u32 = 1 << 30;
 
 pub struct AHCIPort {
     port_address: usize,
+    max_slots: u32,
 }
 
 impl AHCIPort {
-    pub fn new(port_address: usize) -> AHCIPort {
+    pub fn new(port_address: usize, max_slots: u32) -> AHCIPort {
         let mut port = AHCIPort {
             port_address: port_address,
+            max_slots: max_slots,
         };
 
         let frame = PageFrame::from_address(port_address);
@@ -40,7 +47,9 @@ impl AHCIPort {
 
     pub fn init(&mut self) {
         self.stop_cmd();
+
         let port = self.get_port();
+        print!("[ HBA ] Port SIG: 0x{:x}\n", port.sig);
 
         let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
         let controller = controller.as_mut().unwrap();
@@ -123,9 +132,11 @@ impl AHCIPort {
         port.is = u32::MAX;
 
         let mut spin: u64 = 0;
-        while (port.tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ) != 0) && spin < 1_000_000 {
+        while ((port.tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) != 0) && spin < 1_000_000 {
             spin += 1;
         }
+
+        print!("[ AHCI ] Spin: {}\n", spin);
 
         if spin == 1_000_000 {
             // failed
@@ -146,7 +157,12 @@ impl AHCIPort {
             core::ptr::write_bytes(cmd_table as *mut HBACommandTable as *mut u8, 0, cmd_table_size);
         }
 
+        // translate buffer address to physical address
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut().unwrap();
+
         let buffer_addr = buffer as usize;
+        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
 
         cmd_table.prdt_entry[0].data_base_address = buffer_addr as u32;
         cmd_table.prdt_entry[0].data_base_address_upper = (buffer_addr >> 32) as u32;
@@ -177,8 +193,144 @@ impl AHCIPort {
 
         self.get_port_ssts();
 
+        let slot = (port.sact | port.ci).trailing_zeros();
+        print!("[ AHCI ] Port CMD slot: 0x{:x}\n", slot);
+        print!("[ AHCI ] Port clb: 0x{:x}\n", port.clb);
+        print!("[ AHCI ] Port ctba: 0x{:x}\n", cmd_header.ctba);
+
         // set command issue, dispatch command
         port.ci = 1;
+
+        loop {
+            print!("[ AHCI ] Port ci: {}\n", port.ci);
+            if port.ci == 0 {
+                break;
+            }
+
+            if port.is & HBA_PXIS_TFES != 0 {
+                // failed
+                return false;
+            }
+        }
+
+        if (port.is & HBA_PXIS_TFES) != 0 {
+            return false;
+        }
+
+        print!("[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n", cmd_header.prdbc);
+
+        print!("[ AHCI ] pxIS: {:b}\n", port.is);
+        print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);
+
+        // success
+        true
+    }
+
+    pub fn ahci_identify(&mut self) -> bool {
+        // initialize IDENTIFY output buffer
+        let layout = Layout::array::<u8>(1024).unwrap();
+        let buffer = unsafe { alloc(layout) };
+
+        unsafe {
+            core::ptr::write_bytes(buffer, 0, 1024);
+        }
+
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut().unwrap();
+
+        let buffer_addr = buffer as usize;
+        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
+        print!("[ AHCI BUFFER ] AHCI cmd buffer physical address: 0x{:X}\n", buffer_addr);
+
+        // IS THE BUFFER REALLY IDENTITY MAPPED?
+
+        let port = self.get_port();
+        port.is = u32::MAX;
+
+        let mut spin: u64 = 0;
+        while ((port.tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) != 0) && spin < 1_000_000 {
+            spin += 1;
+        }
+
+        print!("[ AHCI ] Spin: {}\n", spin);
+
+        if spin == 1_000_000 {
+            // failed
+            return false;
+        }
+
+        let cmd_header = unsafe { &mut *(port.clb as *mut HBACommandHeader) };
+
+        let cfis_len = core::mem::size_of::<FisRegH2D>() / core::mem::size_of::<u32>();
+        cmd_header.set_cfl(cfis_len as u8);
+        cmd_header.set_write_bit(false);
+        cmd_header.prdtl = 1;
+
+        let cmd_table = unsafe { &mut *(cmd_header.ctba as *mut HBACommandTable) };
+        let cmd_table_size = core::mem::size_of::<HBACommandTable>();
+
+        unsafe {
+            core::ptr::write_bytes(cmd_table as *mut HBACommandTable as *mut u8, 0, cmd_table_size);
+        }
+
+        cmd_table.prdt_entry[0].data_base_address = buffer_addr as u32;
+        cmd_table.prdt_entry[0].data_base_address_upper = (buffer_addr >> 32) as u32;
+        cmd_table.prdt_entry[0].set_data_byte_count((512 - 1) as u32);
+        cmd_table.prdt_entry[0].set_interrupt_on_completion(true);
+
+        let fis_cmd = unsafe { &mut *cmd_table.command_fis.get().cast::<FisRegH2D>() };
+
+        fis_cmd.fis_type = FisType::RegH2D as u8;
+        fis_cmd.control = 0x00;
+        fis_cmd.command = ATA_CMD_IDENTIFY;
+
+        fis_cmd.lba0 = 0;
+        fis_cmd.lba1 = 0;
+        fis_cmd.lba2 = 0;
+        fis_cmd.lba3 = 0;
+        fis_cmd.lba4 = 0;
+        fis_cmd.lba5 = 0;
+
+        // LBA mode
+        fis_cmd.device = 0;
+
+        fis_cmd.count_low = 0;
+        fis_cmd.count_high = 0;
+
+        // needs control bit for FIS commands
+        fis_cmd.set_control_bit(true);
+
+        self.get_port_ssts();
+
+        let slot = match self.get_free_slot() {
+            Some(s) => s,
+            None => {
+                // reset the port
+                print!("[ AHCI ] Resetting port...\n");
+                port.cmd &= !HBA_PXCMD_ST;
+                port.cmd &= !HBA_PXCMD_FRE;
+
+                // wait until reset
+                while (port.cmd & (HBA_PXCMD_CR | HBA_PXCMD_FR)) != 0 {
+                    core::hint::spin_loop();
+                }
+
+                port.ci = 0;
+                port.sact = 0;
+
+                port.cmd |= HBA_PXCMD_FRE;
+                port.cmd |= HBA_PXCMD_ST;
+
+                self.get_free_slot().unwrap()
+            }
+        };
+
+        print!("[ AHCI ] Port CMD slot: 0x{:x}\n", slot);
+        print!("[ AHCI ] Port clb: 0x{:x}\n", port.clb);
+        print!("[ AHCI ] Port ctba: 0x{:x}\n", cmd_header.ctba);
+
+        // set command issue, dispatch command
+        port.ci = 1 << slot;
 
         loop {
             print!("[ AHCI ] Port ci: {}\n", port.ci);
@@ -221,5 +373,20 @@ impl AHCIPort {
     fn get_port(&mut self) -> &'static mut HBAPort {
         let port = unsafe { &mut *(self.port_address as *mut HBAPort) };
         port
+    }
+
+    fn get_free_slot(&mut self) -> Option<u32> {
+        let port = self.get_port();
+        let mut free_slot: Option<u32> = None;
+
+        for i in 0..self.max_slots {
+            // If neither sact nor ci has the bit set for this slot, it's free.
+            if (port.sact & (1 << i)) == 0 && (port.ci & (1 << i)) == 0 {
+                free_slot = Some(i);
+                break;
+            }
+        }
+
+        free_slot
     }
 }

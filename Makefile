@@ -18,12 +18,12 @@ clean:
 	cargo clean
 	rm -r build
 
-run: kernel_start iso run_without_building
-int_run: kernel_start iso run_without_building_debug_interrupts
-debug_run: kernel_start iso run_wait_for_debugger
+run: kernel_start iso disk run_without_building
+int_run: kernel_start iso disk run_without_building_debug_interrupts
+debug_run: kernel_start iso disk run_wait_for_debugger
 
 run_without_building:
-	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=build/disk.img,if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
 
 run_without_building_debug_interrupts:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot -machine q35 -d int
@@ -35,6 +35,9 @@ gdb:
 	gdb "$(kernel)" -ex "target remote :1234"
 
 iso: $(iso)
+
+disk:
+	qemu-img create -f raw build/disk.img 128M
 
 $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub

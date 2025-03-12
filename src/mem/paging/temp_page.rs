@@ -49,6 +49,7 @@ impl TempPage {
         let already_mapped = active_table
             .translate_to_phys(self.page.start_address())
             .is_none();
+
         assert!(already_mapped, "Temp page is already mapped");
 
         active_table.map_to(self.page, frame, EntryFlags::WRITABLE, &mut self.allocator);
@@ -66,7 +67,6 @@ impl TempPage {
         active_table.unmap(self.page, &mut self.allocator);
     }
 
-    ///
     pub fn map_table_frame(
         &mut self,
         frame: PageFrame,

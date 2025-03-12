@@ -72,6 +72,10 @@ impl MemoryController {
             table.map_identity(frame, entry_flags, allocator);
         }
     }
+
+    pub fn translate_to_physical(&mut self, addr: usize) -> Option<usize> {
+        self.active_table.translate_to_phys(addr)
+    }
 }
 
 pub fn init(boot_info: &BootInformation) {
