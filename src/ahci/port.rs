@@ -2,9 +2,18 @@ use core::alloc::Layout;
 
 use alloc::alloc::alloc;
 
-use crate::{mem::{paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE}, print};
+use crate::{
+    mem::{
+        paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER,
+        PAGE_SIZE,
+    },
+    print,
+};
 
-use super::{fis::{FisRegH2D, FisType}, hba::{HBACommandHeader, HBACommandTable, HBAPort}};
+use super::{
+    fis::{FisRegH2D, FisType},
+    hba::{HBACommandHeader, HBACommandTable, HBAPort},
+};
 
 // Start bit
 const HBA_PXCMD_ST: u32 = 0x0001;
@@ -97,8 +106,11 @@ impl AHCIPort {
             let cmd_table_base_addr = cmd_table_base_frame.start_address();
             let base_addr = cmd_table_base_addr + (i << 8);
 
-            controller.identity_map(cmd_table_base_frame.clone(), cmd_table_base_frame, EntryFlags::WRITABLE);
-
+            controller.identity_map(
+                cmd_table_base_frame.clone(),
+                cmd_table_base_frame,
+                EntryFlags::WRITABLE,
+            );
 
             unsafe {
                 let cmd = &mut *cmd_header.add(i);
@@ -132,7 +144,7 @@ impl AHCIPort {
 
     fn start_cmd(&mut self) {
         let port = self.get_port();
-        while (port.cmd & HBA_PXCMD_CR) != 0 {};
+        while (port.cmd & HBA_PXCMD_CR) != 0 {}
 
         port.cmd |= HBA_PXCMD_FRE;
         port.cmd |= HBA_PXCMD_ST;
@@ -159,7 +171,7 @@ impl AHCIPort {
             cmd: ATA_CMD_IDENTIFY,
             control: 0,
             lba: 0,
-            count: 0
+            count: 0,
         };
 
         if !self.send_command(command) {
@@ -191,7 +203,7 @@ impl AHCIPort {
             cmd: ATA_CMD_READ_DMA_EX,
             control: 1,
             lba: sector,
-            count: sector_count
+            count: sector_count,
         };
 
         self.send_command(command)
@@ -224,7 +236,11 @@ impl AHCIPort {
         let cmd_table_size = core::mem::size_of::<HBACommandTable>();
 
         unsafe {
-            core::ptr::write_bytes(cmd_table as *mut HBACommandTable as *mut u8, 0, cmd_table_size);
+            core::ptr::write_bytes(
+                cmd_table as *mut HBACommandTable as *mut u8,
+                0,
+                cmd_table_size,
+            );
         }
 
         cmd_table.prdt_entry[0].data_base_address = cmd.buffer_addr as u32;
@@ -308,7 +324,10 @@ impl AHCIPort {
             return false;
         }
 
-        print!("[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n", cmd_header.prdbc);
+        print!(
+            "[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n",
+            cmd_header.prdbc
+        );
 
         print!("[ AHCI ] pxIS: {:b}\n", port.is);
         print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);

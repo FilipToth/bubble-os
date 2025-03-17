@@ -1,4 +1,3 @@
-
 pub enum FisType {
     RegH2D = 0x27,
     RegD2H = 0x34,
@@ -261,7 +260,8 @@ impl FisPIOSetup {
     }
 
     fn set_pmport(&mut self, val: u8) {
-        self.pmport_rsv0_d_i_rsv1 = (self.pmport_rsv0_d_i_rsv1 & !0b1111_0000) | (val & 0b0000_1111);
+        self.pmport_rsv0_d_i_rsv1 =
+            (self.pmport_rsv0_d_i_rsv1 & !0b1111_0000) | (val & 0b0000_1111);
     }
 
     fn set_direction(&mut self, val: bool) {

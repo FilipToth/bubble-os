@@ -113,7 +113,7 @@ pub struct HBACommandHeader {
     // dword 4 - 7
 
     // reserved
-    rsv1: [u32; 4]
+    rsv1: [u32; 4],
 }
 
 impl HBACommandHeader {
@@ -211,7 +211,7 @@ pub struct HBACommandTable {
     pub command_fis: UnsafeCell<[u8; 64]>,
     pub atapi_command: [u8; 16],
     rsv: [u8; 48],
-    pub prdt_entry: [HBAPrdtEntry; 1]
+    pub prdt_entry: [HBAPrdtEntry; 1],
 }
 
 #[repr(C)]
@@ -221,7 +221,7 @@ pub struct HBAPrdtEntry {
     rsv0: u32,
 
     // dw3
-    dbc_rsv1_i: u32
+    dbc_rsv1_i: u32,
 }
 
 impl HBAPrdtEntry {

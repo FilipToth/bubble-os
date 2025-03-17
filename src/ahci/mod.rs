@@ -13,9 +13,9 @@ use crate::{
     print,
 };
 
-mod port;
 mod fis;
 mod hba;
+mod port;
 
 const HBA_PORT_IPM_ACTIVE: u32 = 1;
 const HBA_PORT_DET_PRESENT: u32 = 3;
@@ -43,7 +43,10 @@ pub fn probe_ports(abar: &'static HBAMemory) -> Vec<AHCIPort> {
     let mut ports: Vec<AHCIPort> = Vec::new();
 
     let max_slots = ((abar.cap & 0x1F) as u32) + 1;
-    print!("[ AHCI ] Number of HBA command slots available: {}\n", max_slots);
+    print!(
+        "[ AHCI ] Number of HBA command slots available: {}\n",
+        max_slots
+    );
 
     // an AHCI controller can have 32 ports
     for i in 0..32 {
@@ -112,7 +115,7 @@ pub fn init_ahci(controller: &PciDevice) {
         core::ptr::write_bytes(buffer, b'A', 1024);
     }
 
-   print!("[ AHCI ] Allocated disk buffer\n");
+    print!("[ AHCI ] Allocated disk buffer\n");
 
     let port = &mut ports[0];
     let status = port.read(1000, 1, buffer);
