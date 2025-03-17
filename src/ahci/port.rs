@@ -138,15 +138,52 @@ impl AHCIPort {
         port.cmd |= HBA_PXCMD_ST;
     }
 
-    pub fn read(&mut self, sector: usize, sector_count: usize, buffer: *mut u8) -> bool {
+    pub fn ahci_identify(&mut self) -> bool {
+        // initialize IDENTIFY output buffer
+        let layout = Layout::array::<u16>(256).unwrap();
+        let buffer = unsafe { alloc(layout) };
+
+        unsafe {
+            core::ptr::write_bytes(buffer, 0, 256);
+        }
+
         let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
         let controller = controller.as_mut().unwrap();
 
         let buffer_addr = buffer as usize;
         let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
 
-        print!("[ AHCI READ ] Buffer addr virtual:  0x{:X}\n", buffer as usize);
-        print!("[ AHCI READ ] Buffer addr physical: 0x{:X}\n", buffer_addr);
+        let command = AHCICommand {
+            buffer_addr: buffer_addr,
+            data_byte_count: 512,
+            cmd: ATA_CMD_IDENTIFY,
+            control: 0,
+            lba: 0,
+            count: 0
+        };
+
+        if !self.send_command(command) {
+            return false;
+        }
+
+        let buffer = unsafe { &mut *(buffer as *mut [u16; 256]) };
+        let buffer = buffer.map(u16::to_be_bytes).concat();
+
+        let block_count = u32::from_be_bytes(buffer[120..124].try_into().unwrap()).rotate_left(16);
+        print!("[ AHCI ] Block count: 0x{:x}\n", block_count);
+
+        self.block_count = block_count;
+
+        // success
+        true
+    }
+
+    pub fn read(&mut self, sector: usize, sector_count: usize, buffer: *mut u8) -> bool {
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut().unwrap();
+
+        let buffer_addr = buffer as usize;
+        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
 
         let command = AHCICommand {
             buffer_addr: buffer_addr,
@@ -276,148 +313,6 @@ impl AHCIPort {
         print!("[ AHCI ] pxIS: {:b}\n", port.is);
         print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);
 
-        true
-    }
-
-    pub fn ahci_identify(&mut self) -> bool {
-        // initialize IDENTIFY output buffer
-        let layout = Layout::array::<u16>(256).unwrap();
-        let buffer = unsafe { alloc(layout) };
-
-        unsafe {
-            core::ptr::write_bytes(buffer, 0, 256);
-        }
-
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let buffer_addr = buffer as usize;
-        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
-        print!("[ AHCI BUFFER ] AHCI cmd buffer physical address: 0x{:X}\n", buffer_addr);
-
-        // IS THE BUFFER REALLY IDENTITY MAPPED?
-
-        let port = self.get_port();
-        port.is = u32::MAX;
-
-        let mut spin: u64 = 0;
-        while ((port.tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) != 0) && spin < 1_000_000 {
-            spin += 1;
-        }
-
-        print!("[ AHCI ] Spin: {}\n", spin);
-
-        if spin == 1_000_000 {
-            // failed
-            return false;
-        }
-
-        let cmd_header = unsafe { &mut *(port.clb as *mut HBACommandHeader) };
-
-        let cfis_len = core::mem::size_of::<FisRegH2D>() / core::mem::size_of::<u32>();
-        cmd_header.set_cfl(cfis_len as u8);
-        cmd_header.set_write_bit(false);
-        cmd_header.prdtl = 1;
-
-        let cmd_table = unsafe { &mut *(cmd_header.ctba as *mut HBACommandTable) };
-        let cmd_table_size = core::mem::size_of::<HBACommandTable>();
-
-        unsafe {
-            core::ptr::write_bytes(cmd_table as *mut HBACommandTable as *mut u8, 0, cmd_table_size);
-        }
-
-        cmd_table.prdt_entry[0].data_base_address = buffer_addr as u32;
-        cmd_table.prdt_entry[0].data_base_address_upper = (buffer_addr >> 32) as u32;
-        cmd_table.prdt_entry[0].set_data_byte_count((512 - 1) as u32);
-        cmd_table.prdt_entry[0].set_interrupt_on_completion(true);
-
-        let fis_cmd = unsafe { &mut *cmd_table.command_fis.get().cast::<FisRegH2D>() };
-
-        fis_cmd.fis_type = FisType::RegH2D as u8;
-        fis_cmd.control = 0x00;
-        fis_cmd.command = ATA_CMD_IDENTIFY;
-
-        fis_cmd.lba0 = 0;
-        fis_cmd.lba1 = 0;
-        fis_cmd.lba2 = 0;
-        fis_cmd.lba3 = 0;
-        fis_cmd.lba4 = 0;
-        fis_cmd.lba5 = 0;
-
-        // LBA mode
-        fis_cmd.device = 0;
-
-        fis_cmd.count_low = 0;
-        fis_cmd.count_high = 0;
-
-        // needs control bit for FIS commands
-        fis_cmd.set_control_bit(true);
-
-        self.get_port_ssts();
-
-        let slot = match self.get_free_slot() {
-            Some(s) => s,
-            None => {
-                // reset the port
-                print!("[ AHCI ] Resetting port...\n");
-                port.cmd &= !HBA_PXCMD_ST;
-                port.cmd &= !HBA_PXCMD_FRE;
-
-                // wait until reset
-                while (port.cmd & (HBA_PXCMD_CR | HBA_PXCMD_FR)) != 0 {
-                    core::hint::spin_loop();
-                }
-
-                port.ci = 0;
-                port.sact = 0;
-
-                port.cmd |= HBA_PXCMD_FRE;
-                port.cmd |= HBA_PXCMD_ST;
-
-                self.get_free_slot().unwrap()
-            }
-        };
-
-        print!("[ AHCI ] Port CMD slot: 0x{:x}\n", slot);
-        print!("[ AHCI ] Port clb: 0x{:x}\n", port.clb);
-        print!("[ AHCI ] Port ctba: 0x{:x}\n", cmd_header.ctba);
-
-        // reset byte count transferred
-        cmd_header.prdbc = 0;
-
-        // set command issue, dispatch command
-        port.ci = 1 << slot;
-
-        loop {
-            print!("[ AHCI ] Port ci: {}\n", port.ci);
-            if port.ci == 0 {
-                break;
-            }
-
-            if port.is & HBA_PXIS_TFES != 0 {
-                // failed
-                return false;
-            }
-        }
-
-        if (port.is & HBA_PXIS_TFES) != 0 {
-            return false;
-        }
-
-        print!("[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n", cmd_header.prdbc);
-
-        print!("[ AHCI ] pxIS: {:b}\n", port.is);
-        print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);
-
-        let buffer = unsafe { &mut *(buffer as *mut [u16; 256]) };
-        let buffer = buffer.map(u16::to_be_bytes).concat();
-
-        let block_count = u32::from_be_bytes(buffer[120..124].try_into().unwrap()).rotate_left(16);
-        print!("[ AHCI ] Block count: 0x{:x}\n", block_count);
-
-        self.block_count = block_count;
-
-        // success
         true
     }
 

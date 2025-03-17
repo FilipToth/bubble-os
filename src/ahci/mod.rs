@@ -102,7 +102,7 @@ pub fn init_ahci(controller: &PciDevice) {
 
     let mut ports = probe_ports(hba_mem);
 
-    print!("\n\n[ AHCI ] Found {} SATA Port/s\n", ports.len());
+    print!("\n[ AHCI ] Found {} SATA Port/s\n", ports.len());
 
     print!("[ AHCI ] Reading from SATA Port\n");
 
