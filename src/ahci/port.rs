@@ -1,6 +1,6 @@
 use core::alloc::Layout;
 
-use alloc::alloc::alloc;
+use alloc::{alloc::alloc, string::String};
 
 use crate::{
     mem::{
@@ -39,6 +39,8 @@ pub struct AHCICommand {
     control: u8,
     lba: usize,
     count: usize,
+    write: bool,
+    is_lba_mode: bool,
 }
 
 pub struct AHCIPort {
@@ -156,7 +158,7 @@ impl AHCIPort {
         let buffer = unsafe { alloc(layout) };
 
         unsafe {
-            core::ptr::write_bytes(buffer, 0, 256);
+            core::ptr::write_bytes(buffer, 0, 512);
         }
 
         let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
@@ -172,6 +174,8 @@ impl AHCIPort {
             control: 0,
             lba: 0,
             count: 0,
+            write: false,
+            is_lba_mode: false,
         };
 
         if !self.send_command(command) {
@@ -204,6 +208,40 @@ impl AHCIPort {
             control: 1,
             lba: sector,
             count: sector_count,
+            write: false,
+            is_lba_mode: true,
+        };
+
+        self.send_command(command)
+    }
+
+    pub fn write(&mut self, sector: usize, content: &str) -> bool {
+        let length = content.len();
+        let length = core::cmp::max(length, 511);
+
+        let layout = Layout::array::<u8>(length).unwrap();
+        let buffer = unsafe { alloc(layout) };
+
+        let bytes = content.as_bytes();
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, content.len());
+        }
+
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut().unwrap();
+
+        let buffer_addr = buffer as usize;
+        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
+
+        let command = AHCICommand {
+            buffer_addr: buffer_addr,
+            data_byte_count: 512,
+            cmd: ATA_CMD_WRITE_DMA_EX,
+            control: 1,
+            lba: sector,
+            count: 1,
+            write: true,
+            is_lba_mode: true,
         };
 
         self.send_command(command)
@@ -229,7 +267,7 @@ impl AHCIPort {
 
         let cfis_len = core::mem::size_of::<FisRegH2D>() / core::mem::size_of::<u32>();
         cmd_header.set_cfl(cfis_len as u8);
-        cmd_header.set_write_bit(false);
+        cmd_header.set_write_bit(cmd.write);
         cmd_header.prdtl = 1;
 
         let cmd_table = unsafe { &mut *(cmd_header.ctba as *mut HBACommandTable) };
@@ -264,8 +302,7 @@ impl AHCIPort {
         fis_cmd.lba4 = (lba_high >> 8) as u8;
         fis_cmd.lba5 = (lba_high >> 16) as u8;
 
-        // LBA mode
-        fis_cmd.device = 0;
+        fis_cmd.device = if cmd.is_lba_mode { 1 << 6 } else { 0 };
 
         fis_cmd.count_low = (cmd.count & 0xFF) as u8;
         fis_cmd.count_high = ((cmd.count >> 8) & 0xFF) as u8;
@@ -306,6 +343,7 @@ impl AHCIPort {
         cmd_header.prdbc = 0;
 
         // set command issue, dispatch command
+        print!("[ AHCI ] Issuing AHCI FIS Command\n");
         port.ci = 1 << slot;
 
         loop {
@@ -329,8 +367,8 @@ impl AHCIPort {
             cmd_header.prdbc
         );
 
-        print!("[ AHCI ] pxIS: {:b}\n", port.is);
-        print!("[ AHCI ] pxTFD: {:b}\n", port.tfd);
+        print!("[ AHCI ] pxIS: 0x{:x}\n", port.is);
+        print!("[ AHCI ] pxTFD: 0x{:x}\n", port.tfd);
 
         true
     }

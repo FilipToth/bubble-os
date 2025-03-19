@@ -1,6 +1,6 @@
 use core::alloc::Layout;
 
-use alloc::{alloc::alloc, vec::Vec};
+use alloc::{alloc::alloc, string::String, vec::Vec};
 use hba::{HBAMemory, HBAPort};
 use port::AHCIPort;
 
@@ -106,6 +106,13 @@ pub fn init_ahci(controller: &PciDevice) {
     let mut ports = probe_ports(hba_mem);
 
     print!("\n[ AHCI ] Found {} SATA Port/s\n", ports.len());
+    print!("[ AHCI ] Writing to SATA port\n");
+
+    let port = &mut ports[0];
+
+    let content = "Hello, World!";
+    let status = port.write(1000, content);
+    print!("[ AHCI ] Write to disk with status {}\n", status);
 
     print!("[ AHCI ] Reading from SATA Port\n");
 
@@ -117,7 +124,6 @@ pub fn init_ahci(controller: &PciDevice) {
 
     print!("[ AHCI ] Allocated disk buffer\n");
 
-    let port = &mut ports[0];
     let status = port.read(1000, 1, buffer);
 
     print!("[ AHCI ] Read from disk with status {}\n", status);
@@ -129,6 +135,6 @@ pub fn init_ahci(controller: &PciDevice) {
         }
     }
 
-    let content = core::str::from_utf8(slice).unwrap();
-    print!("[ AHCI ] Disk Content: {}\n", content);
+    // let content = core::str::from_utf8(slice).unwrap();
+    print!("[ AHCI ] Disk Content: {}\n", slice[0]);
 }
