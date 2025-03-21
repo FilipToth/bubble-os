@@ -25,9 +25,11 @@ mod io;
 mod mem;
 mod test;
 mod utils;
+mod fs;
 
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
+use fs::fat_fs::FATFileSystem;
 use core::panic::PanicInfo;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
@@ -90,7 +92,11 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let devices = arch::x86_64::acpi::init_acpi(&boot_info);
     let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
-    init_ahci(sata_controller);
+
+    let mut ports = init_ahci(sata_controller);
+    let port = &mut ports[0];
+
+    let _fs = FATFileSystem::new(port);
 
     loop {}
 }

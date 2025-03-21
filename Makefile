@@ -3,6 +3,7 @@ kernel := build/kernel-$(arch).bin
 iso := build/os-$(arch).iso
 target ?= $(arch)-bubble-os
 rust_os := target/$(target)/debug/libbubble_os.a
+disk_path := build/disk.img
 
 linker_script := src/arch/$(arch)/boot/linker.ld
 grub_cfg := src/arch/$(arch)/boot/grub.cfg
@@ -23,7 +24,7 @@ int_run: disk kernel_start iso run_without_building_debug_interrupts
 debug_run: disk kernel_start iso run_wait_for_debugger
 
 run_without_building:
-	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=build/disk.img,if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
+	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
 
 run_without_building_debug_interrupts:
 	qemu-system-x86_64 -nographic -m 128M -cdrom $(iso) -s -no-reboot -machine q35 -d int
@@ -37,7 +38,8 @@ gdb:
 iso: $(iso)
 
 disk:
-	qemu-img create -f raw build/disk.img 128M
+	qemu-img create -f raw $(disk_path) 128M
+	mkfs.vfat -F 32 -v $(disk_path)
 
 $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub

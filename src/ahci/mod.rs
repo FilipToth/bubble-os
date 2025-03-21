@@ -15,7 +15,7 @@ use crate::{
 
 mod fis;
 mod hba;
-mod port;
+pub mod port;
 
 const HBA_PORT_IPM_ACTIVE: u32 = 1;
 const HBA_PORT_DET_PRESENT: u32 = 3;
@@ -95,7 +95,7 @@ fn check_port_type(port: &HBAPort) -> AHCIDeviceType {
     }
 }
 
-pub fn init_ahci(controller: &PciDevice) {
+pub fn init_ahci(controller: &PciDevice) -> Vec<AHCIPort> {
     let addr = controller.pci_base_addr;
     let header = unsafe { &*(addr as *const PciDeviceHeaderType0) };
 
@@ -105,6 +105,7 @@ pub fn init_ahci(controller: &PciDevice) {
 
     let mut ports = probe_ports(hba_mem);
 
+    /*
     print!("\n[ AHCI ] Found {} SATA Port/s\n", ports.len());
     print!("[ AHCI ] Writing to SATA port\n");
 
@@ -137,4 +138,7 @@ pub fn init_ahci(controller: &PciDevice) {
 
     // let content = core::str::from_utf8(slice).unwrap();
     print!("[ AHCI ] Disk Content: {}\n", slice[0]);
+    */
+
+    ports
 }
