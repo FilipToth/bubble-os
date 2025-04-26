@@ -1,2 +1,2 @@
-pub mod fat_fs;
 mod fat;
+pub mod fat_fs;

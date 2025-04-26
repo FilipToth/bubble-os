@@ -3,11 +3,11 @@ use core::{
     ptr::NonNull,
 };
 
-use crate::utils::safe::Safe;
 use crate::HEAP_ALLOCATOR;
+use crate::{print, utils::safe::Safe};
 
 pub const HEAP_START: usize = 0o_000_002_000_000_0000;
-pub const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB
+pub const HEAP_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 
 struct Block {
     next: Option<&'static mut Block>,

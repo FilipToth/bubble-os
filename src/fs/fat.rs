@@ -32,3 +32,19 @@ pub struct Fat32ExtendedBootSector {
     pub volume_label: [u8; 11],
     pub fat_type_label: [u8; 8],
 }
+
+#[repr(C, packed)]
+pub struct DirectoryEntry {
+    pub name: [u8; 11],
+    pub attributes: u8,
+    pub reserved: u8,
+    pub creation_time_centiseconds: u8,
+    pub creation_time: u16,
+    pub creation_date: u16,
+    pub last_accessed_date: u16,
+    pub first_cluster_high: u16,
+    pub modified_time: u16,
+    pub modified_date: u16,
+    pub first_cluster_low: u16,
+    pub size: u32,
+}
