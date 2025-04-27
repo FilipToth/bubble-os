@@ -10,6 +10,7 @@ grub_cfg := src/arch/$(arch)/boot/grub.cfg
 assembly_source_files := $(wildcard src/arch/$(arch)/boot/*.s)
 assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
 	build/arch/$(arch)/boot/%.o, $(assembly_source_files))
+resources := $(wildcard resources/*)
 
 .PHONY: all clean run iso kernel
 
@@ -40,8 +41,11 @@ iso: $(iso)
 disk:
 	qemu-img create -f raw $(disk_path) 128M
 	mkfs.vfat -F 32 -v $(disk_path)
-	mcopy -i $(disk_path) resources/hello.txt ::hello.txt
-	mcopy -i $(disk_path) resources/resource.txt ::resource.txt
+
+	@for file in $(resources); do \
+		echo $$(basename $$file); \
+		mcopy -i $(disk_path) "$$file" ::$$(basename $$file); \
+	done
 
 $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub
