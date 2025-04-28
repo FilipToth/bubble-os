@@ -1,3 +1,5 @@
+use alloc::{borrow::Cow, string::String};
+
 #[repr(C, packed)]
 pub struct FatBootSector {
     pub bootjmp: [u8; 3],
@@ -48,4 +50,10 @@ pub struct DirectoryEntry {
     pub modified_date: u16,
     pub first_cluster_low: u16,
     pub size: u32,
+}
+
+impl DirectoryEntry {
+    pub fn get_name(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.name)
+    }
 }

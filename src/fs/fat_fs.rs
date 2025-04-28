@@ -1,6 +1,11 @@
 use core::alloc::Layout;
 
-use alloc::{alloc::alloc, string::String, vec::Vec};
+use alloc::{
+    alloc::alloc,
+    borrow::Cow,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::{
     ahci::port::AHCIPort,
@@ -48,6 +53,7 @@ impl<'a> FATFileSystem<'a> {
             print!("[ FS ] Num root dir entries: {}\n", root_entries.len());
 
             let first = &root_entries[0];
+            fs.read_file(first);
 
             Some(fs)
         }
@@ -87,12 +93,60 @@ impl<'a> FATFileSystem<'a> {
         &mut self,
         dir_cluster: usize,
     ) -> Option<(*mut DirectoryEntry, usize)> {
-        print!("root cluster: {}\n", dir_cluster);
+        self.read_cluster(dir_cluster).map(|(buffer, buffer_size)| {
+            let num_entries = buffer_size / core::mem::size_of::<DirectoryEntry>();
+            (buffer as *mut DirectoryEntry, num_entries)
+        })
+    }
+
+    pub fn read_file(&mut self, file: &DirectoryEntry) -> Option<String> {
+        if file.attributes != 32 {
+            return None;
+        }
+
+        let size = file.size;
+        let name = file.get_name();
+
+        print!("[ FS ] File: {}, size: {}\n", name, size);
+
+        let mut cluster =
+            (((file.first_cluster_high as u32) << 16) | file.first_cluster_low as u32) as usize;
+        let mut contents = String::new();
+
+        loop {
+            match self.read_file_internal(cluster) {
+                Some(c) => contents.push_str(&c),
+                None => break,
+            };
+
+            // follow FAT chain
+            match self.fat.next_cluster(cluster) {
+                Some(n) => cluster = n,
+                None => break,
+            };
+        }
+
+        print!("[ FS ] Contents: {}\n", contents);
+
+        None
+    }
+
+    fn read_file_internal(&mut self, cluster: usize) -> Option<Cow<'_, str>> {
+        self.read_cluster(cluster).map(|(buffer, buffer_size)| {
+            let slice = unsafe { core::slice::from_raw_parts(buffer, buffer_size) };
+            String::from_utf8_lossy(slice)
+        })
+    }
+
+    fn get_sector(&self, cluster: usize) -> usize {
         let first_data_sector = self.bs.reserved_sector_count as usize
             + (self.bs.table_count as usize * self.bs_32.table_size as usize);
 
-        let dir_sector =
-            first_data_sector + (dir_cluster - 2) * self.bs.sectors_per_cluster as usize;
+        first_data_sector + (cluster - 2) * self.bs.sectors_per_cluster as usize
+    }
+
+    fn read_cluster(&mut self, cluster: usize) -> Option<(*mut u8, usize)> {
+        let dir_sector = self.get_sector(cluster);
 
         let num_sectors = self.bs.sectors_per_cluster as usize;
         let buffer_size = (self.bs.bytes_per_sector as usize) * num_sectors;
@@ -100,18 +154,18 @@ impl<'a> FATFileSystem<'a> {
 
         let buffer = unsafe { alloc(layout) };
         if buffer.is_null() {
-            panic!()
+            print!("[ FS ] Filesystem read buffer is null\n");
+            panic!();
         }
 
         unsafe { core::ptr::write_bytes(buffer, 0, buffer_size) };
 
         let status = self.port.read(dir_sector, num_sectors, buffer);
         if !status {
-            print!("[ FS ] ERROR: Cannot read directory entries!\n");
+            print!("[ FS ] ERROR: Cannot cluster {}!\n", cluster);
             None
         } else {
-            let num_entries = buffer_size / core::mem::size_of::<DirectoryEntry>();
-            Some((buffer as *mut DirectoryEntry, num_entries))
+            Some((buffer, buffer_size))
         }
     }
 }
