@@ -73,14 +73,24 @@ impl LinkedListHeap {
                 break;
             };
 
-            if !block.used && block.size >= size {
+            if !block.used && block.size == size {
+                block.used = true;
+
+                let addr = block.address + core::mem::size_of::<Block>();
+                return Ok(addr as *mut u8);
+            }
+
+            if !block.used && block.size > size {
                 // found block, split up
                 let remainder_size = block.size - size;
                 let remainder_addr = block.address + size;
 
                 let remainder_next = match create_block(remainder_addr, remainder_size) {
                     Some(b) => b,
-                    None => unreachable!(),
+                    None => {
+                        print!("[ HEAP ] Cannot create block (of size: 0x{:x}, at address: 0x{:x}) in allocate internal\n", remainder_size, remainder_addr);
+                        return Err(AllocError);
+                    }
                 };
 
                 remainder_next.next = block.next.take();
@@ -215,7 +225,7 @@ fn create_block(addr: usize, size: usize) -> Option<&'static mut Block> {
     unsafe { block_ptr.write(block) };
 
     let reference = unsafe { &mut *block_ptr };
-    return Some(reference);
+    Some(reference)
 }
 
 /// Align downwards. Returns the greatest x with alignment `align`
