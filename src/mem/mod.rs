@@ -2,6 +2,7 @@ pub mod heap;
 mod linked_list_allocator;
 mod page_frame;
 pub mod paging;
+mod region;
 mod simple_page_frame_allocator;
 mod stack;
 mod stack_alloc;
@@ -11,7 +12,6 @@ use paging::ActivePageTable;
 use spin::Mutex;
 use stack::Stack;
 use stack_alloc::StackAllocator;
-use x86_64::structures::idt::Entry;
 
 use crate::{
     mem::{
@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub use self::page_frame::{PageFrame, PageFrameAllocator, PAGE_SIZE};
+pub use self::region::Region;
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
 
 pub type VirtualAddress = usize;

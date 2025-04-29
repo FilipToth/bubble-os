@@ -119,6 +119,8 @@ impl LinkedListHeap {
         block.used = false;
         self.merge_right(block);
 
+        // TODO: Maybe we should also merge left?
+
         // move head to current free block
         if block.address >= self.head.address {
             return;

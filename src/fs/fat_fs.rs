@@ -1,15 +1,14 @@
 use core::alloc::Layout;
 
 use alloc::{
-    alloc::alloc,
-    borrow::Cow,
-    string::{String, ToString},
+    alloc::{alloc, dealloc},
     vec::Vec,
 };
 
 use crate::{
     ahci::port::AHCIPort,
     fs::fat::{Fat32ExtendedBootSector, FatBootSector},
+    mem::Region,
     print,
 };
 
@@ -53,7 +52,10 @@ impl<'a> FATFileSystem<'a> {
             print!("[ FS ] Num root dir entries: {}\n", root_entries.len());
 
             let first = &root_entries[0];
-            fs.read_file(first);
+            let file = fs.read_file(first).unwrap();
+
+            let contents = file.to_string();
+            print!("[ FS ] Contents: {}\n", contents);
 
             Some(fs)
         }
@@ -93,29 +95,46 @@ impl<'a> FATFileSystem<'a> {
         &mut self,
         dir_cluster: usize,
     ) -> Option<(*mut DirectoryEntry, usize)> {
-        self.read_cluster(dir_cluster).map(|(buffer, buffer_size)| {
-            let num_entries = buffer_size / core::mem::size_of::<DirectoryEntry>();
-            (buffer as *mut DirectoryEntry, num_entries)
+        self.read_cluster(dir_cluster).map(|region| {
+            let num_entries = region.size / core::mem::size_of::<DirectoryEntry>();
+            (region.ptr as *mut DirectoryEntry, num_entries)
         })
     }
 
-    pub fn read_file(&mut self, file: &DirectoryEntry) -> Option<String> {
+    pub fn read_file(&mut self, file: &DirectoryEntry) -> Option<Region> {
         if file.attributes != 32 {
             return None;
         }
 
-        let size = file.size;
-        let name = file.get_name();
+        let filesize = file.size as usize;
+        let layout = Layout::array::<u8>(filesize).unwrap();
+        let file_buffer = unsafe { alloc(layout) };
 
-        print!("[ FS ] File: {}, size: {}\n", name, size);
+        if file_buffer.is_null() {
+            return None;
+        }
 
+        let mut bytes_read: usize = 0;
         let mut cluster =
             (((file.first_cluster_high as u32) << 16) | file.first_cluster_low as u32) as usize;
-        let mut contents = String::new();
 
         loop {
-            match self.read_file_internal(cluster) {
-                Some(c) => contents.push_str(&c),
+            match self.read_cluster(cluster) {
+                Some(region) => {
+                    let to_append = if (bytes_read + region.size) > filesize {
+                        filesize - bytes_read
+                    } else {
+                        region.size
+                    };
+
+                    let head = unsafe { file_buffer.add(bytes_read) };
+                    unsafe { core::ptr::copy(region.ptr, head, to_append) };
+                    bytes_read += to_append;
+
+                    // deallocate partial read buffer
+                    let region_layout = region.construct_layout();
+                    unsafe { dealloc(region.ptr, region_layout) };
+                }
                 None => break,
             };
 
@@ -126,16 +145,9 @@ impl<'a> FATFileSystem<'a> {
             };
         }
 
-        print!("[ FS ] Contents: {}\n", contents);
+        let region = Region::new(file_buffer, filesize);
 
-        None
-    }
-
-    fn read_file_internal(&mut self, cluster: usize) -> Option<Cow<'_, str>> {
-        self.read_cluster(cluster).map(|(buffer, buffer_size)| {
-            let slice = unsafe { core::slice::from_raw_parts(buffer, buffer_size) };
-            String::from_utf8_lossy(slice)
-        })
+        Some(region)
     }
 
     fn get_sector(&self, cluster: usize) -> usize {
@@ -145,7 +157,7 @@ impl<'a> FATFileSystem<'a> {
         first_data_sector + (cluster - 2) * self.bs.sectors_per_cluster as usize
     }
 
-    fn read_cluster(&mut self, cluster: usize) -> Option<(*mut u8, usize)> {
+    fn read_cluster(&mut self, cluster: usize) -> Option<Region> {
         let dir_sector = self.get_sector(cluster);
 
         let num_sectors = self.bs.sectors_per_cluster as usize;
@@ -165,7 +177,8 @@ impl<'a> FATFileSystem<'a> {
             print!("[ FS ] ERROR: Cannot cluster {}!\n", cluster);
             None
         } else {
-            Some((buffer, buffer_size))
+            let region = Region::new(buffer, buffer_size);
+            Some(region)
         }
     }
 }
