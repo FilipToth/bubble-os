@@ -5,3 +5,9 @@
 Cargo.lock
 .env
 *.log
+
+*.o
+*.elf
+
+userspace/bin
+userspace/obj
