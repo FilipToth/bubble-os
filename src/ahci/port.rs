@@ -49,6 +49,12 @@ pub struct AHCIPort {
     block_count: u32,
 }
 
+struct PortStatus {
+    det: u32,
+    spd: u32,
+    ipm: u32,
+}
+
 impl AHCIPort {
     pub fn new(port_address: usize, max_slots: u32) -> AHCIPort {
         let port = AHCIPort {
@@ -256,8 +262,6 @@ impl AHCIPort {
             spin += 1;
         }
 
-        print!("[ AHCI ] Spin: {}\n", spin);
-
         if spin == 1_000_000 {
             // failed
             return false;
@@ -310,13 +314,10 @@ impl AHCIPort {
         // needs control bit for FIS commands
         fis_cmd.set_control_bit(true);
 
-        self.get_port_ssts();
-
         let slot = match self.get_free_slot() {
             Some(s) => s,
             None => {
                 // reset the port
-                print!("[ AHCI ] Resetting port...\n");
                 port.cmd &= !HBA_PXCMD_ST;
                 port.cmd &= !HBA_PXCMD_FRE;
 
@@ -335,19 +336,13 @@ impl AHCIPort {
             }
         };
 
-        print!("[ AHCI ] Port CMD slot: 0x{:x}\n", slot);
-        print!("[ AHCI ] Port clb: 0x{:x}\n", port.clb);
-        print!("[ AHCI ] Port ctba: 0x{:x}\n", cmd_header.ctba);
-
         // reset byte count transferred
         cmd_header.prdbc = 0;
 
         // set command issue, dispatch command
-        print!("[ AHCI ] Issuing AHCI FIS Command\n");
         port.ci = 1 << slot;
 
         loop {
-            print!("[ AHCI ] Port ci: {}\n", port.ci);
             if port.ci == 0 {
                 break;
             }
@@ -362,18 +357,10 @@ impl AHCIPort {
             return false;
         }
 
-        print!(
-            "[ AHCI ] Operation hbacmdheader bytecount transferred: {}\n",
-            cmd_header.prdbc
-        );
-
-        print!("[ AHCI ] pxIS: 0x{:x}\n", port.is);
-        print!("[ AHCI ] pxTFD: 0x{:x}\n", port.tfd);
-
         true
     }
 
-    fn get_port_ssts(&mut self) {
+    fn get_port_ssts(&mut self) -> PortStatus {
         let port = self.get_port();
         let ssts = port.ssts;
 
@@ -381,9 +368,11 @@ impl AHCIPort {
         let spd = (ssts >> 4) & 0x0F;
         let ipm = (ssts >> 8) & 0x0F;
 
-        print!("[ AHCI ] Port det: 0x{:x}\n", det);
-        print!("[ AHCI ] Port spd: 0x{:x}\n", spd);
-        print!("[ AHCI ] Port ipm: 0x{:x}\n", ipm);
+        PortStatus {
+            det: det,
+            spd: spd,
+            ipm: ipm,
+        }
     }
 
     fn get_port(&mut self) -> &'static mut HBAPort {

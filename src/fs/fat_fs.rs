@@ -2,6 +2,7 @@ use core::alloc::Layout;
 
 use alloc::{
     alloc::{alloc, dealloc},
+    string::String,
     vec::Vec,
 };
 
@@ -19,6 +20,7 @@ pub struct FATFileSystem<'a> {
     fat: FatBuffer,
     bs: FatBootSector,
     bs_32: Fat32ExtendedBootSector,
+    pub root_dir: Vec<DirectoryEntry>,
 }
 
 impl<'a> FATFileSystem<'a> {
@@ -27,8 +29,6 @@ impl<'a> FATFileSystem<'a> {
             Some(bs) => bs,
             None => return None,
         };
-
-        print!("\n");
 
         {
             // Scoped mutable borrow
@@ -45,20 +45,27 @@ impl<'a> FATFileSystem<'a> {
                 fat: fat_buff,
                 bs: bs,
                 bs_32: bs_32,
+                root_dir: Vec::new(),
             };
 
             // read root directory
             let root_entries = fs.read_directory(root_cluster);
-            print!("[ FS ] Num root dir entries: {}\n", root_entries.len());
-
-            let first = &root_entries[0];
-            let file = fs.read_file(first).unwrap();
-
-            let contents = file.to_string();
-            print!("[ FS ] Contents: {}\n", contents);
+            fs.root_dir = root_entries;
 
             Some(fs)
         }
+    }
+
+    pub fn get_file_in_root(&self, name: &str) -> Option<DirectoryEntry> {
+        for entry in &self.root_dir {
+            if entry.get_name() != name {
+                continue;
+            }
+
+            return Some(entry.clone());
+        }
+
+        None
     }
 
     pub fn read_directory(&mut self, dir_cluster: usize) -> Vec<DirectoryEntry> {

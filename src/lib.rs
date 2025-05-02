@@ -26,6 +26,7 @@ mod io;
 mod mem;
 mod test;
 mod utils;
+mod elf;
 
 use ahci::init_ahci;
 use alloc::alloc::alloc;
@@ -98,7 +99,19 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let mut ports = init_ahci(sata_controller);
     let port = &mut ports[0];
 
-    let _fs = FATFileSystem::new(port);
+    let mut fs = FATFileSystem::new(port).unwrap();
+    for entry in &fs.root_dir {
+        let name = entry.get_name();
+        print!("[ OK ] Root dir entry: {}\n", name);
+    }
+
+    // load sample ELF binary :D
+    let bin_entry = fs.get_file_in_root("SAMPLE  ELF").unwrap();
+    let elf_binary = fs.read_file(&bin_entry).unwrap();
+
+    print!("[ OK ] Read ELF binary\n");
+
+    elf::parse(elf_binary);
 
     loop {}
 }

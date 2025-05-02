@@ -103,42 +103,6 @@ pub fn init_ahci(controller: &PciDevice) -> Vec<AHCIPort> {
     let hba_mem = unsafe { &*(header.bar5 as *const HBAMemory) };
     acpi_mapping(header.bar5 as usize, PAGE_SIZE);
 
-    let mut ports = probe_ports(hba_mem);
-
-    /*
-    print!("\n[ AHCI ] Found {} SATA Port/s\n", ports.len());
-    print!("[ AHCI ] Writing to SATA port\n");
-
-    let port = &mut ports[0];
-
-    let content = "Hello, World!";
-    let status = port.write(1000, content);
-    print!("[ AHCI ] Write to disk with status {}\n", status);
-
-    print!("[ AHCI ] Reading from SATA Port\n");
-
-    let layout = Layout::array::<u8>(1024).unwrap();
-    let buffer = unsafe { alloc(layout) };
-    unsafe {
-        core::ptr::write_bytes(buffer, b'A', 1024);
-    }
-
-    print!("[ AHCI ] Allocated disk buffer\n");
-
-    let status = port.read(1000, 1, buffer);
-
-    print!("[ AHCI ] Read from disk with status {}\n", status);
-
-    let slice = unsafe { core::slice::from_raw_parts(buffer, 512) };
-    for chr in slice {
-        if *chr == 0 {
-            continue;
-        }
-    }
-
-    // let content = core::str::from_utf8(slice).unwrap();
-    print!("[ AHCI ] Disk Content: {}\n", slice[0]);
-    */
-
+    let ports = probe_ports(hba_mem);
     ports
 }
