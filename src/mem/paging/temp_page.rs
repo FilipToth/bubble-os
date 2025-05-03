@@ -14,7 +14,7 @@ pub struct TempPage {
 impl TempPage {
     /// Instantiates a new temporary page
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `page` page structure to make temporary
     /// - `allocator` needs a page frame allocator to
@@ -34,7 +34,7 @@ impl TempPage {
     /// to the supplied frame using the active
     /// page table.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `frame` the frame for the page to be mapped
     /// on to.
@@ -59,7 +59,7 @@ impl TempPage {
     /// Unmaps the temporary page from the
     /// active page table.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `active_table` the active page table that
     /// should perform the mapping

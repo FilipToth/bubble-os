@@ -1,3 +1,5 @@
+use crate::print;
+
 use super::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 
 pub struct SimplePageFrameAllocator {

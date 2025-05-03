@@ -57,7 +57,14 @@ impl MemoryController {
         )
     }
 
-    pub fn identity_map(&mut self, start: PageFrame, end: PageFrame, entry_flags: EntryFlags) {
+    /// Maps a range of pages to their exact corresponding page frames
+    ///
+    /// ## Arguments
+    ///
+    /// - `start` the start page
+    /// - `end` the end page
+    /// - `flags` the page table entry flags to be applied
+    pub fn identity_map(&mut self, start: PageFrame, end: PageFrame, flags: EntryFlags) {
         let allocator = &mut self.frame_allocator;
         let table = &mut self.active_table;
 
@@ -70,12 +77,29 @@ impl MemoryController {
 
         let range = PageFrame::range(start, end);
         for frame in range {
-            table.map_identity(frame, entry_flags, allocator);
+            table.map_identity(frame, flags, allocator);
         }
     }
 
     pub fn translate_to_physical(&mut self, addr: usize) -> Option<usize> {
         self.active_table.translate_to_phys(addr)
+    }
+
+    /// Maps a range of pages to unused page frames
+    ///
+    /// ## Arguments
+    ///
+    /// - `start` the start page
+    /// - `end` the end page
+    /// - `flags` the page table entry flags to be applied
+    pub fn map(&mut self, start: Page, end: Page, flags: EntryFlags) {
+        let allocator = &mut self.frame_allocator;
+        let table = &mut self.active_table;
+
+        for page in Page::range(start, end) {
+            let frame = allocator.falloc().expect("Out of memory");
+            table.map_to(page, frame, flags, allocator);
+        }
     }
 }
 

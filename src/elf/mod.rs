@@ -1,7 +1,7 @@
 use crate::mem::Region;
 
-mod elf_parser;
+mod loader;
 
-pub fn parse(elf: Region) {
-    elf_parser::parse(elf);
+pub fn load(elf: Region) {
+    loader::load(elf);
 }

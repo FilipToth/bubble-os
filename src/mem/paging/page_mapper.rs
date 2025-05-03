@@ -10,6 +10,7 @@ use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::mem::{PhysicalAddress, VirtualAddress};
 
 use crate::mem::paging::{Page, TABLE_ENTRY_COUNT};
+use crate::print;
 
 pub struct Mapper {
     p4: Unique<PageTable<PageLevel4>>,
@@ -33,7 +34,7 @@ impl Mapper {
     /// Maps the specified page to the specified page frame
     /// using the provided flags.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `page` the page to be mapped
     /// - `frame` the page frame for the page to be mapped on to
@@ -57,7 +58,7 @@ impl Mapper {
 
     /// Maps the page to an unused page frame
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `page` the page to be mapped
     /// - `flags` the page frame for the page to be mapped on to
@@ -73,7 +74,7 @@ impl Mapper {
 
     /// Maps a page to its exact corresponding page frame
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `frame` the page frame for the page to be mapped on to
     /// - `flags` the page table entry flags to be used
@@ -89,7 +90,7 @@ impl Mapper {
 
     /// Maps a range of pages to its exact corresponding page frame
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `start` the start page frame for the mapping
     /// - `end` the end page frame for the mapping
@@ -114,7 +115,7 @@ impl Mapper {
     /// Removes the page mapping, frees all frames contained
     /// in the page
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `page` the page to be unmapped
     /// - `allocator` the page frame allocator to perform
@@ -152,7 +153,7 @@ impl Mapper {
 
     /// Checks whether a page has already been mapped.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `page` the page to be checked
     /// - `allocator` the page frame allocator used to
@@ -172,7 +173,7 @@ impl Mapper {
 
     /// Translates a virtual address to a physical one.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `addr` the virtual address to be mapped
     ///

@@ -31,7 +31,7 @@ impl Page {
     /// Instantiates a new unmapped page to for corresponding
     /// virtual address.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `addr` the virtual address for the page to be
     /// mapped on to
@@ -116,7 +116,7 @@ impl ActivePageTable {
     /// Inactive page table. Loads the table
     /// into the recursive map.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `temp_page` requires a temporary
     /// page to store a backup to the old
@@ -198,7 +198,7 @@ impl InactivePageTable {
     /// Instantiates an inactive page table
     /// for a frame to be used for the p4.
     ///
-    /// # Arguments
+    /// ## Arguments
     ///
     /// - `frame` the frame to be used for the p4
     pub fn new(
