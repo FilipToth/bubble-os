@@ -21,22 +21,22 @@ extern crate lazy_static;
 
 mod ahci;
 mod arch;
+mod elf;
 mod fs;
 mod io;
 mod mem;
 mod test;
 mod utils;
-mod elf;
 
 use ahci::init_ahci;
 use alloc::alloc::alloc;
 use arch::x86_64::acpi::pci::PciDeviceClass;
-use mem::paging::entry::EntryFlags;
-use mem::{PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER};
 use core::alloc::Layout;
 use core::panic::PanicInfo;
 use fs::fat_fs::FATFileSystem;
 use mem::heap::LinkedListHeap;
+use mem::paging::entry::EntryFlags;
+use mem::{PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER};
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
@@ -114,6 +114,8 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     print!("[ OK ] Read ELF binary\n");
 
     elf::load(elf_binary);
+
+    print!("[ OK ] Returned from ELF\n");
 
     loop {}
 }

@@ -14,6 +14,7 @@ lazy_static! {
         idt.general_protection_fault.set_handler_fn(gpf_isr);
         // idt.page_fault.set_handler_fn(page_fault_isr);
         idt[0x34 as usize].set_handler_fn(debug_isr);
+        idt[0x70 as usize].set_handler_fn(debug_isr);
 
         idt
     };

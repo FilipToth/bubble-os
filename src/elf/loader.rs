@@ -1,4 +1,10 @@
-use crate::{mem::{paging::{entry::EntryFlags, Page}, Region, GLOBAL_MEMORY_CONTROLLER}, print};
+use crate::{
+    mem::{
+        paging::{entry::EntryFlags, Page},
+        Region, GLOBAL_MEMORY_CONTROLLER,
+    },
+    print,
+};
 
 #[repr(C)]
 /// Represents a 32-bit ELF Header.
@@ -50,7 +56,7 @@ fn load_ph_headers(header: &ElfHeader32, elf_ptr: *mut u8) {
         let controller = controller.as_mut().unwrap();
 
         let start_page = Page::for_address(entry.virt_addr as usize);
-        let end_page = Page::for_address((entry.virt_addr + entry.file_size) as usize);
+        let end_page = Page::for_address((entry.virt_addr + entry.memory_size - 1) as usize);
         controller.map(start_page, end_page, EntryFlags::WRITABLE);
 
         // load entry into memory
@@ -68,9 +74,7 @@ fn load_ph_headers(header: &ElfHeader32, elf_ptr: *mut u8) {
         if bss_size > 0 {
             // zero BSS
             let bss_ptr = unsafe { destination_ptr.add(entry.file_size as usize) };
-            unsafe {
-                core::ptr::write_bytes(bss_ptr, 0, bss_size)
-            };
+            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size) };
         }
     }
 }
@@ -82,9 +86,9 @@ pub fn load(elf: Region) {
 
     // vibe check magic :D
     let magic = ((header.ident[0] as u32) << 24)
-                | ((header.ident[1] as u32) << 16)
-                | ((header.ident[2] as u32) << 8)
-                | (header.ident[3] as u32);
+        | ((header.ident[1] as u32) << 16)
+        | ((header.ident[2] as u32) << 8)
+        | (header.ident[3] as u32);
 
     if magic != 0x7f454c46 {
         return;
@@ -93,4 +97,9 @@ pub fn load(elf: Region) {
     print!("[ ELF ] Verified ELF Magic\n");
 
     load_ph_headers(header, elf.ptr);
+
+    let entry = header.entry_addr as usize;
+    unsafe {
+        core::arch::asm!("jmp {addr}", addr = in(reg) entry);
+    }
 }
