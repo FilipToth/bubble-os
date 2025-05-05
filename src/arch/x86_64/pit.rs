@@ -5,12 +5,13 @@ pub const PIT_HZ: usize = 100;
 pub const PIT_CMD_PORT: u16 = 0x43;
 pub const PIT_CH0_PORT: u16 = 0x40;
 
-
 fn unmask_irq(irq: u8) {
     let mut mask = io::inb(0x21);
     mask &= !(1 << irq);
 
-    unsafe { io::outb(0x21, mask); }
+    unsafe {
+        io::outb(0x21, mask);
+    }
 }
 
 pub fn end_of_interrupt(irq: u8) {
@@ -22,7 +23,6 @@ pub fn end_of_interrupt(irq: u8) {
         io::outb(0x20, 0x20);
     }
 }
-
 
 pub fn init_pit() {
     let divisor = PIT_FREQUENCY / PIT_HZ;

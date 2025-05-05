@@ -86,7 +86,6 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     arch::x86_64::gdt::init_gdt();
     print!("[ OK ] Initialized kernel GDT\n");
 
-
     x86_64::instructions::interrupts::disable();
 
     arch::x86_64::idt::remap_pic();
@@ -96,13 +95,11 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     x86_64::instructions::interrupts::enable();
     print!("[ OK ] Initialized IDT\n");
 
-
     unsafe {
         core::arch::asm!("int 0x34");
     }
 
     print!("[ OK ] Returned from interrupt\n");
-
 
     let devices = arch::x86_64::acpi::init_acpi(&boot_info);
     let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
@@ -122,7 +119,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Read ELF binary\n");
 
-    // elf::load(elf_binary);
+    elf::load(elf_binary);
 
     print!("[ OK ] Returned from ELF\n");
 

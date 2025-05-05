@@ -36,10 +36,11 @@ extern "x86-interrupt" fn gpf_isr(_stack: InterruptStackFrame, _err_code: u64) {
 }
 
 extern "x86-interrupt" fn page_fault_isr(
-    _stack: InterruptStackFrame,
+    stack: InterruptStackFrame,
     _err_code: PageFaultErrorCode,
 ) {
-    print!("[ OK ] Page fault!\n");
+    print!("[ EXCEPTION ] Page fault!\n");
+    print!("Dumping stack frame\n{:#?}\n", stack);
     loop {}
 }
 
@@ -53,7 +54,7 @@ extern "x86-interrupt" fn timer_isr(_stack: InterruptStackFrame) {
 
 extern "x86-interrupt" fn syscall_isr(_stack: InterruptStackFrame) {
     let syscall_number: usize;
-    unsafe { core::arch::asm!("", lateout("eax") syscall_number) };
+    unsafe { core::arch::asm!("", lateout("rax") syscall_number) };
 
     match syscall_number {
         1 => {

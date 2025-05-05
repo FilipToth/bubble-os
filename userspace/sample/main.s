@@ -5,13 +5,13 @@ section .text
     global _start
 
 _start:
-    mov esp, stack_top
-    int 0x34
+    mov rax, stack_top
+    mov rsp, rax
 
-    mov eax, 0x01
+    mov rax, 0x01
     int 0x80
 
-    hlt
+    jmp $
 
 section .bss
 stack_bottom:
