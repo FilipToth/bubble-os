@@ -6,7 +6,11 @@ section .text
 
 _start:
     mov esp, stack_top
-    int 0x70
+    int 0x34
+
+    mov eax, 0x01
+    int 0x80
+
     hlt
 
 section .bss
