@@ -25,18 +25,16 @@ mod elf;
 mod fs;
 mod io;
 mod mem;
+mod scheduling;
 mod test;
 mod utils;
 
 use ahci::init_ahci;
-use alloc::alloc::alloc;
 use arch::x86_64::acpi::pci::PciDeviceClass;
-use core::alloc::Layout;
 use core::panic::PanicInfo;
 use fs::fat_fs::FATFileSystem;
 use mem::heap::LinkedListHeap;
-use mem::paging::entry::EntryFlags;
-use mem::{PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER};
+use scheduling::process::ProcessEntry;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
@@ -119,10 +117,10 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Read ELF binary\n");
 
-    elf::load(elf_binary);
+    let elf_entry = elf::load(elf_binary).unwrap();
+    scheduling::deploy(elf_entry);
 
-    print!("[ OK ] Returned from ELF\n");
-
+    scheduling::enable();
     loop {}
 }
 

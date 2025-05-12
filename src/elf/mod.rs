@@ -1,7 +1,7 @@
-use crate::mem::Region;
+use crate::{mem::Region, scheduling::process::ProcessEntry};
 
 mod loader;
 
-pub fn load(elf: Region) {
-    loader::load(elf);
+pub fn load(elf: Region) -> Option<ProcessEntry> {
+    loader::load(elf)
 }

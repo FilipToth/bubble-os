@@ -4,6 +4,7 @@ use crate::{
         Region, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
     },
     print,
+    scheduling::process::ProcessEntry,
 };
 
 #[repr(C)]
@@ -26,7 +27,6 @@ struct ElfHeader64 {
     sh_num: u16,
     sh_str_hdr_index: u16,
 }
-
 
 #[repr(C)]
 struct ElfProgramHeader64 {
@@ -84,7 +84,7 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) {
     }
 }
 
-pub fn load(elf: Region) {
+pub fn load(elf: Region) -> Option<ProcessEntry> {
     let header = unsafe { &*(elf.ptr as *const ElfHeader64) };
     let elf_type = header.elf_type;
     print!("[ ELF ] elf_type: {}\n", elf_type);
@@ -96,18 +96,12 @@ pub fn load(elf: Region) {
         | (header.ident[3] as u32);
 
     if magic != 0x7f454c46 {
-        return;
+        return None;
     }
 
     print!("[ ELF ] Verified ELF Magic\n");
-
     load_ph_headers(header, elf.ptr);
 
     let entry = header.entry_addr as usize;
-    unsafe {
-        core::arch::asm!(
-            "jmp {entry}",
-            entry = in(reg) entry
-        );
-    }
+    Some(ProcessEntry { entry: entry })
 }

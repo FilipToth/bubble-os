@@ -1,6 +1,13 @@
+use core::sync::atomic::Ordering;
+
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-use crate::{arch, io::io, print};
+use crate::{
+    arch,
+    io::io,
+    print,
+    scheduling::{self, SCHEDULING_ENABLED},
+};
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -48,8 +55,13 @@ extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
     print!("[ OK ] Debug isr called!\n");
 }
 
-extern "x86-interrupt" fn timer_isr(_stack: InterruptStackFrame) {
+extern "x86-interrupt" fn timer_isr(stack: InterruptStackFrame) {
+    let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
     arch::x86_64::pit::end_of_interrupt(0);
+
+    if sched_enabled {
+        scheduling::schedule(&stack);
+    }
 }
 
 extern "x86-interrupt" fn syscall_isr(_stack: InterruptStackFrame) {

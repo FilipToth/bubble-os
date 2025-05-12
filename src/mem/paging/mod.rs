@@ -142,8 +142,8 @@ impl ActivePageTable {
                 table.p4_frame.clone(),
                 EntryFlags::PRESENT | EntryFlags::WRITABLE,
             );
-            tlb::flush_all();
 
+            tlb::flush_all();
             f(self);
 
             // restore mappings to the active p4 table

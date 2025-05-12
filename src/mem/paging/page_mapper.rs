@@ -200,8 +200,8 @@ impl Mapper {
                         let num = start_frame.frame_number
                             + (page.p2_index() * TABLE_ENTRY_COUNT)
                             + page.p1_index();
-                        let frame = PageFrame { frame_number: num };
 
+                        let frame = PageFrame { frame_number: num };
                         return Some(frame);
                     }
                 }

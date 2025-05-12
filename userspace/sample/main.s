@@ -8,7 +8,7 @@ _start:
     mov rax, stack_top
     mov rsp, rax
 
-    mov rax, 0x01
+    mov rax, 0x02
     int 0x80
 
     jmp $
