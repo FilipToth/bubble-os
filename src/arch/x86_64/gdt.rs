@@ -33,6 +33,7 @@ lazy_static! {
             code: code,
             data: data,
         };
+
         (gdt, selectors)
     };
 }

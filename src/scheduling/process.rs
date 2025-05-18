@@ -1,25 +1,21 @@
+use crate::arch::x86_64::timer_isr::FullInterruptStackFrame;
+
 #[derive(Clone)]
 pub struct Process {
     pub pid: usize,
     pub pre_schedule: bool,
-
-    pub rip: usize,
-    pub rsp: usize,
-    pub rflags: usize,
-    pub cs: usize,
-    pub ss: usize,
+    pub context: FullInterruptStackFrame,
 }
 
 impl Process {
     pub fn from(entry: ProcessEntry, pid: usize) -> Process {
+        let mut context = FullInterruptStackFrame::empty();
+        context.rip = entry.entry;
+
         Process {
             pid: pid,
             pre_schedule: true,
-            rip: entry.entry,
-            rsp: 0,
-            rflags: 0,
-            cs: 0,
-            ss: 0,
+            context: context,
         }
     }
 }

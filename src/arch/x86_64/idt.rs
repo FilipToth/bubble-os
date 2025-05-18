@@ -1,13 +1,9 @@
-use core::sync::atomic::Ordering;
-
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-
-use crate::{
-    arch,
-    io::io,
-    print,
-    scheduling::{self, SCHEDULING_ENABLED},
+use x86_64::{
+    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
+    VirtAddr,
 };
+
+use crate::{arch::x86_64::timer_isr::timer_trampoline, io::io, print};
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -18,7 +14,10 @@ lazy_static! {
         idt.general_protection_fault.set_handler_fn(gpf_isr);
         idt.page_fault.set_handler_fn(page_fault_isr);
 
-        idt[0x20 as usize].set_handler_fn(timer_isr);
+        unsafe {
+            idt[0x20 as usize].set_handler_addr(VirtAddr::new(timer_trampoline as u64));
+        }
+
         idt[0x34 as usize].set_handler_fn(debug_isr);
         idt[0x80 as usize].set_handler_fn(syscall_isr);
 
@@ -53,15 +52,6 @@ extern "x86-interrupt" fn page_fault_isr(
 
 extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
     print!("[ OK ] Debug isr called!\n");
-}
-
-extern "x86-interrupt" fn timer_isr(stack: InterruptStackFrame) {
-    let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
-    arch::x86_64::pit::end_of_interrupt(0);
-
-    if sched_enabled {
-        scheduling::schedule(&stack);
-    }
 }
 
 extern "x86-interrupt" fn syscall_isr(_stack: InterruptStackFrame) {

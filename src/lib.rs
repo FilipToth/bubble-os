@@ -3,10 +3,9 @@
 #![feature(ptr_internals)]
 #![feature(custom_test_frameworks)]
 #![feature(allocator_api)]
-#![feature(global_allocator)]
-#![feature(const_mut_refs)]
 #![feature(strict_provenance)]
 #![feature(abi_x86_interrupt)]
+#![feature(naked_functions)]
 
 extern crate alloc;
 extern crate multiboot2;
@@ -34,8 +33,7 @@ use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
 use fs::fat_fs::FATFileSystem;
 use mem::heap::LinkedListHeap;
-use scheduling::process::ProcessEntry;
-use x86_64::registers::control::{Cr0, Cr0Flags};
+use x86_64::registers::control::{Cr0, Cr0Flags, Cr3};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;

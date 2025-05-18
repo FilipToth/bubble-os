@@ -3,9 +3,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use alloc::vec::Vec;
 use process::{Process, ProcessEntry};
 use spin::Mutex;
-use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::print;
+use crate::{arch::x86_64::timer_isr::FullInterruptStackFrame, print};
 
 pub mod process;
 
@@ -14,26 +13,109 @@ pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-unsafe fn jump(proc: Process) {
-    let rip = proc.rip;
-    let rsp = proc.rsp;
-    let rflags = proc.rflags;
+unsafe fn jump(context: FullInterruptStackFrame) {
+    core::arch::asm!("cli");
+
+    if context.rsp == 0 {
+        // uninitialized process,
+        // empty jump no context switch
+        core::arch::asm!("sti", "jmp {rip}", rip = in(reg) context.rip);
+    }
+
+    // our entire context switch is very ugly, but it's ok for now...
+    // first we load CPU flags because that doesn't affect registers for
+    // the actual general-purpose registers switch. Then, we manually
+    // push the context's saved instruction pointer onto the ELF stack,
+    // this is done because Rust's inline asm uses GP registers to pass
+    // in values, and when we do our actual jump (using ret), we have
+    // already loaded the context's registers, and thus shouldn't use
+    // them. We also push the stack pointer onto the (now kernel) stack.
+    // Then we push GP-registers onto the stack using inline asm, we can't
+    // move them directly since Rust can't guarantee correct register
+    // alignment here, so this is a bit of a workaround... Then we pop
+    // GP registers off the stack into the correct registers (previously,
+    // when we pushed them, Rust would use whatever registers it would
+    // feel like), then we pop the ELF stack pointer into rsp, then we
+    // simply enable interrupts and return, which just pops the rip off
+    // the stack and jumps to it.
 
     core::arch::asm!(
-        "cli",
-
-        "mov rsp, {rsp}",
-
         "push {rflags}",
         "popfq",
 
+        rflags = in(reg) context.rflags
+    );
+
+    // manually push context rip to ELF stack
+    let rsp_bottom = context.rsp - 8;
+    let rsp_ptr = rsp_bottom as *mut usize;
+    *rsp_ptr = context.rip;
+
+    core::arch::asm!(
+        "push {rsp}",
+        rsp = in(reg) context.rsp
+    );
+
+    core::arch::asm!(
+        "push {rax}",
+        "push {rbx}",
+        "push {rcx}",
+        "push {rdx}",
+        "push {rsi}",
+        "push {rdi}",
+        "push {rbp}",
+        "push {r15}",
+        "push {r14}",
+        "push {r13}",
+        "push {r12}",
+        "push {r11}",
+        "push {r10}",
+        "push {r9}",
+        "push {r8}",
+
+        rax = in(reg) context.rax,
+        rbx = in(reg) context.rbx,
+        rcx = in(reg) context.rcx,
+        rdx = in(reg) context.rdx,
+        rsi = in(reg) context.rsi,
+        rdi = in(reg) context.rdi,
+        rbp = in(reg) context.rbp,
+        r15 = in(reg) context.r15,
+        r14 = in(reg) context.r14,
+        r13 = in(reg) context.r13,
+        r12 = in(reg) context.r12,
+        r11 = in(reg) context.r11,
+        r10 = in(reg) context.r10,
+        r9 = in(reg) context.r9,
+        r8 = in(reg) context.r8,
+    );
+
+    core::arch::asm!(
+        "pop r8",
+        "pop r9",
+        "pop r10",
+        "pop r11",
+        "pop r12",
+        "pop r13",
+        "pop r14",
+        "pop r15",
+        "pop rbp",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+    );
+
+    core::arch::asm!(
+        "pop rsp",
+        "sub rsp, 0x08"
+    );
+
+    core::arch::asm!(
         "sti",
-        "jmp {rip}",
-
-        rsp = in(reg) rsp,
-        rflags = in(reg) rflags,
-        rip = in(reg) rip,
-
+        "ret",
         options(noreturn)
     );
 }
@@ -47,7 +129,7 @@ pub fn deploy(entry: ProcessEntry) {
     processes.push(process);
 }
 
-pub fn schedule(interrupt_stack: &InterruptStackFrame) {
+pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
     let process_to_jump: Option<Process>;
 
     // need a new scope to drop mutex lock
@@ -78,20 +160,14 @@ pub fn schedule(interrupt_stack: &InterruptStackFrame) {
             process_to_jump = Some(current.clone());
         } else {
             // regular scheduling context switch
-            let rip = interrupt_stack.instruction_pointer.as_u64() as usize;
-            let rsp = interrupt_stack.stack_pointer.as_u64() as usize;
-            let rflags = interrupt_stack.cpu_flags as usize;
-
-            current.rip = rip;
-            current.rsp = rsp;
-            current.rflags = rflags;
-
+            current.context = interrupt_stack.clone();
             process_to_jump = Some(current.clone());
         }
     }
 
     if let Some(process_to_jump) = process_to_jump {
-        unsafe { jump(process_to_jump) };
+        print!("[ SCHED ] Jumping to process context, rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n", process_to_jump.context.rip, process_to_jump.context.rsp, process_to_jump.context.rax, process_to_jump.context.rbx, process_to_jump.context.r8);
+        unsafe { jump(process_to_jump.context) };
     }
 }
 

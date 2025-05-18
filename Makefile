@@ -12,6 +12,7 @@ assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
 	build/arch/$(arch)/boot/%.o, $(assembly_source_files))
 resources := $(wildcard resources/*)
 user_binaries := $(wildcard userspace/bin/*)
+base_qemu := qemu-system-x86_64 -nographic -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
 
 .PHONY: all clean run iso kernel disk userspace
 
@@ -26,13 +27,13 @@ int_run: userspace disk kernel_start iso run_without_building_debug_interrupts
 debug_run: userspace disk kernel_start iso run_wait_for_debugger
 
 run_without_building:
-	qemu-system-x86_64 -nographic -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
+	$(base_qemu)
 
 run_without_building_debug_interrupts:
-	qemu-system-x86_64 -nographic -m 256M -cdrom $(iso) -s -no-reboot -machine q35 -d int
+	$(base_qemu) -d int
 
 run_wait_for_debugger:
-	qemu-system-x86_64 -nographic -m 256M -cdrom $(iso) -s -S -no-reboot -machine q35 -d int
+	$(base_qemu) -S
 
 gdb:
 	gdb "$(kernel)" -ex "target remote :1234"

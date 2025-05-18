@@ -11,6 +11,8 @@ _start:
     mov rax, 0x02
     int 0x80
 
+    mov r8, 0xDEAD
+
     jmp $
 
 section .bss
