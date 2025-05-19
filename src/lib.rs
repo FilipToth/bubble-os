@@ -25,6 +25,7 @@ mod fs;
 mod io;
 mod mem;
 mod scheduling;
+mod syscall;
 mod test;
 mod utils;
 

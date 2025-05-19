@@ -3,7 +3,7 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::{arch::x86_64::timer_isr::timer_trampoline, io::io, print};
+use crate::{arch::x86_64::timer_isr::timer_trampoline, io::io, print, syscall};
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -62,6 +62,7 @@ extern "x86-interrupt" fn syscall_isr(_stack: InterruptStackFrame) {
         1 => {
             // exit syscall
         }
+        2 => syscall::write(),
         _ => print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number),
     }
 }

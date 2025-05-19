@@ -91,33 +91,13 @@ unsafe fn jump(context: FullInterruptStackFrame) {
     );
 
     core::arch::asm!(
-        "pop r8",
-        "pop r9",
-        "pop r10",
-        "pop r11",
-        "pop r12",
-        "pop r13",
-        "pop r14",
-        "pop r15",
-        "pop rbp",
-        "pop rdi",
-        "pop rsi",
-        "pop rdx",
-        "pop rcx",
-        "pop rbx",
-        "pop rax",
+        "pop r8", "pop r9", "pop r10", "pop r11", "pop r12", "pop r13", "pop r14", "pop r15",
+        "pop rbp", "pop rdi", "pop rsi", "pop rdx", "pop rcx", "pop rbx", "pop rax",
     );
 
-    core::arch::asm!(
-        "pop rsp",
-        "sub rsp, 0x08"
-    );
+    core::arch::asm!("pop rsp", "sub rsp, 0x08");
 
-    core::arch::asm!(
-        "sti",
-        "ret",
-        options(noreturn)
-    );
+    core::arch::asm!("sti", "ret", options(noreturn));
 }
 
 pub fn deploy(entry: ProcessEntry) {
