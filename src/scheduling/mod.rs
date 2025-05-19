@@ -143,30 +143,45 @@ pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
         let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
         let current = &mut processes[current_index];
 
-        // switch next process, round robin
-        if current_index + 1 >= processes_len {
-            CURRENT_INDEX.store(0, Ordering::SeqCst);
-        } else {
-            CURRENT_INDEX.store(current_index + 1, Ordering::SeqCst);
+        if !current.pre_schedule {
+            // save current context
+            current.context = interrupt_stack.clone();
         }
 
-        if current.pre_schedule {
-            // first schedule call on current process
-            current.pre_schedule = false;
+        // switch next process, round robin
+        let new_current_index = if current_index + 1 >= processes_len {
+            0
+        } else {
+            current_index + 1
+        };
+
+        CURRENT_INDEX.store(new_current_index, Ordering::SeqCst);
+        let new_current = &mut processes[new_current_index];
+
+        if new_current.pre_schedule {
+            // first schedule call on new process
+            new_current.pre_schedule = false;
 
             // do first jump, do no change rip,
             // since this isn't a context switch,
             // rip should contain entry address
-            process_to_jump = Some(current.clone());
+            process_to_jump = Some(new_current.clone());
         } else {
             // regular scheduling context switch
-            current.context = interrupt_stack.clone();
-            process_to_jump = Some(current.clone());
+            process_to_jump = Some(new_current.clone());
         }
     }
 
     if let Some(process_to_jump) = process_to_jump {
-        print!("[ SCHED ] Jumping to process context, rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n", process_to_jump.context.rip, process_to_jump.context.rsp, process_to_jump.context.rax, process_to_jump.context.rbx, process_to_jump.context.r8);
+        print!(
+            "[ SCHED ] Jumping to process context, rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
+            process_to_jump.context.rip,
+            process_to_jump.context.rsp,
+            process_to_jump.context.rax,
+            process_to_jump.context.rbx,
+            process_to_jump.context.r8
+        );
+
         unsafe { jump(process_to_jump.context) };
     }
 }

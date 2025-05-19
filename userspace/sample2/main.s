@@ -10,10 +10,10 @@ _start:
     mov rax, stack_top
     mov rsp, rax
 
-    mov rax, 0x02
+    mov rax, 0x04
     int 0x80
 
-    mov r8, 0xDEAD
+    mov r8, 0xADED
 
     jmp $
 

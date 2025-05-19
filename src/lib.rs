@@ -113,10 +113,17 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let bin_entry = fs.get_file_in_root("SAMPLE  ELF").unwrap();
     let elf_binary = fs.read_file(&bin_entry).unwrap();
 
+    // load second sample ELF binary
+    let bin_entry_2 = fs.get_file_in_root("SAMPLE2 ELF").unwrap();
+    let elf_binary_2 = fs.read_file(&bin_entry_2).unwrap();
+
     print!("[ OK ] Read ELF binary\n");
 
     let elf_entry = elf::load(elf_binary).unwrap();
     scheduling::deploy(elf_entry);
+
+    let elf_entry_2 = elf::load(elf_binary_2).unwrap();
+    scheduling::deploy(elf_entry_2);
 
     scheduling::enable();
     loop {}
@@ -137,8 +144,9 @@ fn panic(info: &PanicInfo) -> ! {
     let location = info.location().unwrap();
     let file = location.file();
     let line = location.line() + 1;
+    let msg = info.message();
 
-    print!("PANIC on line {:?} in {:?}\n\n\n", line, file);
+    print!("PANIC on line {:?} in {:?}, {:?}\n\n\n", line, file, msg);
     loop {}
 }
 
