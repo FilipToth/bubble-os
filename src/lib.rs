@@ -33,8 +33,9 @@ use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
 use fs::fat_fs::FATFileSystem;
+use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
-use x86_64::registers::control::{Cr0, Cr0Flags, Cr3};
+use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
@@ -68,6 +69,8 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             return;
         }
     };
+
+    serial_init();
 
     enable_nxe_bit();
     enable_write_protect_bit();

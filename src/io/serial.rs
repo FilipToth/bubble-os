@@ -26,6 +26,15 @@ pub fn serial_init() {
     }
 }
 
+pub fn serial_received() -> bool {
+    inb(PORT + 5) & 0x01 != 0
+}
+
+pub fn read_serial() -> char {
+    while !serial_received() {}
+    inb(PORT) as char
+}
+
 pub fn is_transmit_empty() -> bool {
     inb(PORT + 5) & 0x20 != 0
 }

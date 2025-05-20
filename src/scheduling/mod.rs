@@ -3,6 +3,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use alloc::vec::Vec;
 use process::{Process, ProcessEntry};
 use spin::Mutex;
+use x86_64::registers::segmentation::SS;
 
 use crate::{arch::x86_64::timer_isr::FullInterruptStackFrame, print};
 

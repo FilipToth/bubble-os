@@ -12,7 +12,7 @@ assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
 	build/arch/$(arch)/boot/%.o, $(assembly_source_files))
 resources := $(wildcard resources/*)
 user_binaries := $(wildcard userspace/bin/*)
-base_qemu := qemu-system-x86_64 -nographic -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
+base_qemu := qemu-system-x86_64 -nographic -serial mon:stdio -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
 
 .PHONY: all clean run iso kernel disk userspace
 
