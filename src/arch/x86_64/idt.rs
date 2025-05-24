@@ -3,7 +3,11 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::{arch::x86_64::timer_isr::timer_trampoline, io::io, print, syscall};
+use crate::{
+    arch::x86_64::timer_isr::timer_trampoline, interrupt_trampoline, io::io, print, syscall,
+};
+
+use super::registers::FullInterruptStackFrame;
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
@@ -19,7 +23,10 @@ lazy_static! {
         }
 
         idt[0x34 as usize].set_handler_fn(debug_isr);
-        idt[0x80 as usize].set_handler_fn(syscall_isr);
+
+        unsafe {
+            idt[0x80 as usize].set_handler_addr(VirtAddr::new(syscall_trampoline as u64));
+        }
 
         idt
     };
@@ -54,15 +61,23 @@ extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
     print!("[ OK ] Debug isr called!\n");
 }
 
-extern "x86-interrupt" fn syscall_isr(_stack: InterruptStackFrame) {
+#[naked]
+extern "x86-interrupt" fn syscall_trampoline() {
+    interrupt_trampoline!(syscall_isr);
+}
+
+#[no_mangle]
+extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
     let syscall_number: usize;
     unsafe { core::arch::asm!("", lateout("rax") syscall_number) };
 
+    let stack = unsafe { &mut *stack };
     match syscall_number {
         1 => {
             // exit syscall
         }
-        2 => syscall::write(),
+        2 => syscall::write(stack),
+        3 => syscall::read(stack),
         _ => print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number),
     }
 }

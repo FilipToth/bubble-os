@@ -3,9 +3,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use alloc::vec::Vec;
 use process::{Process, ProcessEntry};
 use spin::Mutex;
-use x86_64::registers::segmentation::SS;
 
-use crate::{arch::x86_64::timer_isr::FullInterruptStackFrame, print};
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, print};
 
 pub mod process;
 
@@ -97,8 +96,73 @@ unsafe fn jump(context: FullInterruptStackFrame) {
     );
 
     core::arch::asm!("pop rsp", "sub rsp, 0x08");
-
     core::arch::asm!("sti", "ret", options(noreturn));
+}
+
+fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
+    let mut current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let mut processes = PROCESSES.lock();
+    let processes_len = processes.len();
+
+    if processes_len == 0 {
+        return None;
+    }
+
+    {
+        let current = &mut processes[current_index];
+
+        // Avoid saving kernel
+        if !current.pre_schedule && interrupt_stack.rip > 0x10F000 {
+            // save current context
+            // print!("Saved context, rip => 0x{:x}\n", interrupt_stack.rip);
+            current.context = interrupt_stack.clone();
+        }
+    }
+
+    let mut passes = 0;
+    loop {
+        current_index = if current_index + 1 >= processes_len {
+            0
+        } else {
+            current_index + 1
+        };
+
+        let new_current = &mut processes[current_index];
+        if !new_current.blocking {
+            new_current.pre_schedule = false;
+            CURRENT_INDEX.store(current_index, Ordering::SeqCst);
+
+            return Some(new_current.clone());
+        }
+
+        passes += 1;
+        if passes >= processes_len {
+            return None;
+        }
+    }
+}
+
+pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
+    let process_to_jump = match next_process(interrupt_stack) {
+        Some(p) => p,
+        None => {
+            unsafe { core::arch::asm!("sti") };
+            loop {};
+        },
+    };
+
+    let index = CURRENT_INDEX.load(Ordering::SeqCst);
+    print!(
+        "[ SCHED ] Jumping to process context ({}), rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
+        index,
+        process_to_jump.context.rip,
+        process_to_jump.context.rsp,
+        process_to_jump.context.rax,
+        process_to_jump.context.rbx,
+        process_to_jump.context.r8
+    );
+
+    unsafe { jump(process_to_jump.context) };
 }
 
 pub fn deploy(entry: ProcessEntry) {
@@ -110,60 +174,32 @@ pub fn deploy(entry: ProcessEntry) {
     processes.push(process);
 }
 
-pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
-    let process_to_jump: Option<Process>;
+pub fn block_current() {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
-    // need a new scope to drop mutex lock
-    {
-        let mut processes = PROCESSES.lock();
-        let processes_len = processes.len();
-        if processes_len == 0 {
-            return;
-        }
-
-        let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-        let current = &mut processes[current_index];
-
-        if !current.pre_schedule {
-            // save current context
-            current.context = interrupt_stack.clone();
-        }
-
-        // switch next process, round robin
-        let new_current_index = if current_index + 1 >= processes_len {
-            0
-        } else {
-            current_index + 1
-        };
-
-        CURRENT_INDEX.store(new_current_index, Ordering::SeqCst);
-        let new_current = &mut processes[new_current_index];
-
-        if new_current.pre_schedule {
-            // first schedule call on new process
-            new_current.pre_schedule = false;
-
-            // do first jump, do no change rip,
-            // since this isn't a context switch,
-            // rip should contain entry address
-            process_to_jump = Some(new_current.clone());
-        } else {
-            // regular scheduling context switch
-            process_to_jump = Some(new_current.clone());
-        }
+    if processes.len() == 0 {
+        return;
     }
 
-    if let Some(process_to_jump) = process_to_jump {
-        print!(
-            "[ SCHED ] Jumping to process context, rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
-            process_to_jump.context.rip,
-            process_to_jump.context.rsp,
-            process_to_jump.context.rax,
-            process_to_jump.context.rbx,
-            process_to_jump.context.r8
-        );
+    let current = &mut processes[current_index];
+    print!(
+        "Blocking current => {}, rip => 0x{:x}\n",
+        current_index, current.context.rip
+    );
+    current.blocking = true;
+}
 
-        unsafe { jump(process_to_jump.context) };
+pub fn process_input(input: char) {
+    let mut processes = PROCESSES.lock();
+    for process in processes.iter_mut() {
+        if !process.blocking {
+            continue;
+        }
+
+        // process is awaiting input
+        process.context.rax = input as usize;
+        process.blocking = false;
     }
 }
 
