@@ -4,7 +4,7 @@ use x86_64::{
 };
 
 use crate::{
-    arch::x86_64::timer_isr::timer_trampoline, interrupt_trampoline, io::io, print, syscall,
+    arch::x86_64::{timer_isr::timer_trampoline, gdt::PIT_STACK_INDEX}, interrupt_trampoline, io::io, print, syscall,
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -19,7 +19,9 @@ lazy_static! {
         idt.page_fault.set_handler_fn(page_fault_isr);
 
         unsafe {
-            idt[0x20 as usize].set_handler_addr(VirtAddr::new(timer_trampoline as u64));
+            idt[0x20 as usize]
+                .set_handler_addr(VirtAddr::new(timer_trampoline as u64))
+                .set_stack_index(PIT_STACK_INDEX as u16);
         }
 
         idt[0x34 as usize].set_handler_fn(debug_isr);

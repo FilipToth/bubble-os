@@ -127,7 +127,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     scheduling::deploy(elf_entry);
 
     let elf_entry_2 = elf::load(elf_binary_2).unwrap();
-    scheduling::deploy(elf_entry_2);
+    // scheduling::deploy(elf_entry_2);
 
     scheduling::enable();
     loop {}

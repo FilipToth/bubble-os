@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub struct Stack {
-    top: usize,
-    bottom: usize,
+    pub top: usize,
+    pub bottom: usize,
 }
 
 impl Stack {

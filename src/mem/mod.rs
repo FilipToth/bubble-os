@@ -5,13 +5,13 @@ pub mod paging;
 mod region;
 mod simple_page_frame_allocator;
 mod stack;
-mod stack_alloc;
+mod stack_allocator;
 
 use multiboot2::BootInformation;
 use paging::ActivePageTable;
 use spin::Mutex;
 use stack::Stack;
-use stack_alloc::StackAllocator;
+use stack_allocator::StackAllocator;
 
 use crate::{
     mem::{

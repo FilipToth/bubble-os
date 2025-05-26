@@ -147,11 +147,12 @@ pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
         Some(p) => p,
         None => {
             unsafe { core::arch::asm!("sti") };
-            loop {};
-        },
+            loop {}
+        }
     };
 
     let index = CURRENT_INDEX.load(Ordering::SeqCst);
+    /*
     print!(
         "[ SCHED ] Jumping to process context ({}), rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
         index,
@@ -161,6 +162,7 @@ pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
         process_to_jump.context.rbx,
         process_to_jump.context.r8
     );
+    */
 
     unsafe { jump(process_to_jump.context) };
 }
@@ -187,6 +189,7 @@ pub fn block_current() {
         "Blocking current => {}, rip => 0x{:x}\n",
         current_index, current.context.rip
     );
+
     current.blocking = true;
 }
 

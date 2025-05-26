@@ -28,6 +28,7 @@ impl StackAllocator {
         let mut range = self.range.clone();
         let guard = range.next();
         let start = range.next();
+
         let end = if pages_to_alloc == 1 {
             start
         } else {
