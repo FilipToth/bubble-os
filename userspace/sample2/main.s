@@ -19,8 +19,6 @@ _start:
 
     int 0x80
 
-    mov r8, 0xADED
-
     jmp $
 
 section .data

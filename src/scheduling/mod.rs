@@ -167,13 +167,15 @@ pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
     unsafe { jump(process_to_jump.context) };
 }
 
-pub fn deploy(entry: ProcessEntry) {
+pub fn deploy(entry: ProcessEntry) -> usize {
     let pid = PID_COUNTER.load(Ordering::SeqCst);
     PID_COUNTER.store(pid + 1, Ordering::SeqCst);
 
     let process = Process::from(entry, pid);
     let mut processes = PROCESSES.lock();
     processes.push(process);
+
+    pid
 }
 
 pub fn block_current() {

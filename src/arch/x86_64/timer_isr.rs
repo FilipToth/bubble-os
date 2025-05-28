@@ -1,5 +1,7 @@
 use core::sync::atomic::Ordering;
 
+use x86_64::instructions::interrupts;
+
 use crate::{
     arch, interrupt_trampoline,
     io::serial,
@@ -15,6 +17,8 @@ pub extern "x86-interrupt" fn timer_trampoline() {
 
 #[no_mangle]
 pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
+    interrupts::disable();
+
     let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
     arch::x86_64::pit::end_of_interrupt(0);
 
@@ -27,4 +31,6 @@ pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
 
         scheduling::schedule(&stack);
     }
+
+    interrupts::enable();
 }

@@ -25,6 +25,7 @@ read_user_input:
     ; of rax
     cmp al, 0x41
     jne not_matched
+    ; output is upper-case "A",
 
     ; check if elf has been
     ; run already
@@ -33,13 +34,18 @@ read_user_input:
 
     mov [elf_already_run], bl
 
-    ; output is upper-case "A",
     ; call execute syscall
     mov rax, 0x04
     mov rdi, elf
     mov rsi, elf_len
 
     int 0x80
+
+    ; the execute syscall returns the PID
+    ; in the rax register, so we must
+    ; overwrite it so it doesn't get
+    ; printed as a string
+    mov rax, 0x00
 
 not_matched:
     ; move output to message

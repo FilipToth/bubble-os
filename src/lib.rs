@@ -30,7 +30,6 @@ mod test;
 mod utils;
 
 use ahci::init_ahci;
-use ahci::port::AHCIPort;
 use alloc::boxed::Box;
 use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
