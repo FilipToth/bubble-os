@@ -103,5 +103,8 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     load_ph_headers(header, elf.ptr);
 
     let entry = header.entry_addr as usize;
-    Some(ProcessEntry { entry: entry })
+    Some(ProcessEntry {
+        entry: entry,
+        region: elf,
+    })
 }

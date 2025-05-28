@@ -1,4 +1,6 @@
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, fs::GLOBAL_FILESYSTEM, scheduling};
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, elf, fs::GLOBAL_FILESYSTEM, scheduling,
+};
 
 pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;

@@ -11,7 +11,10 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
     let string = match core::str::from_utf8(slice) {
         Ok(s) => s,
         Err(e) => {
-            let msg = format!("Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n", file_descriptor, buffer_addr, buffer_size);
+            let msg = format!(
+                "Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n",
+                file_descriptor, buffer_addr, buffer_size
+            );
             print!("{}\n{:?}", msg, e);
             return Some(0);
         }

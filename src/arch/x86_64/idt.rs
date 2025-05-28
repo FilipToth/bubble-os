@@ -78,17 +78,16 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
 
     let stack = unsafe { &mut *stack };
     let rax = match syscall_number {
-        1 => {
-            // exit syscall
-            None
-        }
+        1 => syscall::exit(),
         2 => syscall::write(stack),
         3 => syscall::read(stack),
         4 => syscall::execute(stack),
+        5 => syscall::yld(stack),
+        6 => syscall::wait_for_process(stack),
         _ => {
             print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number);
             Some(0)
-        },
+        }
     };
 
     // set return value

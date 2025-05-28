@@ -41,6 +41,12 @@ read_user_input:
 
     int 0x80
 
+    ; subprocess PID is in rax
+    ; call wait for process syscall
+    mov rdi, rax
+    mov rax, 0x06
+    int 0x80
+
     ; the execute syscall returns the PID
     ; in the rax register, so we must
     ; overwrite it so it doesn't get

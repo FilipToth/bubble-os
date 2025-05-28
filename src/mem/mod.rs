@@ -101,6 +101,21 @@ impl MemoryController {
             table.map_to(page, frame, flags, allocator);
         }
     }
+
+    /// Unmaps a range of pages and frees page frames
+    ///
+    /// ## Arguments
+    ///
+    /// - `start` the start page
+    /// - `end` the end page
+    pub fn unmap(&mut self, start: Page, end: Page) {
+        let allocator = &mut self.frame_allocator;
+        let table = &mut self.active_table;
+
+        for page in Page::range(start, end) {
+            table.unmap(page, allocator);
+        }
+    }
 }
 
 pub fn init(boot_info: &BootInformation) {

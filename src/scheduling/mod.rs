@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, print};
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, print};
 
 pub mod process;
 
@@ -114,7 +114,6 @@ fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
         // Avoid saving kernel
         if !current.pre_schedule && interrupt_stack.rip > 0x1FFFFF {
             // save current context
-            // print!("Saved context, rip => 0x{:x}\n", interrupt_stack.rip);
             current.context = interrupt_stack.clone();
         }
     }
@@ -127,10 +126,23 @@ fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
             current_index + 1
         };
 
-        let new_current = &mut processes[current_index];
-        if !new_current.blocking {
-            new_current.pre_schedule = false;
+        let (blocking, awaiting_process) = {
+            let process = &mut processes[current_index];
+            (process.blocking, process.awaiting_process)
+        };
+
+        let mut new_current_ready = !blocking;
+        if let Some(subprocess_pid) = awaiting_process {
+            let process_found = processes.iter().any(|p| p.pid == subprocess_pid);
+            new_current_ready = !process_found;
+        }
+
+        if new_current_ready {
             CURRENT_INDEX.store(current_index, Ordering::SeqCst);
+
+            let new_current = &mut processes[current_index];
+            new_current.pre_schedule = false;
+            new_current.awaiting_process = None;
 
             return Some(new_current.clone());
         }
@@ -151,8 +163,8 @@ pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
         }
     };
 
-    let index = CURRENT_INDEX.load(Ordering::SeqCst);
     /*
+    let index = CURRENT_INDEX.load(Ordering::SeqCst);
     print!(
         "[ SCHED ] Jumping to process context ({}), rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
         index,
@@ -201,6 +213,36 @@ pub fn process_input(input: char) {
         process.context.rax = input as usize;
         process.blocking = false;
     }
+}
+
+pub fn current_wait_for_process(subprocess: usize) {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    if processes.len() == 0 {
+        return;
+    }
+
+    // TODO: Check if subprocess PID exists
+    let current = &mut processes[current_index];
+    current.awaiting_process = Some(subprocess);
+}
+
+pub fn exit_current() {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let removed = processes.remove(current_index);
+
+    elf::unmap(removed.region);
+
+    // adjust current process index
+    let new_index = if current_index != 0 {
+        current_index - 1
+    } else {
+        0
+    };
+
+    CURRENT_INDEX.store(new_index, Ordering::SeqCst);
 }
 
 pub fn enable() {
