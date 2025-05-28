@@ -2,6 +2,7 @@ use core::alloc::Layout;
 
 use alloc::{borrow::Cow, string::String};
 
+#[derive(Clone)]
 pub struct Region {
     pub ptr: *mut u8,
     pub size: usize,

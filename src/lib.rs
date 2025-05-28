@@ -30,9 +30,11 @@ mod test;
 mod utils;
 
 use ahci::init_ahci;
+use ahci::port::AHCIPort;
+use alloc::boxed::Box;
 use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
-use fs::fat_fs::FATFileSystem;
+use fs::GLOBAL_FILESYSTEM;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
@@ -105,29 +107,31 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
 
     let mut ports = init_ahci(sata_controller);
-    let port = &mut ports[0];
 
-    let mut fs = FATFileSystem::new(port).unwrap();
-    for entry in &fs.root_dir {
-        let name = entry.get_name();
-        print!("[ OK ] Root dir entry: {}\n", name);
-    }
+    let x = ports.remove(0);
+    let port = Box::new(x);
+    fs::init(port);
 
-    // load sample ELF binary :D
-    let bin_entry = fs.get_file_in_root("SAMPLE  ELF").unwrap();
-    let elf_binary = fs.read_file(&bin_entry).unwrap();
+    let elf_binary = {
+        let mut fs = GLOBAL_FILESYSTEM.lock();
+        let fs = fs.as_mut().unwrap();
 
-    // load second sample ELF binary
-    let bin_entry_2 = fs.get_file_in_root("SAMPLE2 ELF").unwrap();
-    let elf_binary_2 = fs.read_file(&bin_entry_2).unwrap();
+        for entry in &fs.root_dir {
+            let name = entry.get_name();
+            print!("[ OK ] Root dir entry: {}\n", name);
+        }
+
+        // load sample ELF binary :D
+        let bin_entry = fs.get_file_in_root("SAMPLE  ELF").unwrap();
+        let elf_binary = fs.read_file(&bin_entry).unwrap();
+
+        elf_binary.clone()
+    };
 
     print!("[ OK ] Read ELF binary\n");
 
     let elf_entry = elf::load(elf_binary).unwrap();
     scheduling::deploy(elf_entry);
-
-    let elf_entry_2 = elf::load(elf_binary_2).unwrap();
-    // scheduling::deploy(elf_entry_2);
 
     scheduling::enable();
     loop {}

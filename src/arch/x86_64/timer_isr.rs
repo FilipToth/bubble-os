@@ -1,7 +1,9 @@
 use core::sync::atomic::Ordering;
 
 use crate::{
-    arch, interrupt_trampoline, io::serial, print, scheduling::{self, SCHEDULING_ENABLED}
+    arch, interrupt_trampoline,
+    io::serial,
+    scheduling::{self, SCHEDULING_ENABLED},
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -18,15 +20,6 @@ pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
 
     let stack = unsafe { &mut *stack };
     if sched_enabled {
-        {
-            let rsp: usize;
-            unsafe {
-                core::arch::asm!("mov {}, rsp", out(reg) rsp)
-            };
-
-            print!("Timer rsp: 0x{:x}\n", rsp);
-        }
-
         if serial::serial_received() {
             let input = serial::read_serial();
             scheduling::process_input(input);

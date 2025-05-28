@@ -1,6 +1,6 @@
 use core::alloc::Layout;
 
-use alloc::{alloc::alloc, string::String};
+use alloc::alloc::alloc;
 
 use crate::{
     mem::{

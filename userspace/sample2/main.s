@@ -1,5 +1,7 @@
 section .bss
-    resb 4096
+    stack_bottom:
+        resb 4096
+    stack_top:
 
 align 0x08
 
@@ -13,7 +15,7 @@ _start:
     mov rax, 0x02
     mov rdi, 0x01
     mov rsi, msg
-    mov r11, msg_len
+    mov rdx, msg_len
 
     int 0x80
 
@@ -21,11 +23,6 @@ _start:
 
     jmp $
 
-section data
-    msg db "Hello, World!", 0xA
+section .data
+    msg db "Hello from Sample ELF 2!", 0xA
     msg_len equ $ - msg
-
-section .bss
-stack_bottom:
-    resb 4096
-stack_top:

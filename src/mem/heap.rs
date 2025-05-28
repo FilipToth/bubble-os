@@ -88,8 +88,11 @@ impl LinkedListHeap {
                 let remainder_next = match create_block(remainder_addr, remainder_size) {
                     Some(b) => b,
                     None => {
-                        print!("[ HEAP ] Cannot create block (of size: 0x{:x}, at address: 0x{:x}) in allocate internal\n", remainder_size, remainder_addr);
-                        return Err(AllocError);
+                        // this previously threw an allocator error...
+                        // idk why it was done that way, but just switching
+                        // to the next block seems logical to me
+                        head = head.next.as_mut().unwrap();
+                        continue;
                     }
                 };
 

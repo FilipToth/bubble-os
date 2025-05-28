@@ -2,7 +2,7 @@ use core::alloc::Layout;
 
 use alloc::{
     alloc::{alloc, dealloc},
-    string::String,
+    boxed::Box,
     vec::Vec,
 };
 
@@ -15,24 +15,24 @@ use crate::{
 
 use super::fat::DirectoryEntry;
 
-pub struct FATFileSystem<'a> {
-    port: &'a mut AHCIPort,
+pub struct FATFileSystem {
+    port: Box<AHCIPort>,
     fat: FatBuffer,
     bs: FatBootSector,
     bs_32: Fat32ExtendedBootSector,
     pub root_dir: Vec<DirectoryEntry>,
 }
 
-impl<'a> FATFileSystem<'a> {
-    pub fn new(port: &'a mut AHCIPort) -> Option<FATFileSystem<'a>> {
-        let (bs, bs_32) = match read_boot_sector(port) {
+impl FATFileSystem {
+    pub fn new(mut port: Box<AHCIPort>) -> Option<FATFileSystem> {
+        let (bs, bs_32) = match read_boot_sector(&mut *port) {
             Some(bs) => bs,
             None => return None,
         };
 
         {
             // Scoped mutable borrow
-            let fat_buff = match read_fat(port, &bs, &bs_32) {
+            let fat_buff = match read_fat(&mut *port, &bs, &bs_32) {
                 Some(f) => f,
                 None => panic!(),
             };
@@ -266,6 +266,9 @@ struct FatBuffer {
     fat: *mut u32,
     entries: usize,
 }
+
+// WARNING: We need to implement Send because of the raw FAT pointer...
+unsafe impl Send for FatBuffer {}
 
 impl FatBuffer {
     pub fn new(fat_ptr: *mut u32, entries: usize) -> Self {

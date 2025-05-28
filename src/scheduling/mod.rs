@@ -112,7 +112,7 @@ fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
         let current = &mut processes[current_index];
 
         // Avoid saving kernel
-        if !current.pre_schedule && interrupt_stack.rip > 0x10F000 {
+        if !current.pre_schedule && interrupt_stack.rip > 0x1FFFFF {
             // save current context
             // print!("Saved context, rip => 0x{:x}\n", interrupt_stack.rip);
             current.context = interrupt_stack.clone();
@@ -185,11 +185,6 @@ pub fn block_current() {
     }
 
     let current = &mut processes[current_index];
-    print!(
-        "Blocking current => {}, rip => 0x{:x}\n",
-        current_index, current.context.rip
-    );
-
     current.blocking = true;
 }
 

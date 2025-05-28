@@ -4,7 +4,10 @@ use x86_64::{
 };
 
 use crate::{
-    arch::x86_64::{timer_isr::timer_trampoline, gdt::PIT_STACK_INDEX}, interrupt_trampoline, io::io, print, syscall,
+    arch::x86_64::{gdt::PIT_STACK_INDEX, timer_isr::timer_trampoline},
+    interrupt_trampoline,
+    io::io,
+    print, syscall,
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -80,6 +83,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         }
         2 => syscall::write(stack),
         3 => syscall::read(stack),
+        4 => syscall::execute(stack),
         _ => print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number),
     }
 }
