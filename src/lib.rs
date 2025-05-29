@@ -111,7 +111,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let port = Box::new(x);
     fs::init(port);
 
-    let elf_binary = {
+    let (shell_binary, b2) = {
         let mut fs = GLOBAL_FILESYSTEM.lock();
         let fs = fs.as_mut().unwrap();
 
@@ -120,17 +120,23 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             print!("[ OK ] Root dir entry: {}\n", name);
         }
 
-        // load sample ELF binary :D
-        let bin_entry = fs.get_file_in_root("SAMPLE  ELF").unwrap();
+        // load shell ELF binary :D
+        let bin_entry = fs.get_file_in_root("SHELL   ELF").unwrap();
         let elf_binary = fs.read_file(&bin_entry).unwrap();
 
-        elf_binary.clone()
+        let b2 = fs.get_file_in_root("SAMPLE2 ELF").unwrap();
+        let b2 = fs.read_file(&b2).unwrap();
+
+        (elf_binary.clone(), b2.clone())
     };
 
-    print!("[ OK ] Read ELF binary\n");
+    print!("[ OK ] Read Shell ELF binary\n");
 
-    let elf_entry = elf::load(elf_binary).unwrap();
-    scheduling::deploy(elf_entry);
+    let shell_entry = elf::load(shell_binary).unwrap();
+    scheduling::deploy(shell_entry);
+
+    let b2 = elf::load(b2).unwrap();
+    // scheduling::deploy(b2);
 
     scheduling::enable();
     loop {}

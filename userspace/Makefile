@@ -1,6 +1,6 @@
-.PHONY: all sample sample2 prepare
+.PHONY: all sample sample2 shell prepare
 
-all: prepare sample sample2
+all: prepare sample sample2 shell
 
 prepare:
 	mkdir -p bin
@@ -13,3 +13,7 @@ sample:
 sample2:
 	nasm -f elf64 sample2/main.s -o obj/sample2.o
 	ld -T sample2/linker.ld -m elf_x86_64 obj/sample2.o -o bin/sample2.elf
+
+shell:
+	nasm -f elf64 shell/shell.s -o obj/shell.o
+	ld -T shell/linker.ld -m elf_x86_64 obj/shell.o -o bin/shell.elf

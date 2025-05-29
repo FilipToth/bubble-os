@@ -21,7 +21,7 @@ mainloop:
     add rbx, 0x01
     mov [counter], rbx
 
-    cmp rbx, 0x2A0d
+    cmp rbx, 0x0FF
     jne mainloop
 
 final:
