@@ -13,7 +13,7 @@ use crate::{
     print,
 };
 
-use super::fat::DirectoryEntry;
+use super::fat::{get_fat_filename, DirectoryEntry};
 
 pub struct FATFileSystem {
     port: Box<AHCIPort>,
@@ -37,8 +37,6 @@ impl FATFileSystem {
                 None => panic!(),
             };
 
-            print!("\n");
-
             let root_cluster = bs_32.root_cluster as usize;
             let mut fs = FATFileSystem {
                 port: port,
@@ -57,8 +55,9 @@ impl FATFileSystem {
     }
 
     pub fn get_file_in_root(&self, name: &str) -> Option<DirectoryEntry> {
+        let filename = get_fat_filename(name)?;
         for entry in &self.root_dir {
-            if entry.get_name() != name {
+            if entry.name != filename {
                 continue;
             }
 

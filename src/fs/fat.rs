@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, string::String};
+use alloc::{borrow::Cow, format, string::String, vec::Vec};
 
 #[repr(C, packed)]
 pub struct FatBootSector {
@@ -53,7 +53,53 @@ pub struct DirectoryEntry {
 }
 
 impl DirectoryEntry {
-    pub fn get_name(&self) -> Cow<'_, str> {
+    pub fn get_filename(&self) -> String {
+        get_filename_from_fat(&self.name)
+    }
+
+    pub fn get_fat_filename(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.name)
+    }
+}
+
+pub fn get_fat_filename(filename: &str) -> Option<[u8; 11]> {
+    let mut split = filename.splitn(2, '.');
+    let name = split.next()?.to_uppercase();
+    let ext = split.next().unwrap_or("").to_uppercase();
+
+    if name.len() > 8 || ext.len() > 3 {
+        return None;
+    }
+
+    let mut filename = [b' '; 11];
+    for (index, char) in name.bytes().enumerate().take(8) {
+        filename[index] = char;
+    }
+
+    for (index, char) in ext.bytes().enumerate().take(3) {
+        filename[index + 8] = char;
+    }
+
+    Some(filename)
+}
+
+pub fn get_filename_from_fat(filename: &[u8; 11]) -> String {
+    let name = &filename[0..8];
+    let ext = &filename[8..11];
+
+    let name = core::str::from_utf8(name)
+        .unwrap_or("")
+        .trim_end()
+        .to_lowercase();
+
+    let ext = core::str::from_utf8(ext)
+        .unwrap_or("")
+        .trim_end()
+        .to_lowercase();
+
+    if !ext.is_empty() {
+        format!("{}.{}", name, ext)
+    } else {
+        name
     }
 }

@@ -6,11 +6,6 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
-    if buffer_size != 11 {
-        // file names must be 11 chars long on FAT32
-        return Some(0);
-    }
-
     let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
     let filename = core::str::from_utf8(slice).unwrap_or("Invalid string for execute syscall\n");
 
