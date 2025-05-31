@@ -91,7 +91,6 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegi
         controller.map(start_page, end_page, EntryFlags::WRITABLE);
 
         // load entry into memory
-        print!("[ ELF ] Found LOAD entry, vaddr: 0x{:x}, file_size: 0x{:x}, memory_size: 0x{:x}, start_map: 0x{:x}, end_map: 0x{:x}\n", addr, entry.file_size, size, start_map_addr, end_map_addr);
 
         let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
         let destination_ptr = addr as *mut u8;
@@ -115,7 +114,6 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegi
 pub fn load(elf: Region) -> Option<ProcessEntry> {
     let header = unsafe { &*(elf.addr as *const ElfHeader64) };
     let elf_type = header.elf_type;
-    print!("[ ELF ] elf_type: {}\n", elf_type);
 
     // vibe check magic :D
     let magic = ((header.ident[0] as u32) << 24)
@@ -127,7 +125,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         return None;
     }
 
-    print!("[ ELF ] Verified ELF Magic\n");
+    // TODO: Do further ELF validation
 
     let ptr = elf.get_ptr();
     let start_region = load_ph_headers(header, ptr);

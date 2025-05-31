@@ -3,6 +3,9 @@ section .bss
         resb 4096
     stack_top:
 
+    input_buffer: resb 128
+    buffer_ptr: resb 1
+
 align 0x08
 
 section .text
@@ -12,33 +15,118 @@ _start:
     mov rax, stack_top
     mov rsp, rax
 
-mainloop:
-    ; yield syscall
-    mov rax, 0x05
-    int 0x80
+    ; initialize buffer ptr
+    lea rax, [input_buffer]
+    mov [buffer_ptr], rax
 
-    mov rbx, [counter]
-    add rbx, 0x01
-    mov [counter], rbx
-
-    cmp rbx, 0xFFF
-    jne mainloop
-
-final:
-    ; print final message
+    ; display welcome message
     mov rax, 0x02
     mov rdi, 0x01
-    mov rsi, msg
-    mov rdx, msg_len
+    mov rsi, welcome_msg
+    mov rdx, welcome_msg_len
     int 0x80
 
-    ; exit syscall
-    mov rax, 0x01
+mainloop:
+    ; print shell command preface
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, preface
+    mov rdx, preface_len
     int 0x80
 
-    jmp $
+input_loop:
+    ; TODO: Check for buffer length
+
+    ; wait for user input
+    mov rax, 0x03
+    int 0x80
+
+    ; check if char is enter
+    cmp rax, 0x0D
+    je evaluate_command
+
+    ; user input char is now in rax
+    ; append input char into buffer
+    mov rcx, [buffer_ptr]
+    movzx rdx, byte [input_counter]
+    mov [rcx, rdx], rax
+
+    ; increase counter
+    mov r11, 0x01
+    mov rax, [input_counter]
+    add rax, r11
+    mov [input_counter], rax
+
+    ; create addr pointer to new char
+    add rcx, rdx
+
+    ; print character to screen
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, rcx
+    mov rdx, 0x01
+    int 0x80
+
+    jmp input_loop
+
+evaluate_command:
+    ; print newline
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, newline,
+    mov rdx, newline_len
+    int 0x80
+
+    ; check if input is empty
+    mov rax, 0x00
+    cmp [input_counter], rax
+    je reset_after_input
+
+    ; try call execute syscall on input buffer
+    mov rax, 0x04
+    mov rdi, input_buffer
+    mov rsi, [input_counter]
+    int 0x80
+
+    ; PID will be in rax, check if we
+    ; actually ran the ELF
+    cmp rax, 0x00
+    je error
+
+    ; wait for subprocess completion
+    mov rdi, rax
+    mov rax, 0x06
+    int 0x80
+
+    jmp reset_after_input
+
+error:
+    ; print error message
+    mov rax, 0x02
+    mov rdi, 0x01,
+    mov rsi, err_msg
+    mov rdx, err_msg_len
+    int 0x80
+
+reset_after_input:
+    ; reset buffer pointer
+    mov rdi, 0x00
+    mov [input_counter], rdi
+
+    jmp mainloop
+
 
 section .data
-    msg db "Hello, from SHELL!", 0xA
-    msg_len equ $ - msg
-    counter db 0x00
+    welcome_msg dw 0xA, "Welcome to the Bubble OS Kernel Shell :D", 0xA, 0xA
+    welcome_msg_len equ $ - welcome_msg
+
+    err_msg dw "Program or command not found...", 0xA
+    err_msg_len equ $ - err_msg
+
+    preface dw "$", 0x20
+    preface_len equ $ - preface
+
+    newline dw 0xA
+    newline_len equ $ - newline
+
+    input_counter dw 0x00
