@@ -29,7 +29,7 @@ pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
             scheduling::process_input(input);
         }
 
-        scheduling::schedule(&stack);
+        scheduling::schedule(Some(&stack));
     }
 
     interrupts::enable();

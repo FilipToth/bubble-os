@@ -107,8 +107,8 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let mut ports = init_ahci(sata_controller);
 
-    let x = ports.remove(0);
-    let port = Box::new(x);
+    let port = ports.remove(0);
+    let port = Box::new(port);
     fs::init(port);
 
     let (shell_binary, b2) = {
@@ -136,7 +136,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     scheduling::deploy(shell_entry);
 
     let b2 = elf::load(b2).unwrap();
-    // scheduling::deploy(b2);
+    scheduling::deploy(b2);
 
     scheduling::enable();
     loop {}

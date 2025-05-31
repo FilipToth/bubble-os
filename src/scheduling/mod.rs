@@ -99,7 +99,7 @@ unsafe fn jump(context: FullInterruptStackFrame) {
     core::arch::asm!("sti", "ret", options(noreturn));
 }
 
-fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
+fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Process> {
     let mut current_index = CURRENT_INDEX.load(Ordering::SeqCst);
     let mut processes = PROCESSES.lock();
     let processes_len = processes.len();
@@ -108,14 +108,23 @@ fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
         return None;
     }
 
-    {
-        let current = &mut processes[current_index];
+    if let Some(interrupt_stack) = interrupt_stack {
+        match processes.get_mut(current_index) {
+            Some(current) => {
+                // the bug happens when accessing anything from current after we call the exit syscall
 
-        // Avoid saving kernel
-        if !current.pre_schedule && interrupt_stack.rip > 0x1FFFFF {
-            // save current context
-            current.context = interrupt_stack.clone();
-        }
+                // Avoid saving kernel
+                let _m = current.pid + 1;
+                let is_not_presched = !current.pre_schedule;
+                let rip = interrupt_stack.rip;
+
+                if is_not_presched && rip > 0x1FFFFF {
+                    // save current context
+                    current.context = interrupt_stack.clone();
+                }
+            }
+            None => {}
+        };
     }
 
     let mut passes = 0;
@@ -154,7 +163,7 @@ fn next_process(interrupt_stack: &FullInterruptStackFrame) -> Option<Process> {
     }
 }
 
-pub fn schedule(interrupt_stack: &FullInterruptStackFrame) {
+pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
     let process_to_jump = match next_process(interrupt_stack) {
         Some(p) => p,
         None => {
@@ -233,7 +242,7 @@ pub fn exit_current() {
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
     let removed = processes.remove(current_index);
 
-    elf::unmap(removed.region);
+    elf::unmap(&removed.start_region);
 
     // adjust current process index
     let new_index = if current_index != 0 {

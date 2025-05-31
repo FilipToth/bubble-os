@@ -12,6 +12,7 @@ _start:
     mov rax, stack_top
     mov rsp, rax
 
+
 mainloop:
     ; yield syscall
     mov rax, 0x05

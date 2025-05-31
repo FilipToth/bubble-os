@@ -7,7 +7,7 @@ pub fn read(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     // yield back to scheduler instead of
     // caller process
-    scheduling::schedule(stack);
+    scheduling::schedule(Some(stack));
 
     None
 }

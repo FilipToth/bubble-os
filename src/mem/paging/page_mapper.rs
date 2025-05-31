@@ -124,6 +124,17 @@ impl Mapper {
     where
         A: PageFrameAllocator,
     {
+        let rsp: usize;
+        unsafe { core::arch::asm!("mov rax, rsp", lateout("rax") rsp) };
+
+        // yeah... we literally unmapped our own stack lol :D
+
+        print!(
+            "Unmapping page at: 0x{:X}, rsp: 0x{:X}\n",
+            page.start_address(),
+            rsp
+        );
+
         assert!(self.translate_to_phys(page.start_address()).is_some());
         let p1 = self
             .get_p4_mut()

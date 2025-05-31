@@ -104,7 +104,7 @@ impl FATFileSystem {
     ) -> Option<(*mut DirectoryEntry, usize)> {
         self.read_cluster(dir_cluster).map(|region| {
             let num_entries = region.size / core::mem::size_of::<DirectoryEntry>();
-            (region.ptr as *mut DirectoryEntry, num_entries)
+            (region.addr as *mut DirectoryEntry, num_entries)
         })
     }
 
@@ -135,12 +135,14 @@ impl FATFileSystem {
                     };
 
                     let head = unsafe { file_buffer.add(bytes_read) };
-                    unsafe { core::ptr::copy(region.ptr, head, to_append) };
+                    let ptr = region.get_ptr::<u8>();
+
+                    unsafe { core::ptr::copy(ptr, head, to_append) };
                     bytes_read += to_append;
 
                     // deallocate partial read buffer
                     let region_layout = region.construct_layout();
-                    unsafe { dealloc(region.ptr, region_layout) };
+                    unsafe { dealloc(ptr, region_layout) };
                 }
                 None => break,
             };
@@ -152,7 +154,7 @@ impl FATFileSystem {
             };
         }
 
-        let region = Region::new(file_buffer, filesize);
+        let region = Region::from(file_buffer, filesize);
 
         Some(region)
     }
@@ -184,7 +186,7 @@ impl FATFileSystem {
             print!("[ FS ] ERROR: Cannot cluster {}!\n", cluster);
             None
         } else {
-            let region = Region::new(buffer, buffer_size);
+            let region = Region::from(buffer, buffer_size);
             Some(region)
         }
     }

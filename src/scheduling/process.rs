@@ -1,4 +1,6 @@
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, mem::Region};
+use alloc::boxed::Box;
+
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf::ElfRegion};
 
 #[derive(Clone)]
 pub struct Process {
@@ -7,7 +9,7 @@ pub struct Process {
     pub blocking: bool,
     pub awaiting_process: Option<usize>,
     pub context: FullInterruptStackFrame,
-    pub region: Region,
+    pub start_region: Box<ElfRegion>,
 }
 
 impl Process {
@@ -21,15 +23,12 @@ impl Process {
             blocking: false,
             awaiting_process: None,
             context: context,
-            region: entry.region,
+            start_region: entry.start_region,
         }
     }
 }
 
-// WARNING: We need to implement Send because of the raw Region pointer...
-unsafe impl Send for Process {}
-
 pub struct ProcessEntry {
     pub entry: usize,
-    pub region: Region,
+    pub start_region: Box<ElfRegion>,
 }

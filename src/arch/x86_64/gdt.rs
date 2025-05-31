@@ -17,23 +17,17 @@ struct Selectors {
 }
 
 pub static PIT_STACK_INDEX: usize = 0;
+pub static SYSCALL_STACK_INDEX: usize = 1;
 
 lazy_static! {
     static ref TSS: TaskStateSegment = {
         let mut tss = TaskStateSegment::new();
 
-        let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-        let mc = mc.as_mut().unwrap();
+        let pit_stack = alloc_ist_stack();
+        tss.interrupt_stack_table[PIT_STACK_INDEX] = VirtAddr::new(pit_stack);
 
-        let stack = match mc.alloc_stack(16) {
-            Some(s) => s,
-            None => {
-                print!("[ ERR ] Couldn't allocate IST stack!\n");
-                panic!();
-            }
-        };
-
-        tss.interrupt_stack_table[PIT_STACK_INDEX] = VirtAddr::new(stack.top as u64);
+        let syscall_stack = alloc_ist_stack();
+        tss.interrupt_stack_table[SYSCALL_STACK_INDEX] = VirtAddr::new(syscall_stack);
 
         tss
     };
@@ -55,6 +49,19 @@ lazy_static! {
 
         (gdt, selectors)
     };
+}
+
+fn alloc_ist_stack() -> u64 {
+    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+    let mc = mc.as_mut().unwrap();
+
+    match mc.alloc_stack(16) {
+        Some(s) => s.top as u64,
+        None => {
+            print!("[ ERR ] Couldn't allocate IST stack!\n");
+            panic!();
+        }
+    }
 }
 
 pub fn init_gdt() {
