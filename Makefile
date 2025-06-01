@@ -44,9 +44,11 @@ disk:
 	qemu-img create -f raw $(disk_path) 128M
 	mkfs.vfat -F 32 -v $(disk_path)
 
+	mmd -i $(disk_path) ::res
+
 	@for file in $(resources); do \
 		echo $$(basename $$file); \
-		mcopy -i $(disk_path) "$$file" ::$$(basename $$file); \
+		mcopy -i $(disk_path) "$$file" ::res/$$(basename $$file); \
 	done
 
 	@for file in $(user_binaries); do \

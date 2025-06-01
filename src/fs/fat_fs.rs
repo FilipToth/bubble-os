@@ -121,8 +121,7 @@ impl FATFileSystem {
         }
 
         let mut bytes_read: usize = 0;
-        let mut cluster =
-            (((file.first_cluster_high as u32) << 16) | file.first_cluster_low as u32) as usize;
+        let mut cluster = file.get_cluster();;
 
         loop {
             match self.read_cluster(cluster) {

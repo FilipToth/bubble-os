@@ -116,9 +116,19 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         let fs = fs.as_mut().unwrap();
 
         print!("\n");
-        for entry in &fs.root_dir {
+        for entry in &fs.root_dir.clone() {
             let name = entry.get_filename();
-            print!("[ OK ] Root dir entry: {}\n", name);
+            print!("[ OK ] Root dir entry: {}, dir: {}\n", name, entry.is_directory());
+
+            if entry.is_directory() {
+                let cluster = entry.get_cluster();
+                let subfiles = fs.read_directory(cluster);
+
+                for file in subfiles {
+                    let name = file.get_filename();
+                    print!("           Subfile: {}\n", name);
+                }
+            }
         }
 
         // load shell ELF binary :D

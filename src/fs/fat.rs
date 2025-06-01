@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, format, string::String, vec::Vec};
+use alloc::{borrow::Cow, format, string::String};
 
 #[repr(C, packed)]
 pub struct FatBootSector {
@@ -59,6 +59,18 @@ impl DirectoryEntry {
 
     pub fn get_fat_filename(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.name)
+    }
+
+    pub fn is_directory(&self) -> bool {
+        !self.is_long_filename() && self.attributes & 0x10 != 0
+    }
+
+    pub fn is_long_filename(&self) -> bool {
+        self.attributes & 0x0F != 0
+    }
+
+    pub fn get_cluster(&self) -> usize {
+        (((self.first_cluster_high as u32) << 16) | self.first_cluster_low as u32) as usize
     }
 }
 
