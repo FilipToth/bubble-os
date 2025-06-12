@@ -89,14 +89,10 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         4 => syscall::execute(stack),
         5 => syscall::yld(stack),
         6 => syscall::wait_for_process(stack),
-        7 => {
-            // debug syscall
-            print!("[ SYS ] Debug syscall, rdi -> 0x{:X}\n", stack.rdi);
-            None
-        }
+        7 => syscall::read_dir(stack),
         _ => {
             print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number);
-            Some(0)
+            None
         }
     };
 

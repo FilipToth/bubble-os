@@ -67,6 +67,10 @@ impl FATFileSystem {
         None
     }
 
+    pub fn list_root_dir(&self) -> Vec<DirectoryEntry> {
+        self.root_dir.clone()
+    }
+
     pub fn read_directory(&mut self, dir_cluster: usize) -> Vec<DirectoryEntry> {
         let mut cluster = dir_cluster;
         let mut entries: Vec<DirectoryEntry> = Vec::new();
@@ -121,7 +125,7 @@ impl FATFileSystem {
         }
 
         let mut bytes_read: usize = 0;
-        let mut cluster = file.get_cluster();;
+        let mut cluster = file.get_cluster();
 
         loop {
             match self.read_cluster(cluster) {

@@ -1,5 +1,5 @@
 struc DirEntry
-    .name:      resb 64
+    .name:      resb 11
     .attr:      resb 1
     .size:      resd 4
 endstruc
@@ -54,8 +54,8 @@ iterate_entries:
     ; increment pointer
     ; TODO: use some struct sizeof function
     mov rax, [curr_entry_ptr]
-    add rax, 0x48
-    mov [curr_entry_ptr], rax
+    add rax, 0x10
+    mov [curr_entry_ptr], rax 
 
     ; check if end of entries
     mov al, byte [num_entries]

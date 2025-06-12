@@ -2,7 +2,7 @@
 macro_rules! interrupt_trampoline {
     ($isr:path) => {
         unsafe {
-            core::arch::asm!(
+            core::arch::naked_asm!(
                 "push rax",
                 "push rbx",
                 "push rcx",
@@ -40,7 +40,6 @@ macro_rules! interrupt_trampoline {
                 "iretq",
 
                 isr = sym $isr,
-                options(noreturn)
             );
         }
     };

@@ -118,7 +118,11 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         print!("\n");
         for entry in &fs.root_dir.clone() {
             let name = entry.get_filename();
-            print!("[ OK ] Root dir entry: {}, dir: {}\n", name, entry.is_directory());
+            print!(
+                "[ OK ] Root dir entry: {}, dir: {}\n",
+                name,
+                entry.is_directory()
+            );
 
             if entry.is_directory() {
                 let cluster = entry.get_cluster();
