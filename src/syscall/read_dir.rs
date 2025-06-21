@@ -40,7 +40,13 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
             let name_len = name.len().min(64);
             let name = name.as_bytes();
 
-            name_buffer[..name_len].copy_from_slice(&name[..name_len]);
+            // name_buffer[..name_len].copy_from_slice(&name[..name_len]);
+            name_buffer[0] = 0xDE;
+            name_buffer[1] = 0xDE;
+            name_buffer[2] = 0xDE;
+            name_buffer[3] = 0xDE;
+
+            print!("Reading dir, entry w attr: 0x{:X}\n", e.attributes);
 
             SyscallDirEntry {
                 name: name_buffer,

@@ -168,7 +168,7 @@ fn panic(info: &PanicInfo) -> ! {
     let line = location.line() + 1;
     let msg = info.message();
 
-    print!("PANIC on line {:?} in {:?}, {:?}\n\n\n", line, file, msg);
+    print!("PANIC on line {:?} in\n{:?}\n{:?}\n\n\n", line, file, msg);
     loop {}
 }
 

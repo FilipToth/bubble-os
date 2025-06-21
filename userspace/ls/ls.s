@@ -37,6 +37,25 @@ _start:
     mov [curr_entry_ptr], rcx
 
 iterate_entries:
+    ; check if current entry is directory
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, curr_entry_ptr
+    mov rdx, 0x0B
+    int 0x80
+
+    and rsi, 0x10
+    cmp rsi, 0x00
+    je print_entry
+
+    ; entry is a directory
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, dir_msg
+    mov rdx, dir_msg_len
+    int 0x80
+
+print_entry:
     ; print current entry
     mov rax, 0x02
     mov rdi, 0x01
@@ -82,3 +101,6 @@ section .data
 
     num_entries db 0x00
     num_entries_read db 0x00
+
+    dir_msg db "DIR "
+    dir_msg_len equ $ - dir_msg

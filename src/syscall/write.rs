@@ -7,6 +7,8 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rsi;
     let buffer_size = stack.rdx;
 
+    print!("[ SYS ] Write addr: 0x{:X}\n", buffer_addr);
+
     let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
     let string = match core::str::from_utf8(slice) {
         Ok(s) => s,
