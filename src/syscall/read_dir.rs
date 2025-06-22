@@ -40,13 +40,7 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
             let name_len = name.len().min(64);
             let name = name.as_bytes();
 
-            // name_buffer[..name_len].copy_from_slice(&name[..name_len]);
-            name_buffer[0] = 0xDE;
-            name_buffer[1] = 0xDE;
-            name_buffer[2] = 0xDE;
-            name_buffer[3] = 0xDE;
-
-            print!("Reading dir, entry w attr: 0x{:X}\n", e.attributes);
+            name_buffer[..name_len].copy_from_slice(&name[..name_len]);
 
             SyscallDirEntry {
                 name: name_buffer,
@@ -59,9 +53,8 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     // write entries into supplied entries buffer
     let mut buffer_ptr = buffer_addr as *mut SyscallDirEntry;
-    let entry_size = core::mem::size_of::<SyscallDirEntry>();
-
     let num_entries = entries.len();
+
     for entry in entries.iter() {
         unsafe {
             core::ptr::copy(entry as *const SyscallDirEntry, buffer_ptr, 1);

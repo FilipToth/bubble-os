@@ -38,21 +38,27 @@ _start:
 
 iterate_entries:
     ; check if current entry is directory
-    mov rax, 0x02
-    mov rdi, 0x01
-    mov rsi, curr_entry_ptr
-    mov rdx, 0x0B
-    int 0x80
-
-    and rsi, 0x10
-    cmp rsi, 0x00
-    je print_entry
+    mov rsi, [curr_entry_ptr]
+    add rsi, DirEntry.attr
+    mov rax, [rsi]
+    and rax, 0x10
+    cmp rax, 0x00
+    je print_non_dir_msg
 
     ; entry is a directory
     mov rax, 0x02
     mov rdi, 0x01
     mov rsi, dir_msg
     mov rdx, dir_msg_len
+    int 0x80
+
+    jmp print_entry
+
+print_non_dir_msg:
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, non_dir_msg
+    mov rdx, non_dir_msg_len
     int 0x80
 
 print_entry:
@@ -85,7 +91,7 @@ print_entry:
     mov rax, [num_entries_read]
     add rax, 0x01
     mov [num_entries_read], rax
- 
+
     jmp iterate_entries
 
 final:
@@ -102,5 +108,8 @@ section .data
     num_entries db 0x00
     num_entries_read db 0x00
 
-    dir_msg db "DIR "
+    dir_msg db "[ DIR ] "
     dir_msg_len equ $ - dir_msg
+
+    non_dir_msg db "        "
+    non_dir_msg_len equ $ - non_dir_msg

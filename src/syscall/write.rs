@@ -7,8 +7,6 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rsi;
     let buffer_size = stack.rdx;
 
-    print!("[ SYS ] Write addr: 0x{:X}\n", buffer_addr);
-
     let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
     let string = match core::str::from_utf8(slice) {
         Ok(s) => s,
@@ -17,7 +15,7 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
                 "Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n",
                 file_descriptor, buffer_addr, buffer_size
             );
-            print!("{}\n{:?}", msg, e);
+            print!("{}\n{:?}\n", msg, e);
             return Some(0);
         }
     };
