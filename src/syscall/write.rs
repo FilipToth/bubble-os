@@ -15,6 +15,7 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
                 "Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n",
                 file_descriptor, buffer_addr, buffer_size
             );
+
             print!("{}\n{:?}\n", msg, e);
             return Some(0);
         }

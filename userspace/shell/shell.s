@@ -85,6 +85,8 @@ evaluate_command:
 check_builtins:
     ; check for cd
     cmp word [input_buffer], "cd"
+    jne execute_elf
+    cmp byte [input_buffer + 0x02], ' '
     je execute_cd
 
 execute_elf:
@@ -128,9 +130,9 @@ reset_after_input:
 execute_cd:
     ; call cd syscall
     mov rax, 0x08
-    mov rdi, input_buffer + 0x03
+    mov rdi, input_buffer + 0x02
     mov rsi, [input_counter]
-    sub rsi, 0x03
+    sub rsi, 0x02
     int 0x80
 
     jmp reset_after_input

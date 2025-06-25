@@ -21,7 +21,6 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
     let fs = fs.as_mut().unwrap();
 
     let cwd = scheduling::get_current_cwd();
-    print!("Cwd: {}\n", cwd);
     let entries = match fs.resolve_path(cwd) {
         Some(entry) => {
             let cluster = entry.get_cluster();
