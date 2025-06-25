@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::vec::Vec;
+use alloc::{string::{String, ToString}, vec::Vec};
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
@@ -172,30 +172,25 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         }
     };
 
-    /*
-    let index = CURRENT_INDEX.load(Ordering::SeqCst);
-    print!(
-        "[ SCHED ] Jumping to process context ({}), rip: 0x{:x}, rsp: 0x{:x}, rax: 0x{:x}, rbx: 0x{:x}, r8: 0x{:x}\n",
-        index,
-        process_to_jump.context.rip,
-        process_to_jump.context.rsp,
-        process_to_jump.context.rax,
-        process_to_jump.context.rbx,
-        process_to_jump.context.r8
-    );
-    */
-
     unsafe { jump(process_to_jump.context) };
 }
 
-pub fn deploy(entry: ProcessEntry) -> usize {
+pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     let pid = PID_COUNTER.load(Ordering::SeqCst);
     PID_COUNTER.store(pid + 1, Ordering::SeqCst);
 
-    let process = Process::from(entry, pid);
     let mut processes = PROCESSES.lock();
-    processes.push(process);
+    let cwd = if fork_current && processes.len() != 0 {
+        // basically fork the cwd from calling process
+        let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+        let current = &processes[current_index];
+        current.curr_working_dir.clone()
+    } else {
+        String::new()
+    };
 
+    let process = Process::from(entry, pid, cwd);
+    processes.push(process);
     pid
 }
 
@@ -252,6 +247,34 @@ pub fn exit_current() {
     };
 
     CURRENT_INDEX.store(new_index, Ordering::SeqCst);
+}
+
+pub fn get_current_cwd() -> String {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    if processes.len() == 0 {
+        "".to_string()
+    } else {
+        let current_process = &mut processes[current_index];
+        let cwd = current_process.curr_working_dir.clone();
+        print!("Loading cwd {}, for index: {}, pid: {}\n", cwd, current_index, current_process.pid);
+        cwd
+    }
+}
+
+pub fn change_cwd(cwd: String) {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    if processes.len() == 0 {
+        return;
+    }
+
+    let current_process = &mut processes[current_index];
+    print!("Saving cwd: {}, to index: {}, pid: {}\n", cwd, current_index, current_process.pid);
+
+    current_process.curr_working_dir = cwd.clone();
 }
 
 pub fn enable() {

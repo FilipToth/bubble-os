@@ -23,10 +23,8 @@ _start:
 
     ; read dir syscall
     mov rax, 0x07
-    mov rdi, 0x00
-    mov rsi, 0x00,
-    mov rdx, entry_buffer
-    mov rcx, 0x0A
+    mov rdi, entry_buffer
+    mov rsi, 0x0A
     int 0x80
 
     ; number of entries now in rax

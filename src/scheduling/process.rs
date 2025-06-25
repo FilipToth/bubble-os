@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::String};
 
 use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf::ElfRegion};
 
@@ -10,10 +10,11 @@ pub struct Process {
     pub awaiting_process: Option<usize>,
     pub context: FullInterruptStackFrame,
     pub start_region: Box<ElfRegion>,
+    pub curr_working_dir: String,
 }
 
 impl Process {
-    pub fn from(entry: ProcessEntry, pid: usize) -> Process {
+    pub fn from(entry: ProcessEntry, pid: usize, cwd: String) -> Process {
         let mut context = FullInterruptStackFrame::empty();
         context.rip = entry.entry;
 
@@ -24,6 +25,7 @@ impl Process {
             awaiting_process: None,
             context: context,
             start_region: entry.start_region,
+            curr_working_dir: cwd,
         }
     }
 }

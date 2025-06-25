@@ -4,7 +4,7 @@ use spin::Mutex;
 
 use crate::ahci::port::AHCIPort;
 
-mod fat;
+pub mod fat;
 mod fat_fs;
 
 pub static GLOBAL_FILESYSTEM: Mutex<Option<FATFileSystem>> = Mutex::new(None);

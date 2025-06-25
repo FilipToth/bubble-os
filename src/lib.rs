@@ -136,7 +136,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         }
 
         // load shell ELF binary :D
-        let bin_entry = fs.get_file_in_root("shell.elf").unwrap();
+        let bin_entry = fs.get_entry_in_root("shell.elf").unwrap();
         let elf_binary = fs.read_file(&bin_entry).unwrap();
 
         elf_binary.clone()
@@ -145,7 +145,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     print!("[ OK ] Read Shell ELF binary\n");
 
     let shell_entry = elf::load(shell_binary).unwrap();
-    scheduling::deploy(shell_entry);
+    scheduling::deploy(shell_entry, false);
 
     scheduling::enable();
     loop {}

@@ -1,9 +1,7 @@
 use core::alloc::Layout;
 
 use alloc::{
-    alloc::{alloc, dealloc},
-    boxed::Box,
-    vec::Vec,
+    alloc::{alloc, dealloc}, boxed::Box, string::String, vec::Vec
 };
 
 use crate::{
@@ -54,7 +52,7 @@ impl FATFileSystem {
         }
     }
 
-    pub fn get_file_in_root(&self, name: &str) -> Option<DirectoryEntry> {
+    pub fn get_entry_in_root(&self, name: &str) -> Option<DirectoryEntry> {
         let filename = get_fat_filename(name)?;
         for entry in &self.root_dir {
             if entry.name != filename {
@@ -69,6 +67,37 @@ impl FATFileSystem {
 
     pub fn list_root_dir(&self) -> Vec<DirectoryEntry> {
         self.root_dir.clone()
+    }
+
+    // TODO: Move into a separate path utilities module
+    pub fn resolve_path(&mut self, path: String) -> Option<DirectoryEntry> {
+        let mut parts = path.split('/');
+        let first = parts.next()?;
+        let mut curr = self.get_entry_in_root(first);
+
+        loop {
+            let part = match parts.next() {
+                Some(n) => n,
+                None => return curr,
+            };
+
+            let curr_cluster = curr.clone()?.get_cluster();
+            let part = get_fat_filename(part)?;
+            let curr_entries = self.read_directory(curr_cluster);
+
+            for entry in curr_entries {
+                if !entry.is_directory() || entry.name != part {
+                    continue;
+                }
+
+                curr = Some(entry);
+                break;
+            }
+        }
+    }
+
+    pub fn combine_path(&self, p1: String, p2: String) -> String {
+        p1 + "/" + &p2
     }
 
     pub fn read_directory(&mut self, dir_cluster: usize) -> Vec<DirectoryEntry> {

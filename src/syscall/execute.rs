@@ -7,13 +7,14 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_size = stack.rsi;
 
     let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
-    let filename = core::str::from_utf8(slice).unwrap_or("Invalid string for execute syscall\n");
+    let filename =
+        core::str::from_utf8(slice).unwrap_or("Invalid ELF filename string for execute syscall\n");
 
     // check if file exists
     let mut fs = GLOBAL_FILESYSTEM.lock();
     let fs = fs.as_mut().unwrap();
 
-    let file = match fs.get_file_in_root(filename) {
+    let file = match fs.get_entry_in_root(filename) {
         Some(f) => f,
         None => return Some(0),
     };
@@ -28,6 +29,6 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         None => return Some(0),
     };
 
-    let pid = scheduling::deploy(elf_entry);
+    let pid = scheduling::deploy(elf_entry, true);
     Some(pid)
 }

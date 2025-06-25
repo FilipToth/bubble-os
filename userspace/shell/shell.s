@@ -82,6 +82,12 @@ evaluate_command:
     cmp [input_counter], rax
     je reset_after_input
 
+check_builtins:
+    ; check for cd
+    cmp word [input_buffer], "cd"
+    je execute_cd
+
+execute_elf:
     ; try call execute syscall on input buffer
     mov rax, 0x04
     mov rdi, input_buffer
@@ -114,6 +120,20 @@ reset_after_input:
     mov [input_counter], rdi
 
     jmp mainloop
+
+
+; =============================
+;   CHANGE DIRECTORY BUILTIN
+; =============================
+execute_cd:
+    ; call cd syscall
+    mov rax, 0x08
+    mov rdi, input_buffer + 0x03
+    mov rsi, [input_counter]
+    sub rsi, 0x03
+    int 0x80
+
+    jmp reset_after_input
 
 
 section .data

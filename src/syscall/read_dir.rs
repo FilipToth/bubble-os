@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM, mem::paging::entry,
-    print,
+    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM,
+    print, scheduling,
 };
 
 /// Simplified version of the FAT directory entry
@@ -14,22 +14,23 @@ struct SyscallDirEntry {
 }
 
 pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
-    let path_addr = stack.rdi;
-    let path_len = stack.rsi;
-    let buffer_addr = stack.rdx;
-    let max_items = stack.rcx;
+    let buffer_addr = stack.rdi;
+    let max_items = stack.rsi;
 
     let mut fs = GLOBAL_FILESYSTEM.lock();
     let fs = fs.as_mut().unwrap();
 
-    let entries = if path_len != 0 {
-        let slice = unsafe { core::slice::from_raw_parts(path_addr as *const u8, path_len) };
-        let path = core::str::from_utf8(slice).unwrap_or("Invalid string for execute syscall\n");
-
-        // complicated, get entries by path
-        unimplemented!()
-    } else {
-        fs.list_root_dir()
+    let cwd = scheduling::get_current_cwd();
+    print!("Cwd: {}\n", cwd);
+    let entries = match fs.resolve_path(cwd) {
+        Some(entry) => {
+            let cluster = entry.get_cluster();
+            fs.read_directory(cluster)
+        }
+        None => {
+            // root dir
+            fs.list_root_dir()
+        }
     };
 
     let entries: Vec<SyscallDirEntry> = entries

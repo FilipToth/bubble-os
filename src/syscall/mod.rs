@@ -5,6 +5,7 @@ mod read_dir;
 mod wait_for_process;
 mod write;
 mod yld;
+mod cd;
 
 pub use execute::execute;
 pub use exit::exit;
@@ -13,3 +14,4 @@ pub use read_dir::read_dir;
 pub use wait_for_process::wait_for_process;
 pub use write::write;
 pub use yld::yld;
+pub use cd::cd;
