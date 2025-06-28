@@ -1,7 +1,7 @@
 use alloc::{format, string::ToString};
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM, print, scheduling
+    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM, print, scheduling,
 };
 
 pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {

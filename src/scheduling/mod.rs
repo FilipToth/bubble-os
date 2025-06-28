@@ -1,6 +1,9 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
@@ -258,7 +261,10 @@ pub fn get_current_cwd() -> String {
     } else {
         let current_process = &mut processes[current_index];
         let cwd = current_process.curr_working_dir.clone();
-        print!("Loading cwd {}, for index: {}, pid: {}\n", cwd, current_index, current_process.pid);
+        print!(
+            "Loading cwd {}, for index: {}, pid: {}\n",
+            cwd, current_index, current_process.pid
+        );
         cwd
     }
 }
@@ -272,7 +278,10 @@ pub fn change_cwd(cwd: String) {
     }
 
     let current_process = &mut processes[current_index];
-    print!("Saving cwd: {}, to index: {}, pid: {}\n", cwd, current_index, current_process.pid);
+    print!(
+        "Saving cwd: {}, to index: {}, pid: {}\n",
+        cwd, current_index, current_process.pid
+    );
 
     current_process.curr_working_dir = cwd.clone();
 }

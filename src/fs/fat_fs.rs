@@ -1,108 +1,106 @@
 use core::alloc::Layout;
 
 use alloc::{
-    alloc::{alloc, dealloc}, boxed::Box, string::String, vec::Vec
+    alloc::{alloc, dealloc},
+    boxed::Box,
+    string::String,
+    vec::Vec,
 };
 
 use crate::{
     ahci::port::AHCIPort,
-    fs::fat::{Fat32ExtendedBootSector, FatBootSector},
+    fs::{
+        fat::{Fat32ExtendedBootSector, FatBootSector},
+        fs::DirectoryItems,
+    },
     mem::Region,
     print,
 };
 
-use super::fat::{get_fat_filename, DirectoryEntry};
+use super::{
+    fat::{get_fat_filename, DirectoryEntry},
+    fs::{Directory, File, FileSystem},
+};
+
+struct FATDirectory {
+    entry: DirectoryEntry,
+}
+
+impl Directory for FATDirectory {
+    fn name(&self) -> String {
+        todo!()
+    }
+}
+
+impl FATDirectory {
+    pub fn new(entry: DirectoryEntry) -> Self {
+        Self { entry: entry }
+    }
+}
+
+struct FATFile {
+    entry: DirectoryEntry,
+}
+
+impl File for FATFile {
+    fn name(&self) -> String {
+        todo!()
+    }
+
+    fn size(&self) -> usize {
+        todo!()
+    }
+}
+
+impl FATFile {
+    pub fn new(entry: DirectoryEntry) -> Self {
+        Self { entry: entry }
+    }
+}
 
 pub struct FATFileSystem {
     port: Box<AHCIPort>,
     fat: FatBuffer,
     bs: FatBootSector,
     bs_32: Fat32ExtendedBootSector,
-    pub root_dir: Vec<DirectoryEntry>,
 }
 
-impl FATFileSystem {
-    pub fn new(mut port: Box<AHCIPort>) -> Option<FATFileSystem> {
-        let (bs, bs_32) = match read_boot_sector(&mut *port) {
-            Some(bs) => bs,
-            None => return None,
+impl FileSystem for FATFileSystem {
+    type FileType = FATFile;
+    type DirectoryType = FATDirectory;
+
+    fn root(&mut self) -> Self::DirectoryType {
+        let root_cluster = self.bs_32.root_cluster;
+        let root_name = get_fat_filename("root").unwrap();
+
+        let cluster_high = ((root_cluster >> 16) & 0xFFF) as u16;
+        let cluster_low = (root_cluster & 0xFFFF) as u16;
+
+        let entry = DirectoryEntry {
+            name: root_name,
+            attributes: 0x10,
+            reserved: 0,
+            creation_time_centiseconds: 0,
+            creation_time: 0,
+            creation_date: 0,
+            last_accessed_date: 0,
+            first_cluster_high: cluster_high,
+            modified_time: 0,
+            modified_date: 0,
+            first_cluster_low: cluster_low,
+            size: 0,
         };
 
-        {
-            // Scoped mutable borrow
-            let fat_buff = match read_fat(&mut *port, &bs, &bs_32) {
-                Some(f) => f,
-                None => panic!(),
-            };
-
-            let root_cluster = bs_32.root_cluster as usize;
-            let mut fs = FATFileSystem {
-                port: port,
-                fat: fat_buff,
-                bs: bs,
-                bs_32: bs_32,
-                root_dir: Vec::new(),
-            };
-
-            // read root directory
-            let root_entries = fs.read_directory(root_cluster);
-            fs.root_dir = root_entries;
-
-            Some(fs)
-        }
+        FATDirectory::new(entry)
     }
 
-    pub fn get_entry_in_root(&self, name: &str) -> Option<DirectoryEntry> {
-        let filename = get_fat_filename(name)?;
-        for entry in &self.root_dir {
-            if entry.name != filename {
-                continue;
-            }
-
-            return Some(entry.clone());
-        }
-
-        None
-    }
-
-    pub fn list_root_dir(&self) -> Vec<DirectoryEntry> {
-        self.root_dir.clone()
-    }
-
-    // TODO: Move into a separate path utilities module
-    pub fn resolve_path(&mut self, path: String) -> Option<DirectoryEntry> {
-        let mut parts = path.split('/');
-        let first = parts.next()?;
-        let mut curr = self.get_entry_in_root(first);
-
-        loop {
-            let part = match parts.next() {
-                Some(n) => n,
-                None => return curr,
-            };
-
-            let curr_cluster = curr.clone()?.get_cluster();
-            let part = get_fat_filename(part)?;
-            let curr_entries = self.read_directory(curr_cluster);
-
-            for entry in curr_entries {
-                if !entry.is_directory() || entry.name != part {
-                    continue;
-                }
-
-                curr = Some(entry);
-                break;
-            }
-        }
-    }
-
-    pub fn combine_path(&self, p1: String, p2: String) -> String {
-        p1 + "/" + &p2
-    }
-
-    pub fn read_directory(&mut self, dir_cluster: usize) -> Vec<DirectoryEntry> {
-        let mut cluster = dir_cluster;
-        let mut entries: Vec<DirectoryEntry> = Vec::new();
+    fn list_directory(
+        &mut self,
+        dir: &Self::DirectoryType,
+    ) -> super::fs::DirectoryItems<Self::FileType, Self::DirectoryType> {
+        let mut cluster = dir.entry.get_cluster();
+        let mut files: Vec<Self::FileType> = Vec::new();
+        let mut subdirs: Vec<Self::DirectoryType> = Vec::new();
 
         loop {
             match self.read_directory_internal(cluster) {
@@ -114,7 +112,14 @@ impl FATFileSystem {
                             continue;
                         }
 
-                        entries.push(entry.clone());
+                        if entry.is_directory() {
+                            let subdir = FATDirectory::new(entry.clone());
+                            subdirs.push(subdir);
+                        } else {
+                            // file
+                            let file = FATFile::new(entry.clone());
+                            files.push(file);
+                        }
                     }
 
                     // follow fat chain
@@ -127,25 +132,15 @@ impl FATFileSystem {
             }
         }
 
-        entries
+        DirectoryItems::new(files, subdirs)
     }
 
-    fn read_directory_internal(
-        &mut self,
-        dir_cluster: usize,
-    ) -> Option<(*mut DirectoryEntry, usize)> {
-        self.read_cluster(dir_cluster).map(|region| {
-            let num_entries = region.size / core::mem::size_of::<DirectoryEntry>();
-            (region.addr as *mut DirectoryEntry, num_entries)
-        })
-    }
-
-    pub fn read_file(&mut self, file: &DirectoryEntry) -> Option<Region> {
-        if file.attributes != 32 {
+    fn read_file(&mut self, file: &Self::FileType) -> Option<Region> {
+        if file.entry.attributes != 32 {
             return None;
         }
 
-        let filesize = file.size as usize;
+        let filesize = file.entry.size as usize;
         let layout = Layout::array::<u8>(filesize).unwrap();
         let file_buffer = unsafe { alloc(layout) };
 
@@ -154,7 +149,7 @@ impl FATFileSystem {
         }
 
         let mut bytes_read: usize = 0;
-        let mut cluster = file.get_cluster();
+        let mut cluster = file.entry.get_cluster();
 
         loop {
             match self.read_cluster(cluster) {
@@ -188,6 +183,32 @@ impl FATFileSystem {
         let region = Region::from(file_buffer, filesize);
 
         Some(region)
+    }
+}
+
+impl FATFileSystem {
+    pub fn new(mut port: Box<AHCIPort>) -> Option<Self> {
+        let (bs, bs_32) = read_boot_sector(&mut *port)?;
+        let fat_buff = read_fat(&mut *port, &bs, &bs_32)?;
+
+        let fs = FATFileSystem {
+            port: port,
+            fat: fat_buff,
+            bs: bs,
+            bs_32: bs_32,
+        };
+
+        Some(fs)
+    }
+
+    fn read_directory_internal(
+        &mut self,
+        dir_cluster: usize,
+    ) -> Option<(*mut DirectoryEntry, usize)> {
+        self.read_cluster(dir_cluster).map(|region| {
+            let num_entries = region.size / core::mem::size_of::<DirectoryEntry>();
+            (region.addr as *mut DirectoryEntry, num_entries)
+        })
     }
 
     fn get_sector(&self, cluster: usize) -> usize {
@@ -302,6 +323,7 @@ struct FatBuffer {
 
 // WARNING: We need to implement Send because of the raw FAT pointer...
 unsafe impl Send for FatBuffer {}
+unsafe impl Sync for FatBuffer {}
 
 impl FatBuffer {
     pub fn new(fat_ptr: *mut u32, entries: usize) -> Self {

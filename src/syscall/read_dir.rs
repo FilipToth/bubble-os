@@ -1,8 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM,
-    print, scheduling,
+    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM, print, scheduling,
 };
 
 /// Simplified version of the FAT directory entry
