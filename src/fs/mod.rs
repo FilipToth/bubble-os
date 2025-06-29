@@ -2,7 +2,6 @@ use core::any::Any;
 
 use alloc::boxed::Box;
 use fat_fs::FATFileSystem;
-use fs::{Directory, File, FileSystem};
 use spin::Mutex;
 
 use crate::ahci::port::AHCIPort;
@@ -11,13 +10,7 @@ pub mod fat;
 pub mod fat_fs;
 pub mod fs;
 
-type BoxedFS = Box<
-    dyn FileSystem<
-            FileType = Box<dyn File + Send + Sync>,
-            DirectoryType = Box<dyn Directory + Send + Sync>,
-        > + Send
-        + Sync,
->;
+pub use fs::combine_path;
 
 pub static GLOBAL_FILESYSTEM: Mutex<Option<Box<dyn Any + Send + Sync>>> = Mutex::new(None);
 

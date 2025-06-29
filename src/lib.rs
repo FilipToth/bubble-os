@@ -31,10 +31,10 @@ mod utils;
 
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
+use core::panic::PanicInfo;
 use fs::fat_fs::FATFileSystem;
 use fs::fs::{Directory, File, FileSystem};
 use fs::GLOBAL_FILESYSTEM;
-use core::panic::PanicInfo;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
@@ -119,18 +119,12 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
             for entry in root_entries.files {
                 let name = entry.name();
-                print!(
-                    "[ OK ] Root dir entry: {}, dir: false\n",
-                    name,
-                );
+                print!("[ OK ] Root dir entry: {}, dir: false\n", name,);
             }
 
             for entry in root_entries.directories {
                 let name = entry.name();
-                print!(
-                    "[ OK ] Root dir entry: {}, dir: true\n",
-                    name,
-                );
+                print!("[ OK ] Root dir entry: {}, dir: true\n", name,);
 
                 let subentries = fs.list_directory(&entry);
                 for file in subentries.files {
@@ -140,11 +134,11 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             }
 
             // load shell ELF binary :D
-            let bin_entry = fs.get_entry_in_root("shell.elf").unwrap();
+            let bin_entry = fs.find_file("shell.elf").unwrap();
             let elf_binary = fs.read_file(&bin_entry).unwrap();
 
             elf_binary.clone()
-        });
+        })
     };
 
     print!("[ OK ] Read Shell ELF binary\n");

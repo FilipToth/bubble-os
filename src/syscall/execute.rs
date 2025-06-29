@@ -1,7 +1,10 @@
 use alloc::format;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, elf, fs::GLOBAL_FILESYSTEM, print, scheduling,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    elf,
+    fs::{fat_fs::FATFileSystem, fs::FileSystem},
+    print, scheduling, with_fs,
 };
 
 pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
@@ -23,24 +26,12 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     };
 
     // check if file exists
-    let mut fs = GLOBAL_FILESYSTEM.lock();
-    let fs = fs.as_mut().unwrap();
+    let file = with_fs!(FATFileSystem, fs, {
+        let file = fs.find_file(filename)?;
+        fs.read_file(&file)?
+    });
 
-    let file = match fs.get_entry_in_root(filename) {
-        Some(f) => f,
-        None => return Some(0),
-    };
-
-    let file = match fs.read_file(&file) {
-        Some(f) => f,
-        None => return Some(0),
-    };
-
-    let elf_entry = match elf::load(file) {
-        Some(e) => e,
-        None => return Some(0),
-    };
-
+    let elf_entry = elf::load(file)?;
     let pid = scheduling::deploy(elf_entry, true);
     Some(pid)
 }

@@ -18,17 +18,19 @@ use crate::{
 };
 
 use super::{
-    fat::{get_fat_filename, DirectoryEntry},
+    fat::{get_fat_filename, get_filename_from_fat, DirectoryEntry},
     fs::{Directory, File, FileSystem},
 };
 
-struct FATDirectory {
+#[derive(Clone)]
+pub struct FATDirectory {
     entry: DirectoryEntry,
 }
 
 impl Directory for FATDirectory {
     fn name(&self) -> String {
-        todo!()
+        let name = self.entry.name;
+        get_filename_from_fat(&name)
     }
 }
 
@@ -38,17 +40,19 @@ impl FATDirectory {
     }
 }
 
-struct FATFile {
+#[derive(Clone)]
+pub struct FATFile {
     entry: DirectoryEntry,
 }
 
 impl File for FATFile {
     fn name(&self) -> String {
-        todo!()
+        let name = self.entry.name;
+        get_filename_from_fat(&name)
     }
 
     fn size(&self) -> usize {
-        todo!()
+        self.entry.size as usize
     }
 }
 

@@ -1,7 +1,7 @@
-use alloc::{format, string::ToString};
+use alloc::format;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, fs::GLOBAL_FILESYSTEM, print, scheduling,
+    arch::x86_64::registers::FullInterruptStackFrame, fs::combine_path, print, scheduling,
 };
 
 pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
@@ -24,11 +24,8 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     let filename = filename.trim();
 
-    let mut fs = GLOBAL_FILESYSTEM.lock();
-    let fs = fs.as_mut().unwrap();
-
     let cwd = scheduling::get_current_cwd();
-    let new_path = fs.combine_path(cwd, filename.to_string());
+    let new_path = combine_path(&cwd, filename);
     scheduling::change_cwd(new_path);
 
     None

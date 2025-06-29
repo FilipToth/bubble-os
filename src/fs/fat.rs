@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, format, string::String};
+use alloc::{format, string::String};
 
 #[repr(C, packed)]
 pub struct FatBootSector {
@@ -53,14 +53,6 @@ pub struct DirectoryEntry {
 }
 
 impl DirectoryEntry {
-    pub fn get_filename(&self) -> String {
-        get_filename_from_fat(&self.name)
-    }
-
-    pub fn get_fat_filename(&self) -> Cow<'_, str> {
-        String::from_utf8_lossy(&self.name)
-    }
-
     pub fn is_directory(&self) -> bool {
         !self.is_long_filename() && self.attributes & 0x10 != 0
     }
