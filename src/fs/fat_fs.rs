@@ -102,7 +102,12 @@ impl FileSystem for FATFileSystem {
         &mut self,
         dir: &Self::DirectoryType,
     ) -> super::fs::DirectoryItems<Self::FileType, Self::DirectoryType> {
-        let mut cluster = dir.entry.get_cluster();
+        let mut cluster = if dir.entry.first_cluster_low == 0 && dir.entry.first_cluster_high == 0 {
+            self.root().entry.get_cluster()
+        } else {
+            dir.entry.get_cluster()
+        };
+
         let mut files: Vec<Self::FileType> = Vec::new();
         let mut subdirs: Vec<Self::DirectoryType> = Vec::new();
 

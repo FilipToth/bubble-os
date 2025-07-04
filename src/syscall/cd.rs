@@ -34,8 +34,6 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    print!("New FAT Directory: {:#?}\n", new_dir.entry);
-
     let new_dir_kind = DirectoryKind::FATDirectory(new_dir);
     scheduling::change_cwd(new_dir_kind);
 
