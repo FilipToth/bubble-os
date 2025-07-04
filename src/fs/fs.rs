@@ -6,8 +6,23 @@ use alloc::{
 
 use crate::mem::Region;
 
+use super::fat_fs::FATDirectory;
+
 pub trait Directory: Clone {
     fn name(&self) -> String;
+}
+
+#[derive(Clone)]
+pub enum DirectoryKind {
+    FATDirectory(FATDirectory),
+}
+
+impl DirectoryKind {
+    pub fn name(&self) -> String {
+        match self {
+            DirectoryKind::FATDirectory(dir) => dir.name().clone()
+        }
+    }
 }
 
 pub trait File: Clone {

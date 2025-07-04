@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     fs::{
-        fat_fs::FATFileSystem,
-        fs::{Directory, File, FileSystem},
+        fat_fs::{FATDirectory, FATFileSystem},
+        fs::{Directory, DirectoryKind, File, FileSystem},
     },
     scheduling, with_fs,
 };
@@ -22,10 +22,13 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
     let max_items = stack.rsi;
 
     let cwd = scheduling::get_current_cwd();
-    let entries = with_fs!(FATFileSystem, fs, {
-        let directory = fs.find_directory(&cwd)?;
-        fs.list_directory(&directory)
-    });
+    let entries = match cwd {
+        DirectoryKind::FATDirectory(dir) => {
+            with_fs!(FATFileSystem, fs, {
+                fs.list_directory(&dir)
+            })
+        }
+    };
 
     let mut syscall_entries: Vec<SyscallDirEntry> = entries
         .directories

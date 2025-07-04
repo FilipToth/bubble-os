@@ -7,7 +7,7 @@ use alloc::{
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, print};
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, fs::{fat_fs::FATFileSystem, fs::{self, DirectoryKind, FileSystem}, GLOBAL_FILESYSTEM}, print, with_fs};
 
 pub mod process;
 
@@ -189,7 +189,10 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         let current = &processes[current_index];
         current.curr_working_dir.clone()
     } else {
-        String::new()
+        with_fs!(FATFileSystem, fs, {
+            let root = fs.root();
+            DirectoryKind::FATDirectory(root)
+        })
     };
 
     let process = Process::from(entry, pid, cwd);
@@ -252,24 +255,29 @@ pub fn exit_current() {
     CURRENT_INDEX.store(new_index, Ordering::SeqCst);
 }
 
-pub fn get_current_cwd() -> String {
+pub fn get_current_cwd() -> DirectoryKind {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
     if processes.len() == 0 {
-        "".to_string()
+        with_fs!(FATFileSystem, fs, {
+            let root = fs.root();
+            DirectoryKind::FATDirectory(root)
+        })
     } else {
         let current_process = &mut processes[current_index];
-        let cwd = current_process.curr_working_dir.clone();
+        let cwd = &current_process.curr_working_dir;
+
         print!(
             "Loading cwd {}, for index: {}, pid: {}\n",
-            cwd, current_index, current_process.pid
+            cwd.name(), current_index, current_process.pid
         );
-        cwd
+
+        cwd.clone()
     }
 }
 
-pub fn change_cwd(cwd: String) {
+pub fn change_cwd(cwd: DirectoryKind) {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
@@ -280,7 +288,7 @@ pub fn change_cwd(cwd: String) {
     let current_process = &mut processes[current_index];
     print!(
         "Saving cwd: {}, to index: {}, pid: {}\n",
-        cwd, current_index, current_process.pid
+        cwd.name(), current_index, current_process.pid
     );
 
     current_process.curr_working_dir = cwd.clone();

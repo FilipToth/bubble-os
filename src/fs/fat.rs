@@ -36,7 +36,7 @@ pub struct Fat32ExtendedBootSector {
 }
 
 #[repr(C, packed)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DirectoryEntry {
     pub name: [u8; 11],
     pub attributes: u8,

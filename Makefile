@@ -45,6 +45,7 @@ disk:
 	mkfs.vfat -F 32 -v $(disk_path)
 
 	mmd -i $(disk_path) ::res
+	mmd -i $(disk_path) ::res/dir
 
 	@for file in $(resources); do \
 		echo $$(basename $$file); \

@@ -24,7 +24,7 @@ use super::{
 
 #[derive(Clone)]
 pub struct FATDirectory {
-    entry: DirectoryEntry,
+    pub entry: DirectoryEntry,
 }
 
 impl Directory for FATDirectory {
