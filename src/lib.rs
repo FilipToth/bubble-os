@@ -134,7 +134,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             }
 
             // load shell ELF binary :D
-            let bin_entry = fs.find_file("shell.elf").unwrap();
+            let bin_entry = fs.find_file("sample.elf").unwrap();
             let elf_binary = fs.read_file(&bin_entry).unwrap();
 
             elf_binary.clone()

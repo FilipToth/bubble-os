@@ -10,10 +10,12 @@ use x86_64::{
 
 use crate::{mem::GLOBAL_MEMORY_CONTROLLER, print};
 
-struct Selectors {
+pub struct Selectors {
     tss: SegmentSelector,
     code: SegmentSelector,
     data: SegmentSelector,
+    pub user_code: SegmentSelector,
+    pub user_data: SegmentSelector,
 }
 
 pub static PIT_STACK_INDEX: usize = 0;
@@ -34,17 +36,22 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref GDT: (GlobalDescriptorTable, Selectors) = {
+    pub static ref GDT: (GlobalDescriptorTable, Selectors) = {
         let mut gdt = GlobalDescriptorTable::new();
 
         let tss = gdt.add_entry(Descriptor::tss_segment(&TSS));
         let code = gdt.add_entry(Descriptor::kernel_code_segment());
         let data = gdt.add_entry(Descriptor::kernel_data_segment());
 
+        let user_code = gdt.add_entry(Descriptor::user_code_segment());
+        let user_data = gdt.add_entry(Descriptor::user_data_segment());
+
         let selectors = Selectors {
             tss: tss,
             code: code,
             data: data,
+            user_code: user_code,
+            user_data: user_data
         };
 
         (gdt, selectors)

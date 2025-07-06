@@ -140,14 +140,14 @@ impl ActivePageTable {
             // overwrite the recursive mapping
             self.get_p4_mut()[511].set(
                 table.p4_frame.clone(),
-                EntryFlags::PRESENT | EntryFlags::WRITABLE,
+                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
             );
 
             tlb::flush_all();
             f(self);
 
             // restore mappings to the active p4 table
-            p4_table[511].set(p4_backup, EntryFlags::PRESENT | EntryFlags::WRITABLE);
+            p4_table[511].set(p4_backup, EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
             tlb::flush_all();
 
             // inner scope drops the temp page
@@ -215,7 +215,7 @@ impl InactivePageTable {
             let table = temp_page.map_table_frame(frame.clone(), active_table);
 
             table.null_all_entries();
-            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
+            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
 
             // inner scope drops the table
         }
@@ -245,6 +245,7 @@ where
         // remap multiboot info structure
         let multiboot_start = PageFrame::from_address(boot_info.start_address());
         let multiboot_end = PageFrame::from_address(boot_info.end_address() - 1);
+
         mapper.map_range_identity(
             multiboot_start,
             multiboot_end,

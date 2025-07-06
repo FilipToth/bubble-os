@@ -1,11 +1,10 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 
 use crate::{
     mem::{
         paging::{entry::EntryFlags, Page},
-        Region, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
+        Region, GLOBAL_MEMORY_CONTROLLER,
     },
-    print,
     scheduling::process::ProcessEntry,
 };
 
@@ -85,13 +84,10 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegi
         let start_page = Page::for_address(addr);
         let end_page = Page::for_address(addr + size - 1);
 
-        let start_map_addr = start_page.start_address();
-        let end_map_addr = end_page.start_address() + PAGE_SIZE;
-
-        controller.map(start_page, end_page, EntryFlags::WRITABLE);
+        controller.map(start_page, end_page, EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
+        controller.active_table.verify(start_page, &mut controller.frame_allocator);
 
         // load entry into memory
-
         let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
         let destination_ptr = addr as *mut u8;
 

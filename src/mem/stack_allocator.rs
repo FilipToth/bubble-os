@@ -20,6 +20,7 @@ impl StackAllocator {
         active_table: &mut ActivePageTable,
         frame_allocator: &mut A,
         pages_to_alloc: usize,
+        flags: EntryFlags,
     ) -> Option<Stack> {
         if pages_to_alloc == 0 {
             return None;
@@ -43,7 +44,7 @@ impl StackAllocator {
                 self.range = range;
 
                 for page in Page::range(start, end) {
-                    active_table.map(page, EntryFlags::WRITABLE, frame_allocator);
+                    active_table.map(page, flags, frame_allocator);
                 }
 
                 let stack_top = end.start_address() + PAGE_SIZE;

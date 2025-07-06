@@ -10,8 +10,6 @@ pub mod fat;
 pub mod fat_fs;
 pub mod fs;
 
-pub use fs::combine_path;
-
 pub static GLOBAL_FILESYSTEM: Mutex<Option<Box<dyn Any + Send + Sync>>> = Mutex::new(None);
 
 #[macro_export]

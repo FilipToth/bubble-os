@@ -1,6 +1,5 @@
 use x86_64::{
-    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
-    VirtAddr,
+    registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}, VirtAddr
 };
 
 use crate::{
@@ -53,16 +52,18 @@ extern "x86-interrupt" fn double_fault_isr(stack: InterruptStackFrame, err_code:
     loop {}
 }
 
-extern "x86-interrupt" fn gpf_isr(_stack: InterruptStackFrame, _err_code: u64) {
-    print!("\n[ EXCEPTION ] General protection fault!\n");
+extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
+    print!("\n[ EXCEPTION ] General protection fault! With error code: 0x{:X}\n", err_code);
+    print!("Dumping stack frame\n{:#?}\n", stack);
     loop {}
 }
 
 extern "x86-interrupt" fn page_fault_isr(
     stack: InterruptStackFrame,
-    _err_code: PageFaultErrorCode,
+    err_code: PageFaultErrorCode,
 ) {
-    print!("[ EXCEPTION ] Page fault!\n");
+    let cr2 = Cr2::read().as_u64();
+    print!("[ EXCEPTION ] Page fault! With error code: 0x{:X}, and cr2: 0x{:X}\n", err_code, cr2);
     print!("Dumping stack frame\n{:#?}\n", stack);
     loop {}
 }

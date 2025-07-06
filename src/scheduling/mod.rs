@@ -7,7 +7,7 @@ use alloc::{
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, fs::{fat_fs::FATFileSystem, fs::{self, DirectoryKind, FileSystem}, GLOBAL_FILESYSTEM}, print, with_fs};
+use crate::{arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame}, elf, fs::{fat_fs::FATFileSystem, fs::{self, DirectoryKind, FileSystem}, GLOBAL_FILESYSTEM}, mem::{paging::{entry::EntryFlags, Page}, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER}, print, with_fs};
 
 pub mod process;
 
@@ -16,6 +16,7 @@ pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/*
 unsafe fn jump(context: FullInterruptStackFrame) {
     core::arch::asm!("cli");
 
@@ -100,6 +101,51 @@ unsafe fn jump(context: FullInterruptStackFrame) {
 
     core::arch::asm!("pop rsp", "sub rsp, 0x08");
     core::arch::asm!("sti", "ret", options(noreturn));
+}
+*/
+
+unsafe fn jump(context: FullInterruptStackFrame) {
+    // this stack alloc is extremely unclean and
+    // shouldn't be happening here, I'll clean up
+    // later, this is just for the ring3 PoC
+    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+    let mc = mc.as_mut().unwrap();
+
+    let stack = match mc.stack_allocator.alloc(&mut mc.active_table, &mut mc.frame_allocator, 50, EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE) {
+        Some(s) => s.top,
+        None => unreachable!()
+    };
+
+    let stack_ptr = (stack - 0x10) as *mut u8;
+    unsafe { *stack_ptr = 0x10 };
+
+    print!("Setting ring3 stack: 0x{:X}\n", stack);
+
+    let cs = GDT.1.user_code.0;
+    let ss = GDT.1.user_data.0;
+
+    core::arch::asm!("cli");
+
+    core::arch::asm!(
+        // ss
+        "push {ss}",
+        "push {rsp}",
+
+        // rflags
+        "push 0x202",
+
+        // cs
+        "push {cs}",
+        "push {rip}",
+
+        "iretq",
+
+        ss = in(reg) ss,
+        cs = in(reg) cs,
+        rsp = in(reg) stack - 8,
+        rip = in(reg) context.rip,
+        options(noreturn)
+    );
 }
 
 fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Process> {

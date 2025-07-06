@@ -3,7 +3,7 @@ use multiboot2::{ElfSection, ElfSectionFlags};
 use crate::mem::PageFrame;
 
 bitflags! {
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     pub struct EntryFlags: u64 {
         const PRESENT = 1 << 0;
         const WRITABLE = 1 << 1;

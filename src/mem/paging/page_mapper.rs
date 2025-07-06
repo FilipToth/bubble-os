@@ -4,7 +4,7 @@ use x86_64::instructions::tlb;
 use x86_64::VirtAddr;
 
 use crate::mem::paging::entry::EntryFlags;
-use crate::mem::paging::page_table::{PageLevel4, PageTable, P4};
+use crate::mem::paging::page_table::{PageLevel3, PageLevel4, PageTable, P4};
 use crate::mem::PageFrameAllocator;
 use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::mem::{PhysicalAddress, VirtualAddress};
@@ -54,6 +54,31 @@ impl Mapper {
         assert!(entry.is_unused());
 
         entry.set(frame, flags | EntryFlags::PRESENT);
+    }
+
+    pub fn verify<A>(&mut self, page: Page, allocator: &mut A)
+    where
+        A: PageFrameAllocator
+    {
+        let p4 = self.get_p4_mut();
+        let p4e = &p4[page.p4_index()];
+        let p4_flags = p4e.flags();
+        print!("ELF P4e Flags: {:?}\n", p4_flags);
+
+        let p3 = p4.next_table_create(page.p4_index(), allocator);
+        let p3e = &mut p3[page.p3_index()];
+        let p3_flags = p3e.flags();
+        print!("ELF P3e Flags: {:?}\n", p3_flags);
+
+        let p2 = p3.next_table_create(page.p3_index(), allocator);
+        let p2e = &mut p2[page.p2_index()];
+        let p2_flags = p2e.flags();
+        print!("ELF P2e Flags: {:?}\n", p2_flags);
+
+        let p1 = p2.next_table_create(page.p2_index(), allocator);
+        let p1e = &mut p1[page.p1_index()];
+        let p1_flags = p1e.flags();
+        print!("ELF P1e Flags: {:?}\n", p1_flags);
     }
 
     /// Maps the page to an unused page frame

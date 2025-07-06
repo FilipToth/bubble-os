@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     fs::{
-        fat_fs::{FATDirectory, FATFileSystem},
+        fat_fs::FATFileSystem,
         fs::{Directory, DirectoryKind, File, FileSystem},
     },
     scheduling, with_fs,

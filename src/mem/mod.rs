@@ -54,6 +54,7 @@ impl MemoryController {
             &mut self.active_table,
             &mut self.frame_allocator,
             pages_to_alloc,
+            EntryFlags::WRITABLE
         )
     }
 
@@ -174,7 +175,7 @@ pub fn init(boot_info: &BootInformation) {
     for page in Page::range(heap_start, heap_end) {
         active_table.map(
             page,
-            EntryFlags::PRESENT | EntryFlags::WRITABLE,
+            EntryFlags::WRITABLE,
             &mut allocator,
         );
     }
