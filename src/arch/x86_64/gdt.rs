@@ -51,7 +51,7 @@ lazy_static! {
             code: code,
             data: data,
             user_code: user_code,
-            user_data: user_data
+            user_data: user_data,
         };
 
         (gdt, selectors)

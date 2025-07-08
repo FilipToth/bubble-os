@@ -1,15 +1,13 @@
 use alloc::format;
 
-use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, fs::{fat_fs::FATFileSystem, fs::{Directory, DirectoryKind, FileSystem}}, print, scheduling, with_fs,
-};
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, print, scheduling};
 
 pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
     let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
-    let dirname = match core::str::from_utf8(slice) {
+    let path = match core::str::from_utf8(slice) {
         Ok(f) => f,
         Err(e) => {
             let msg = format!(
@@ -22,20 +20,11 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    let dirname = dirname.trim();
+    let path = path.trim();
 
     let cwd = scheduling::get_current_cwd();
-    let new_dir = match cwd {
-        DirectoryKind::FATDirectory(dir) => {
-            with_fs!(FATFileSystem, fs, {
-                let entries = fs.list_directory(&dir);
-                entries.directories.iter().find(|d| d.name() == dirname)?.clone()
-            })
-        }
-    };
-
-    let new_dir_kind = DirectoryKind::FATDirectory(new_dir);
-    scheduling::change_cwd(new_dir_kind);
+    let new_dir = cwd.find_directory_recursive(path)?;
+    scheduling::change_cwd(new_dir);
 
     None
 }

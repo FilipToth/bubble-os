@@ -1,13 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame,
-    fs::{
-        fat_fs::FATFileSystem,
-        fs::{Directory, DirectoryKind, File, FileSystem},
-    },
-    scheduling, with_fs,
-};
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, scheduling};
 
 /// Simplified version of the FAT directory entry
 #[repr(C)]
@@ -22,16 +15,10 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
     let max_items = stack.rsi;
 
     let cwd = scheduling::get_current_cwd();
-    let entries = match cwd {
-        DirectoryKind::FATDirectory(dir) => {
-            with_fs!(FATFileSystem, fs, {
-                fs.list_directory(&dir)
-            })
-        }
-    };
+    let entries = cwd.list_dir();
 
-    let mut syscall_entries: Vec<SyscallDirEntry> = entries
-        .directories
+    let mut directory_entries: Vec<SyscallDirEntry> = entries
+        .0
         .iter()
         .map(|e| {
             let mut name_buffer: [u8; 64] = [0; 64];
@@ -51,11 +38,11 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .collect();
 
     let file_entries: Vec<SyscallDirEntry> = entries
-        .files
+        .1
         .iter()
         .map(|e| {
             let mut name_buffer: [u8; 64] = [0; 64];
-            let name = e.name();
+            let name = e.lock().name();
             let name_len = name.len().min(64);
             let name = name.as_bytes();
 
@@ -70,13 +57,13 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .take(max_items)
         .collect();
 
-    syscall_entries.extend(file_entries);
+    directory_entries.extend(file_entries);
 
     // write entries into supplied entries buffer
     let mut buffer_ptr = buffer_addr as *mut SyscallDirEntry;
-    let num_entries = syscall_entries.len();
+    let num_entries = directory_entries.len();
 
-    for entry in syscall_entries.iter() {
+    for entry in directory_entries.iter() {
         unsafe {
             core::ptr::copy(entry as *const SyscallDirEntry, buffer_ptr, 1);
             buffer_ptr = buffer_ptr.add(1);

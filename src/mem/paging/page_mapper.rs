@@ -58,7 +58,7 @@ impl Mapper {
 
     pub fn verify<A>(&mut self, page: Page, allocator: &mut A)
     where
-        A: PageFrameAllocator
+        A: PageFrameAllocator,
     {
         let p4 = self.get_p4_mut();
         let p4e = &p4[page.p4_index()];

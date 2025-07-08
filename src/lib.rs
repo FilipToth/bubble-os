@@ -32,9 +32,6 @@ mod utils;
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
-use fs::fat_fs::FATFileSystem;
-use fs::fs::{Directory, File, FileSystem};
-use fs::GLOBAL_FILESYSTEM;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
@@ -112,32 +109,27 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     fs::init(port);
 
     let shell_binary = {
-        with_fs!(FATFileSystem, fs, {
-            print!("\n");
-            let root = fs.root();
-            let root_entries = fs.list_directory(&root);
-
-            for entry in root_entries.files {
-                let name = entry.name();
+        with_root_dir!(root, {
+            let root_entries = root.list_dir();
+            for entry in root_entries.1 {
+                let name = entry.lock().name();
                 print!("[ OK ] Root dir entry: {}, dir: false\n", name,);
             }
 
-            for entry in root_entries.directories {
+            for entry in root_entries.0 {
                 let name = entry.name();
                 print!("[ OK ] Root dir entry: {}, dir: true\n", name,);
 
-                let subentries = fs.list_directory(&entry);
-                for file in subentries.files {
-                    let name = file.name();
+                let subentries = entry.list_dir();
+                for file in subentries.1 {
+                    let name = file.lock().name();
                     print!("           Subfile: {}\n", name);
                 }
             }
 
-            // load shell ELF binary :D
-            let bin_entry = fs.find_file("sample.elf").unwrap();
-            let elf_binary = fs.read_file(&bin_entry).unwrap();
-
-            elf_binary.clone()
+            let shell_elf = root.find_file_recursive("sample.elf").unwrap();
+            let shell_elf_guard = shell_elf.lock();
+            shell_elf_guard.read().unwrap()
         })
     };
 
@@ -164,7 +156,7 @@ pub extern "C" fn eh_personality() {}
 fn panic(info: &PanicInfo) -> ! {
     let location = info.location().unwrap();
     let file = location.file();
-    let line = location.line() + 1;
+    let line = location.line();
     let msg = info.message();
 
     print!("PANIC on line {:?} in\n{:?}\n{:?}\n\n\n", line, file, msg);

@@ -54,7 +54,7 @@ impl MemoryController {
             &mut self.active_table,
             &mut self.frame_allocator,
             pages_to_alloc,
-            EntryFlags::WRITABLE
+            EntryFlags::WRITABLE,
         )
     }
 
@@ -173,11 +173,7 @@ pub fn init(boot_info: &BootInformation) {
     let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
 
     for page in Page::range(heap_start, heap_end) {
-        active_table.map(
-            page,
-            EntryFlags::WRITABLE,
-            &mut allocator,
-        );
+        active_table.map(page, EntryFlags::WRITABLE, &mut allocator);
     }
 
     let stack_allocator = {

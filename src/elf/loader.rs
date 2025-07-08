@@ -84,8 +84,14 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegi
         let start_page = Page::for_address(addr);
         let end_page = Page::for_address(addr + size - 1);
 
-        controller.map(start_page, end_page, EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
-        controller.active_table.verify(start_page, &mut controller.frame_allocator);
+        controller.map(
+            start_page,
+            end_page,
+            EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+        );
+        controller
+            .active_table
+            .verify(start_page, &mut controller.frame_allocator);
 
         // load entry into memory
         let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };

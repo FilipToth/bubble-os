@@ -147,7 +147,10 @@ impl ActivePageTable {
             f(self);
 
             // restore mappings to the active p4 table
-            p4_table[511].set(p4_backup, EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
+            p4_table[511].set(
+                p4_backup,
+                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+            );
             tlb::flush_all();
 
             // inner scope drops the temp page
@@ -215,7 +218,10 @@ impl InactivePageTable {
             let table = temp_page.map_table_frame(frame.clone(), active_table);
 
             table.null_all_entries();
-            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
+            table[511].set(
+                frame.clone(),
+                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+            );
 
             // inner scope drops the table
         }

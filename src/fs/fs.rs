@@ -1,107 +1,132 @@
 use alloc::{
     boxed::Box,
     string::{String, ToString},
+    sync::Arc,
     vec::Vec,
 };
+use spin::Mutex;
 
-use crate::mem::Region;
+use crate::{mem::Region, print};
 
-use super::fat_fs::FATDirectory;
+pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<Mutex<dyn File>>>);
 
-pub trait Directory: Clone {
+pub trait Directory: DirectoryClone + Send + Sync {
     fn name(&self) -> String;
-}
+    fn list_dir(&self) -> DirectoryItems;
 
-#[derive(Clone)]
-pub enum DirectoryKind {
-    FATDirectory(FATDirectory),
-}
-
-impl DirectoryKind {
-    pub fn name(&self) -> String {
-        match self {
-            DirectoryKind::FATDirectory(dir) => dir.name().clone()
-        }
-    }
-}
-
-pub trait File: Clone {
-    fn name(&self) -> String;
-    fn size(&self) -> usize;
-}
-
-pub struct DirectoryItems<A: File, B: Directory> {
-    pub files: Vec<A>,
-    pub directories: Vec<B>,
-}
-
-impl<A: File, B: Directory> DirectoryItems<A, B> {
-    pub fn new(files: Vec<A>, directories: Vec<B>) -> Self {
-        Self {
-            files: files,
-            directories: directories,
-        }
-    }
-}
-
-pub trait FileSystem {
-    type FileType: File;
-    type DirectoryType: Directory;
-
-    fn root(&mut self) -> Self::DirectoryType;
-
-    fn read_file(&mut self, file: &Self::FileType) -> Option<Region>;
-
-    fn list_directory(
-        &mut self,
-        dir: &Self::DirectoryType,
-    ) -> DirectoryItems<Self::FileType, Self::DirectoryType>;
-
-    fn find_file(&mut self, path: &str) -> Option<Box<Self::FileType>> {
-        let mut parts = path.split('/').peekable();
-        let mut last = self.root();
-
-        while let Some(next) = parts.next() {
-            let entries = self.list_directory(&last);
-
-            match entries.directories.iter().find(|d| d.name() == next) {
-                Some(d) => last = d.clone(),
-                None => {
-                    // must be a final file, so if next is not last, i.e.
-                    // there exists a last item, the path must not exist
-                    if parts.peek().is_some() {
-                        return None;
-                    }
-
-                    let file = entries.files.iter().find(|f| f.name() == next)?.clone();
-                    return Some(Box::new(file));
-                }
-            };
-        }
-
-        None
+    fn find_directory(&self, name: &str) -> Option<Arc<dyn Directory>> {
+        // TODO: Use a method to only list subdirectories, so we save on performance
+        let items = self.list_dir();
+        let directory = items.0.iter().find(|d| d.name() == name)?;
+        Some(directory.clone())
     }
 
-    fn find_directory(&mut self, path: &str) -> Option<Box<Self::DirectoryType>> {
-        let mut parts = path.split('/').peekable();
-        let mut last = self.root();
+    fn find_file(&self, name: &str) -> Option<Arc<Mutex<dyn File>>> {
+        let items = self.list_dir();
+        let file = items.1.iter().find(|f| {
+            let f_guard = f.lock();
+            f_guard.name() == name
+        })?;
 
-        if let Some(p) = parts.peek() {
-            if p.is_empty() {
-                parts.next();
+        Some(file.clone())
+    }
+
+    fn find_directory_recursive(&self, path: &str) -> Option<Arc<dyn Directory>> {
+        let (next, rest) = match path.find('/') {
+            Some(pos) => {
+                let (next, rest) = path.split_at(pos);
+                (next, Some(&rest[1..]))
+            }
+            None => (path, None),
+        };
+
+        // resolve next
+        let items = self.list_dir();
+        let next = items.0.iter().find(|d| d.name() == next)?;
+
+        match rest {
+            Some(rest) => next.find_directory_recursive(rest),
+            None => {
+                // last part of the path
+                Some(next.clone())
             }
         }
+    }
 
-        while let Some(next) = parts.next() {
-            let entries = self.list_directory(&last);
+    fn find_file_recursive(&self, path: &str) -> Option<Arc<Mutex<dyn File>>> {
+        let (next, rest) = match path.find('/') {
+            Some(pos) => {
+                let (next, rest) = path.split_at(pos);
+                (next, Some(&rest[1..]))
+            }
+            None => (path, None),
+        };
 
-            match entries.directories.iter().find(|d| d.name() == next) {
-                Some(d) => last = d.clone(),
-                None => return None,
-            };
+        // resolve next
+        let items = self.list_dir();
+        match rest {
+            Some(rest) => {
+                let next = items.0.iter().find(|d| d.name() == next)?;
+                next.find_file_recursive(rest)
+            }
+            None => {
+                // last part of the path
+                let file = items.1.iter().find(|f| {
+                    let f_guard = f.lock();
+                    f_guard.name() == next
+                })?;
+
+                Some(file.clone())
+            }
         }
+    }
+}
 
-        Some(Box::new(last))
+pub trait DirectoryClone {
+    fn clone_boxed<'a>(&self) -> Box<dyn 'a + Directory>
+    where
+        Self: 'a;
+}
+
+impl<T: Clone + Directory> DirectoryClone for T {
+    fn clone_boxed<'a>(&self) -> Box<dyn 'a + Directory>
+    where
+        Self: 'a,
+    {
+        Box::new(T::clone(self))
+    }
+}
+
+impl<'a> Clone for Box<dyn 'a + Directory> {
+    fn clone(&self) -> Self {
+        self.clone_boxed()
+    }
+}
+
+pub trait File: FileClone + Send + Sync {
+    fn name(&self) -> String;
+    fn size(&self) -> usize;
+    fn read(&self) -> Option<Region>;
+}
+
+pub trait FileClone {
+    fn clone_boxed<'a>(&self) -> Box<dyn 'a + File>
+    where
+        Self: 'a;
+}
+
+impl<T: Clone + File> FileClone for T {
+    fn clone_boxed<'a>(&self) -> Box<dyn 'a + File>
+    where
+        Self: 'a,
+    {
+        Box::new(T::clone(self))
+    }
+}
+
+impl<'a> Clone for Box<dyn 'a + File> {
+    fn clone(&self) -> Self {
+        self.clone_boxed()
     }
 }
 

@@ -4,27 +4,27 @@ use alloc::{
     alloc::{alloc, dealloc},
     boxed::Box,
     string::String,
+    sync::{Arc, Weak},
     vec::Vec,
 };
+use spin::Mutex;
 
 use crate::{
     ahci::port::AHCIPort,
-    fs::{
-        fat::{Fat32ExtendedBootSector, FatBootSector},
-        fs::DirectoryItems,
-    },
+    fs::fat::{Fat32ExtendedBootSector, FatBootSector},
     mem::Region,
     print,
 };
 
 use super::{
     fat::{get_fat_filename, get_filename_from_fat, DirectoryEntry},
-    fs::{Directory, File, FileSystem},
+    fs::{Directory, DirectoryItems, File},
 };
 
 #[derive(Clone)]
 pub struct FATDirectory {
-    pub entry: DirectoryEntry,
+    entry: DirectoryEntry,
+    pub fs: Weak<Mutex<FATFileSystem>>,
 }
 
 impl Directory for FATDirectory {
@@ -32,17 +32,52 @@ impl Directory for FATDirectory {
         let name = self.entry.name;
         get_filename_from_fat(&name)
     }
+
+    fn list_dir(&self) -> DirectoryItems {
+        let fs = match self.fs.upgrade() {
+            Some(f) => f,
+            None => {
+                print!("[ ROOTFS ] Failed to upgrade weak\n");
+                panic!()
+            }
+        };
+
+        let mut fs_guard = fs.lock();
+        let (files, directories) = fs_guard.list_directory(&self.entry);
+
+        let directories: Vec<Arc<dyn Directory>> = directories
+            .iter()
+            .map(|d| {
+                let dir = FATDirectory::new(d.clone(), self.fs.clone());
+                Arc::new(dir) as Arc<dyn Directory>
+            })
+            .collect();
+
+        let files: Vec<Arc<Mutex<dyn File>>> = files
+            .iter()
+            .map(|f| {
+                let file = FATFile::new(f.clone(), self.fs.clone());
+                Arc::new(Mutex::new(file)) as Arc<Mutex<dyn File>>
+            })
+            .collect();
+
+        (directories, files)
+    }
 }
 
 impl FATDirectory {
-    pub fn new(entry: DirectoryEntry) -> Self {
-        Self { entry: entry }
+    pub fn new(entry: DirectoryEntry, fs: Weak<Mutex<FATFileSystem>>) -> Self {
+        Self {
+            entry: entry,
+            fs: fs,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct FATFile {
     entry: DirectoryEntry,
+    fs: Weak<Mutex<FATFileSystem>>,
 }
 
 impl File for FATFile {
@@ -54,11 +89,20 @@ impl File for FATFile {
     fn size(&self) -> usize {
         self.entry.size as usize
     }
+
+    fn read(&self) -> Option<Region> {
+        let fs = self.fs.upgrade().unwrap();
+        let mut fs_guard = fs.lock();
+        fs_guard.read_file(&self.entry)
+    }
 }
 
 impl FATFile {
-    pub fn new(entry: DirectoryEntry) -> Self {
-        Self { entry: entry }
+    pub fn new(entry: DirectoryEntry, fs: Weak<Mutex<FATFileSystem>>) -> Self {
+        Self {
+            entry: entry,
+            fs: fs,
+        }
     }
 }
 
@@ -69,18 +113,35 @@ pub struct FATFileSystem {
     bs_32: Fat32ExtendedBootSector,
 }
 
-impl FileSystem for FATFileSystem {
-    type FileType = FATFile;
-    type DirectoryType = FATDirectory;
+impl FATFileSystem {
+    pub fn new(mut port: Box<AHCIPort>) -> Option<Self> {
+        let (bs, bs_32) = read_boot_sector(&mut *port)?;
+        let fat_buff = read_fat(&mut *port, &bs, &bs_32)?;
 
-    fn root(&mut self) -> Self::DirectoryType {
+        let fs = FATFileSystem {
+            port: port,
+            fat: fat_buff,
+            bs: bs,
+            bs_32: bs_32,
+        };
+
+        Some(fs)
+    }
+
+    pub fn root_dir(self_arc: Arc<Mutex<FATFileSystem>>) -> FATDirectory {
+        let fs_weak = Arc::downgrade(&self_arc);
+        let root = self_arc.lock().root();
+        FATDirectory::new(root, fs_weak)
+    }
+
+    fn root(&self) -> DirectoryEntry {
         let root_cluster = self.bs_32.root_cluster;
         let root_name = get_fat_filename("root").unwrap();
 
         let cluster_high = ((root_cluster >> 16) & 0xFFF) as u16;
         let cluster_low = (root_cluster & 0xFFFF) as u16;
 
-        let entry = DirectoryEntry {
+        DirectoryEntry {
             name: root_name,
             attributes: 0x10,
             reserved: 0,
@@ -93,23 +154,20 @@ impl FileSystem for FATFileSystem {
             modified_date: 0,
             first_cluster_low: cluster_low,
             size: 0,
-        };
-
-        FATDirectory::new(entry)
+        }
     }
 
     fn list_directory(
         &mut self,
-        dir: &Self::DirectoryType,
-    ) -> super::fs::DirectoryItems<Self::FileType, Self::DirectoryType> {
-        let mut cluster = if dir.entry.first_cluster_low == 0 && dir.entry.first_cluster_high == 0 {
-            self.root().entry.get_cluster()
-        } else {
-            dir.entry.get_cluster()
-        };
+        dir: &DirectoryEntry,
+    ) -> (Vec<DirectoryEntry>, Vec<DirectoryEntry>) {
+        let mut cluster = dir.get_cluster();
+        if cluster == 0 {
+            cluster = self.root().get_cluster()
+        }
 
-        let mut files: Vec<Self::FileType> = Vec::new();
-        let mut subdirs: Vec<Self::DirectoryType> = Vec::new();
+        let mut files: Vec<DirectoryEntry> = Vec::new();
+        let mut subdirs: Vec<DirectoryEntry> = Vec::new();
 
         loop {
             match self.read_directory_internal(cluster) {
@@ -122,12 +180,10 @@ impl FileSystem for FATFileSystem {
                         }
 
                         if entry.is_directory() {
-                            let subdir = FATDirectory::new(entry.clone());
-                            subdirs.push(subdir);
+                            subdirs.push(entry.clone());
                         } else {
                             // file
-                            let file = FATFile::new(entry.clone());
-                            files.push(file);
+                            files.push(entry.clone());
                         }
                     }
 
@@ -141,15 +197,15 @@ impl FileSystem for FATFileSystem {
             }
         }
 
-        DirectoryItems::new(files, subdirs)
+        (files, subdirs)
     }
 
-    fn read_file(&mut self, file: &Self::FileType) -> Option<Region> {
-        if file.entry.attributes != 32 {
+    fn read_file(&mut self, file: &DirectoryEntry) -> Option<Region> {
+        if file.attributes != 32 {
             return None;
         }
 
-        let filesize = file.entry.size as usize;
+        let filesize = file.size as usize;
         let layout = Layout::array::<u8>(filesize).unwrap();
         let file_buffer = unsafe { alloc(layout) };
 
@@ -158,7 +214,7 @@ impl FileSystem for FATFileSystem {
         }
 
         let mut bytes_read: usize = 0;
-        let mut cluster = file.entry.get_cluster();
+        let mut cluster = file.get_cluster();
 
         loop {
             match self.read_cluster(cluster) {
@@ -192,22 +248,6 @@ impl FileSystem for FATFileSystem {
         let region = Region::from(file_buffer, filesize);
 
         Some(region)
-    }
-}
-
-impl FATFileSystem {
-    pub fn new(mut port: Box<AHCIPort>) -> Option<Self> {
-        let (bs, bs_32) = read_boot_sector(&mut *port)?;
-        let fat_buff = read_fat(&mut *port, &bs, &bs_32)?;
-
-        let fs = FATFileSystem {
-            port: port,
-            fat: fat_buff,
-            bs: bs,
-            bs_32: bs_32,
-        };
-
-        Some(fs)
     }
 
     fn read_directory_internal(

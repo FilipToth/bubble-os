@@ -1,13 +1,16 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{sync::Arc, vec::Vec};
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
-use crate::{arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame}, elf, fs::{fat_fs::FATFileSystem, fs::{self, DirectoryKind, FileSystem}, GLOBAL_FILESYSTEM}, mem::{paging::{entry::EntryFlags, Page}, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER}, print, with_fs};
+use crate::{
+    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
+    elf,
+    fs::fs::Directory,
+    mem::{paging::entry::EntryFlags, GLOBAL_MEMORY_CONTROLLER},
+    print, with_root_dir,
+};
 
 pub mod process;
 
@@ -111,9 +114,14 @@ unsafe fn jump(context: FullInterruptStackFrame) {
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
-    let stack = match mc.stack_allocator.alloc(&mut mc.active_table, &mut mc.frame_allocator, 50, EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE) {
+    let stack = match mc.stack_allocator.alloc(
+        &mut mc.active_table,
+        &mut mc.frame_allocator,
+        50,
+        EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+    ) {
         Some(s) => s.top,
-        None => unreachable!()
+        None => unreachable!(),
     };
 
     let stack_ptr = (stack - 0x10) as *mut u8;
@@ -235,10 +243,8 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         let current = &processes[current_index];
         current.curr_working_dir.clone()
     } else {
-        with_fs!(FATFileSystem, fs, {
-            let root = fs.root();
-            DirectoryKind::FATDirectory(root)
-        })
+        // root directory
+        with_root_dir!(root, { root })
     };
 
     let process = Process::from(entry, pid, cwd);
@@ -301,15 +307,12 @@ pub fn exit_current() {
     CURRENT_INDEX.store(new_index, Ordering::SeqCst);
 }
 
-pub fn get_current_cwd() -> DirectoryKind {
+pub fn get_current_cwd() -> Arc<dyn Directory> {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
     if processes.len() == 0 {
-        with_fs!(FATFileSystem, fs, {
-            let root = fs.root();
-            DirectoryKind::FATDirectory(root)
-        })
+        with_root_dir!(root, { root })
     } else {
         let current_process = &mut processes[current_index];
         let cwd = &current_process.curr_working_dir;
@@ -323,7 +326,7 @@ pub fn get_current_cwd() -> DirectoryKind {
     }
 }
 
-pub fn change_cwd(cwd: DirectoryKind) {
+pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 

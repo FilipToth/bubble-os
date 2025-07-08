@@ -83,7 +83,10 @@ where
             );
 
             let frame = allocator.falloc().expect("No available frames to allocate");
-            self.entries[index].set(frame, EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE);
+            self.entries[index].set(
+                frame,
+                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+            );
             self.next_table_mut(index).unwrap().null_all_entries();
         }
 
