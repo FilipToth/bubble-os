@@ -25,7 +25,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     // read file
     let region = {
-        let file_guard = file.lock();
+        let file_guard = file.read();
         file_guard.read()?
     };
 

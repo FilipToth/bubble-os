@@ -7,7 +7,7 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::{
     ahci::port::AHCIPort,
@@ -53,11 +53,11 @@ impl Directory for FATDirectory {
             })
             .collect();
 
-        let files: Vec<Arc<Mutex<dyn File>>> = files
+        let files: Vec<Arc<RwLock<dyn File>>> = files
             .iter()
             .map(|f| {
                 let file = FATFile::new(f.clone(), self.fs.clone());
-                Arc::new(Mutex::new(file)) as Arc<Mutex<dyn File>>
+                Arc::new(RwLock::new(file)) as Arc<RwLock<dyn File>>
             })
             .collect();
 

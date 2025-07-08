@@ -112,7 +112,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         with_root_dir!(root, {
             let root_entries = root.list_dir();
             for entry in root_entries.1 {
-                let name = entry.lock().name();
+                let name = entry.read().name();
                 print!("[ OK ] Root dir entry: {}, dir: false\n", name,);
             }
 
@@ -122,13 +122,13 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
                 let subentries = entry.list_dir();
                 for file in subentries.1 {
-                    let name = file.lock().name();
+                    let name = file.read().name();
                     print!("           Subfile: {}\n", name);
                 }
             }
 
             let shell_elf = root.find_file_recursive("sample.elf").unwrap();
-            let shell_elf_guard = shell_elf.lock();
+            let shell_elf_guard = shell_elf.write();
             shell_elf_guard.read().unwrap()
         })
     };

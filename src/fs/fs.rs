@@ -4,11 +4,11 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use spin::Mutex;
+use spin::RwLock;
 
-use crate::{mem::Region, print};
+use crate::mem::Region;
 
-pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<Mutex<dyn File>>>);
+pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<RwLock<dyn File>>>);
 
 pub trait Directory: DirectoryClone + Send + Sync {
     fn name(&self) -> String;
@@ -21,10 +21,10 @@ pub trait Directory: DirectoryClone + Send + Sync {
         Some(directory.clone())
     }
 
-    fn find_file(&self, name: &str) -> Option<Arc<Mutex<dyn File>>> {
+    fn find_file(&self, name: &str) -> Option<Arc<RwLock<dyn File>>> {
         let items = self.list_dir();
         let file = items.1.iter().find(|f| {
-            let f_guard = f.lock();
+            let f_guard = f.read();
             f_guard.name() == name
         })?;
 
@@ -53,7 +53,7 @@ pub trait Directory: DirectoryClone + Send + Sync {
         }
     }
 
-    fn find_file_recursive(&self, path: &str) -> Option<Arc<Mutex<dyn File>>> {
+    fn find_file_recursive(&self, path: &str) -> Option<Arc<RwLock<dyn File>>> {
         let (next, rest) = match path.find('/') {
             Some(pos) => {
                 let (next, rest) = path.split_at(pos);
@@ -72,7 +72,7 @@ pub trait Directory: DirectoryClone + Send + Sync {
             None => {
                 // last part of the path
                 let file = items.1.iter().find(|f| {
-                    let f_guard = f.lock();
+                    let f_guard = f.read();
                     f_guard.name() == next
                 })?;
 

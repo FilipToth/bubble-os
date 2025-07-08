@@ -42,7 +42,7 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .iter()
         .map(|e| {
             let mut name_buffer: [u8; 64] = [0; 64];
-            let name = e.lock().name();
+            let name = e.read().name();
             let name_len = name.len().min(64);
             let name = name.as_bytes();
 

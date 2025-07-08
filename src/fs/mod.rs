@@ -14,8 +14,7 @@ pub mod fs;
 // files don't get invalidated
 static GLOBAL_FS: Mutex<Option<Arc<Mutex<FATFileSystem>>>> = Mutex::new(None);
 
-pub static GLOBAL_ROOT_DIR: Mutex<Option<Arc<dyn Directory + Send + Sync>>> =
-    Mutex::new(None);
+pub static GLOBAL_ROOT_DIR: Mutex<Option<Arc<dyn Directory + Send + Sync>>> = Mutex::new(None);
 
 #[macro_export]
 macro_rules! with_root_dir {

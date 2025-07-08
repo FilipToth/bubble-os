@@ -319,7 +319,9 @@ pub fn get_current_cwd() -> Arc<dyn Directory> {
 
         print!(
             "Loading cwd {}, for index: {}, pid: {}\n",
-            cwd.name(), current_index, current_process.pid
+            cwd.name(),
+            current_index,
+            current_process.pid
         );
 
         cwd.clone()
@@ -337,7 +339,9 @@ pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
     let current_process = &mut processes[current_index];
     print!(
         "Saving cwd: {}, to index: {}, pid: {}\n",
-        cwd.name(), current_index, current_process.pid
+        cwd.name(),
+        current_index,
+        current_process.pid
     );
 
     current_process.curr_working_dir = cwd.clone();
