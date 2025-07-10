@@ -21,6 +21,7 @@ pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
+
     core::arch::asm!(
         "cli",
 
@@ -173,7 +174,14 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         None => unreachable!(),
     };
 
-    let process = Process::from(entry, pid, cwd, stack);
+    let mut process = Process::from(entry, pid, cwd, stack);
+    let cs = GDT.1.user_code.0;
+    let ss = GDT.1.user_data.0;
+
+    process.context.cs = cs as usize;
+    process.context.ss = ss as usize;
+    process.context.rflags = 0x202;
+
     processes.push(process);
     pid
 }
@@ -276,17 +284,4 @@ pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
 pub fn enable() {
     print!("[ SCHED ] Enabled Scheduling!\n");
     SCHEDULING_ENABLED.store(true, Ordering::SeqCst);
-
-    // the enable function expects an initial
-    // process be deployed before it gets called
-    let mut initial_process = next_process(None).unwrap();
-
-    let cs = GDT.1.user_code.0;
-    let ss = GDT.1.user_data.0;
-
-    initial_process.context.cs = cs as usize;
-    initial_process.context.ss = ss as usize;
-    initial_process.context.rflags = 0x202;
-
-    unsafe { jump(&initial_process.context) };
 }

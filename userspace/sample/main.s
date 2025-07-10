@@ -9,19 +9,38 @@ section .text
     global _start
 
 _start:
-    ; print message
+    mov ax, cs
+    and ax, 0b11
+    cmp ax, 3
+    je success
+
+    ; not in ring 3
     mov rax, 0x02
     mov rdi, 0x01
-    mov rsi, msg
-    mov rdx, msg_len
+    mov rsi, failure_msg
+    mov rdx, failure_msg_len
     int 0x80
 
+    jmp exit
+
+success:
+    ; not in ring 3
+    mov rax, 0x02
+    mov rdi, 0x01
+    mov rsi, success_msg
+    mov rdx, success_msg_len
+    int 0x80
+
+exit:
     ; exit syscall
-    ; mov rax, 0x01
-    ; int 0x80
+    mov rax, 0x01
+    int 0x80
 
     jmp $
 
 section .data
-    msg db "Hello, from Sample ELF 2!", 0xA
-    msg_len equ $ - msg
+    success_msg db "Hello Ring 3!", 0xA
+    success_msg_len equ $ - success_msg
+
+    failure_msg db "Not running in Ring 3 :(", 0xA
+    failure_msg_len equ $ - failure_msg
