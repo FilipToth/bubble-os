@@ -16,6 +16,10 @@ _start:
     mov rdx, msg_len
     int 0x80
 
+    ; exit syscall
+    ; mov rax, 0x01
+    ; int 0x80
+
     jmp $
 
 section .data

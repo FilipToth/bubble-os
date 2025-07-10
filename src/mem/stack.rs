@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Stack {
     pub top: usize,
     pub bottom: usize,

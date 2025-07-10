@@ -1,7 +1,7 @@
 use x86_64::{
     registers::control::Cr2,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
-    VirtAddr,
+    PrivilegeLevel, VirtAddr,
 };
 
 use crate::{
@@ -36,7 +36,8 @@ lazy_static! {
         unsafe {
             idt[0x80 as usize]
                 .set_handler_addr(VirtAddr::new(syscall_trampoline as u64))
-                .set_stack_index(SYSCALL_STACK_INDEX as u16);
+                .set_stack_index(SYSCALL_STACK_INDEX as u16)
+                .set_privilege_level(PrivilegeLevel::Ring3);
         }
 
         idt

@@ -1,5 +1,5 @@
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FullInterruptStackFrame {
     pub r8: usize,
     pub r9: usize,

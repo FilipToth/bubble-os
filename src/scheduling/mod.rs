@@ -8,7 +8,7 @@ use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
     fs::fs::Directory,
-    mem::{paging::entry::EntryFlags, GLOBAL_MEMORY_CONTROLLER},
+    mem::GLOBAL_MEMORY_CONTROLLER,
     print, with_root_dir,
 };
 
@@ -19,139 +19,56 @@ pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/*
-unsafe fn jump(context: FullInterruptStackFrame) {
-    core::arch::asm!("cli");
-
-    if context.rsp == 0 {
-        // uninitialized process,
-        // empty jump no context switch
-        core::arch::asm!("sti", "jmp {rip}", rip = in(reg) context.rip);
-    }
-
-    // our entire context switch is very ugly, but it's ok for now...
-    // first we load CPU flags because that doesn't affect registers for
-    // the actual general-purpose registers switch. Then, we manually
-    // push the context's saved instruction pointer onto the ELF stack,
-    // this is done because Rust's inline asm uses GP registers to pass
-    // in values, and when we do our actual jump (using ret), we have
-    // already loaded the context's registers, and thus shouldn't use
-    // them. We also push the stack pointer onto the (now kernel) stack.
-    // Then we push GP-registers onto the stack using inline asm, we can't
-    // move them directly since Rust can't guarantee correct register
-    // alignment here, so this is a bit of a workaround... Then we pop
-    // GP registers off the stack into the correct registers (previously,
-    // when we pushed them, Rust would use whatever registers it would
-    // feel like), then we pop the ELF stack pointer into rsp, then we
-    // simply enable interrupts and return, which just pops the rip off
-    // the stack and jumps to it.
-
+unsafe fn jump(context: &FullInterruptStackFrame) {
+    let ctx_addr = context as *const FullInterruptStackFrame as usize;
     core::arch::asm!(
-        "push {rflags}",
-        "popfq",
+        "cli",
 
-        rflags = in(reg) context.rflags
-    );
-
-    // manually push context rip to ELF stack
-    let rsp_bottom = context.rsp - 8;
-    let rsp_ptr = rsp_bottom as *mut usize;
-    *rsp_ptr = context.rip;
-
-    core::arch::asm!(
-        "push {rsp}",
-        rsp = in(reg) context.rsp
-    );
-
-    core::arch::asm!(
-        "push {rax}",
-        "push {rbx}",
-        "push {rcx}",
-        "push {rdx}",
-        "push {rsi}",
-        "push {rdi}",
-        "push {rbp}",
-        "push {r15}",
-        "push {r14}",
-        "push {r13}",
-        "push {r12}",
-        "push {r11}",
-        "push {r10}",
-        "push {r9}",
-        "push {r8}",
-
-        rax = in(reg) context.rax,
-        rbx = in(reg) context.rbx,
-        rcx = in(reg) context.rcx,
-        rdx = in(reg) context.rdx,
-        rsi = in(reg) context.rsi,
-        rdi = in(reg) context.rdi,
-        rbp = in(reg) context.rbp,
-        r15 = in(reg) context.r15,
-        r14 = in(reg) context.r14,
-        r13 = in(reg) context.r13,
-        r12 = in(reg) context.r12,
-        r11 = in(reg) context.r11,
-        r10 = in(reg) context.r10,
-        r9 = in(reg) context.r9,
-        r8 = in(reg) context.r8,
-    );
-
-    core::arch::asm!(
-        "pop r8", "pop r9", "pop r10", "pop r11", "pop r12", "pop r13", "pop r14", "pop r15",
-        "pop rbp", "pop rdi", "pop rsi", "pop rdx", "pop rcx", "pop rbx", "pop rax",
-    );
-
-    core::arch::asm!("pop rsp", "sub rsp, 0x08");
-    core::arch::asm!("sti", "ret", options(noreturn));
-}
-*/
-
-unsafe fn jump(context: FullInterruptStackFrame) {
-    // this stack alloc is extremely unclean and
-    // shouldn't be happening here, I'll clean up
-    // later, this is just for the ring3 PoC
-    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-    let mc = mc.as_mut().unwrap();
-
-    let stack = match mc.stack_allocator.alloc(
-        &mut mc.active_table,
-        &mut mc.frame_allocator,
-        50,
-        EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
-    ) {
-        Some(s) => s.top,
-        None => unreachable!(),
-    };
-
-    let stack_ptr = (stack - 0x10) as *mut u8;
-    unsafe { *stack_ptr = 0x10 };
-
-    print!("Setting ring3 stack: 0x{:X}\n", stack);
-
-    let cs = GDT.1.user_code.0;
-    let ss = GDT.1.user_data.0;
-
-    core::arch::asm!("cli");
-
-    core::arch::asm!(
-        // ss
         "push {ss}",
         "push {rsp}",
-
-        // rflags
-        "push 0x202",
-
-        // cs
+        "push {rflags}",
         "push {cs}",
         "push {rip}",
+        "push [{ctx} + 0x00]", // r8
+        "push [{ctx} + 0x08]", // r9
+        "push [{ctx} + 0x10]", // r10
+        "push [{ctx} + 0x18]", // r11
+        "push [{ctx} + 0x20]", // r12
+        "push [{ctx} + 0x28]", // r13
+        "push [{ctx} + 0x30]", // r14
+        "push [{ctx} + 0x38]", // r15
+        "push [{ctx} + 0x40]", // rbp
+        "push [{ctx} + 0x48]", // rdi
+        "push [{ctx} + 0x50]", // rsi
+        "push [{ctx} + 0x58]", // rdx
+        "push [{ctx} + 0x60]", // rcx
+        "push [{ctx} + 0x68]", // rbx
+        "push [{ctx} + 0x70]", // rax
+
+        "pop rax",
+        "pop rbx",
+        "pop rcx",
+        "pop rdx",
+        "pop rsi",
+        "pop rdi",
+        "pop rbp",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
 
         "iretq",
 
-        ss = in(reg) ss,
-        cs = in(reg) cs,
-        rsp = in(reg) stack - 8,
+        ss = in(reg) context.ss,
+        rsp = in(reg) context.rsp,
+        rflags = in(reg) context.rflags,
+        cs = in(reg) context.cs,
         rip = in(reg) context.rip,
+        ctx = in(reg) ctx_addr,
         options(noreturn)
     );
 }
@@ -229,7 +146,7 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         }
     };
 
-    unsafe { jump(process_to_jump.context) };
+    unsafe { jump(&process_to_jump.context) };
 }
 
 pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
@@ -247,7 +164,16 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         with_root_dir!(root, { root })
     };
 
-    let process = Process::from(entry, pid, cwd);
+    // allocate process stack
+    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+    let mc = mc.as_mut().unwrap();
+
+    let stack = match mc.alloc_stack(10, true) {
+        Some(s) => s,
+        None => unreachable!(),
+    };
+
+    let process = Process::from(entry, pid, cwd, stack);
     processes.push(process);
     pid
 }
@@ -350,4 +276,17 @@ pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
 pub fn enable() {
     print!("[ SCHED ] Enabled Scheduling!\n");
     SCHEDULING_ENABLED.store(true, Ordering::SeqCst);
+
+    // the enable function expects an initial
+    // process be deployed before it gets called
+    let mut initial_process = next_process(None).unwrap();
+
+    let cs = GDT.1.user_code.0;
+    let ss = GDT.1.user_data.0;
+
+    initial_process.context.cs = cs as usize;
+    initial_process.context.ss = ss as usize;
+    initial_process.context.rflags = 0x202;
+
+    unsafe { jump(&initial_process.context) };
 }

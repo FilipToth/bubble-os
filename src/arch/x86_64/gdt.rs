@@ -62,7 +62,7 @@ fn alloc_ist_stack() -> u64 {
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
-    match mc.alloc_stack(16) {
+    match mc.alloc_stack(16, false) {
         Some(s) => s.top as u64,
         None => {
             print!("[ ERR ] Couldn't allocate IST stack!\n");

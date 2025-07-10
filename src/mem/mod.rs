@@ -10,7 +10,6 @@ mod stack_allocator;
 use multiboot2::BootInformation;
 use paging::ActivePageTable;
 use spin::Mutex;
-use stack::Stack;
 use stack_allocator::StackAllocator;
 
 use crate::{
@@ -24,6 +23,7 @@ use crate::{
 pub use self::page_frame::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 pub use self::region::Region;
 pub use self::simple_page_frame_allocator::SimplePageFrameAllocator;
+pub use self::stack::Stack;
 
 pub type VirtualAddress = usize;
 pub type PhysicalAddress = usize;
@@ -49,12 +49,18 @@ impl MemoryController {
         }
     }
 
-    pub fn alloc_stack(&mut self, pages_to_alloc: usize) -> Option<Stack> {
+    pub fn alloc_stack(&mut self, pages_to_alloc: usize, user: bool) -> Option<Stack> {
+        let flags = if user {
+            EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE
+        } else {
+            EntryFlags::WRITABLE
+        };
+
         self.stack_allocator.alloc(
             &mut self.active_table,
             &mut self.frame_allocator,
             pages_to_alloc,
-            EntryFlags::WRITABLE,
+            flags,
         )
     }
 

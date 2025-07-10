@@ -1,6 +1,8 @@
 use alloc::{boxed::Box, sync::Arc};
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf::ElfRegion, fs::fs::Directory};
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, elf::ElfRegion, fs::fs::Directory, mem::Stack,
+};
 
 #[derive(Clone)]
 pub struct Process {
@@ -11,10 +13,11 @@ pub struct Process {
     pub context: FullInterruptStackFrame,
     pub start_region: Box<ElfRegion>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
+    pub stack: Stack,
 }
 
 impl Process {
-    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>) -> Process {
+    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>, stack: Stack) -> Process {
         let mut context = FullInterruptStackFrame::empty();
         context.rip = entry.entry;
 
@@ -26,6 +29,7 @@ impl Process {
             context: context,
             start_region: entry.start_region,
             curr_working_dir: cwd,
+            stack: stack,
         }
     }
 }
