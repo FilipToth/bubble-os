@@ -154,6 +154,8 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     let pid = PID_COUNTER.load(Ordering::SeqCst);
     PID_COUNTER.store(pid + 1, Ordering::SeqCst);
 
+    loop {}
+
     let mut processes = PROCESSES.lock();
     let cwd = if fork_current && processes.len() != 0 {
         // basically fork the cwd from calling process
@@ -165,10 +167,10 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         with_root_dir!(root, { root })
     };
 
-    // allocate process stack
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
+    // allocate process stack
     let stack = match mc.alloc_stack(10, true) {
         Some(s) => s,
         None => unreachable!(),

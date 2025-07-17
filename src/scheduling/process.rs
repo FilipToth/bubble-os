@@ -1,7 +1,11 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
+use spin::Mutex;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, elf::ElfRegion, fs::fs::Directory, mem::Stack,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    elf::ElfRegion,
+    fs::fs::Directory,
+    mem::{paging::InactivePageTable, Stack},
 };
 
 #[derive(Clone)]
@@ -11,7 +15,7 @@ pub struct Process {
     pub blocking: bool,
     pub awaiting_process: Option<usize>,
     pub context: FullInterruptStackFrame,
-    pub start_region: Box<ElfRegion>,
+    pub start_region: Arc<Mutex<ElfRegion>>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
     pub stack: Stack,
 }
@@ -36,5 +40,6 @@ impl Process {
 
 pub struct ProcessEntry {
     pub entry: usize,
-    pub start_region: Box<ElfRegion>,
+    pub start_region: Arc<Mutex<ElfRegion>>,
+    pub ring3_page_table: Option<InactivePageTable>,
 }

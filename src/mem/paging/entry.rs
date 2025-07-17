@@ -39,12 +39,13 @@ impl EntryFlags {
     }
 }
 
+#[derive(Clone)]
 pub struct PageTableEntry {
-    entry: u64,
+    pub entry: u64,
 }
 
 impl PageTableEntry {
-    pub fn is_unused(&mut self) -> bool {
+    pub fn is_unused(&self) -> bool {
         self.entry == 0
     }
 

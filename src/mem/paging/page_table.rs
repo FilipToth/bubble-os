@@ -3,12 +3,13 @@ use core::ops::{Index, IndexMut};
 
 use crate::mem::paging::entry::*;
 use crate::mem::paging::TABLE_ENTRY_COUNT;
-use crate::mem::PageFrameAllocator;
+use crate::mem::{PageFrame, PageFrameAllocator};
+use crate::print;
 
 pub const P4: *mut PageTable<PageLevel4> = 0xFFFFFFFF_FFFFF000 as *mut _;
 
 pub struct PageTable<L: PageTableLevel> {
-    entries: [PageTableEntry; TABLE_ENTRY_COUNT],
+    pub entries: [PageTableEntry; TABLE_ENTRY_COUNT],
     level: PhantomData<L>,
 }
 
@@ -40,6 +41,32 @@ where
         for entry in self.entries.iter_mut() {
             entry.set_to_unused();
         }
+    }
+
+    pub fn list_entries(&self) {
+        for (index, entry) in self.entries.iter().enumerate() {
+            if entry.is_unused() {
+                continue;
+            }
+
+            print!(
+                "New ({}) PML({:?}) entry: 0x{:X}, {:?}\n",
+                index,
+                self.level,
+                entry.get_frame().unwrap().start_address(),
+                entry.flags()
+            );
+        }
+    }
+}
+
+impl PageTable<PageLevel4> {
+    pub fn clone_pml4(&self, buffer: PageFrame) {
+        let buffer_addr = buffer.start_address();
+        let buffer_ptr = buffer_addr as *mut PageTable<PageLevel4>;
+
+        let self_ptr = self as *const PageTable<PageLevel4>;
+        unsafe { core::ptr::copy(self_ptr, buffer_ptr, 1) };
     }
 }
 
@@ -83,14 +110,45 @@ where
             );
 
             let frame = allocator.falloc().expect("No available frames to allocate");
-            self.entries[index].set(
-                frame,
-                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
-            );
+            self.entries[index].set(frame, EntryFlags::PRESENT | EntryFlags::WRITABLE);
+
             self.next_table_mut(index).unwrap().null_all_entries();
         }
 
         self.next_table_mut(index).unwrap()
+    }
+}
+
+impl PageTable<PageLevel4> {
+    pub fn inspect(&self) {
+        for (index, entry) in self.entries.iter().enumerate() {
+            if entry.is_unused() {
+                continue;
+            }
+
+            print!(
+                "PML4 entry addr: 0x{:X}\n",
+                entry.get_frame().unwrap().start_address()
+            );
+            match self.next_table(index) {
+                Some(pml3) => {
+                    print!("\n");
+                    for (index, entry) in pml3.entries.iter().enumerate() {
+                        if entry.is_unused() {
+                            continue;
+                        }
+
+                        print!(
+                            "PML3: {}, entryflags: {:?}, entryaddr: 0x{:X}\n",
+                            index,
+                            entry.flags(),
+                            entry.get_frame().unwrap().start_address()
+                        );
+                    }
+                }
+                None => continue,
+            }
+        }
     }
 }
 

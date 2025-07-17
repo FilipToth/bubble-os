@@ -63,22 +63,38 @@ impl Mapper {
         let p4 = self.get_p4_mut();
         let p4e = &p4[page.p4_index()];
         let p4_flags = p4e.flags();
-        print!("ELF P4e Flags: {:?}\n", p4_flags);
+        print!(
+            "ELF P4e Flags: {:?}, addr: 0x{:X}\n",
+            p4_flags,
+            p4e.get_frame().unwrap().start_address()
+        );
 
         let p3 = p4.next_table_create(page.p4_index(), allocator);
         let p3e = &mut p3[page.p3_index()];
         let p3_flags = p3e.flags();
-        print!("ELF P3e Flags: {:?}\n", p3_flags);
+        print!(
+            "ELF P3e Flags: {:?}, addr: 0x{:X}\n",
+            p3_flags,
+            p3e.get_frame().unwrap().start_address()
+        );
 
         let p2 = p3.next_table_create(page.p3_index(), allocator);
         let p2e = &mut p2[page.p2_index()];
         let p2_flags = p2e.flags();
-        print!("ELF P2e Flags: {:?}\n", p2_flags);
+        print!(
+            "ELF P2e Flags: {:?}, addr: 0x{:X}\n",
+            p2_flags,
+            p2e.get_frame().unwrap().start_address()
+        );
 
         let p1 = p2.next_table_create(page.p2_index(), allocator);
         let p1e = &mut p1[page.p1_index()];
         let p1_flags = p1e.flags();
-        print!("ELF P1e Flags: {:?}\n", p1_flags);
+        print!(
+            "ELF P1e Flags: {:?}, addr: 0x{:X}\n",
+            p1_flags,
+            p1e.get_frame().unwrap().start_address()
+        );
     }
 
     /// Maps the page to an unused page frame
@@ -111,6 +127,16 @@ impl Mapper {
     {
         let page = Page::for_address(frame.start_address());
         self.map_to(page, frame, flags, allocator);
+    }
+
+    pub fn map_range<A>(&mut self, start: Page, end: Page, flags: EntryFlags, allocator: &mut A)
+    where
+        A: PageFrameAllocator,
+    {
+        let range = Page::range(start, end);
+        for frame in range {
+            self.map(frame, flags, allocator);
+        }
     }
 
     /// Maps a range of pages to its exact corresponding page frame

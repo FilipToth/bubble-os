@@ -1,12 +1,7 @@
-use alloc::boxed::Box;
+use alloc::sync::Arc;
+use spin::Mutex;
 
-use crate::{
-    mem::{
-        paging::{entry::EntryFlags, Page},
-        Region, GLOBAL_MEMORY_CONTROLLER,
-    },
-    scheduling::process::ProcessEntry,
-};
+use crate::{mem::Region, scheduling::process::ProcessEntry};
 
 use super::ElfRegion;
 
@@ -43,10 +38,10 @@ struct ElfProgramHeader64 {
     align: u64,
 }
 
-fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegion>> {
+fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Arc<Mutex<ElfRegion>>> {
     let ph_ptr = unsafe { elf_ptr.add(header.ph_offset as usize) };
-    let mut start_region: Option<Box<ElfRegion>> = None;
-    let mut last_region: Option<Box<ElfRegion>> = None;
+    let mut start_region: Option<Arc<Mutex<ElfRegion>>> = None;
+    let mut last_region: Option<Arc<Mutex<ElfRegion>>> = None;
 
     for i in 0..header.ph_num {
         let ph_offset = (i * header.ph_entry_size) as usize;
@@ -61,52 +56,25 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Box<ElfRegi
         let addr = entry.virt_addr as usize;
         let size = entry.memory_size as usize;
 
+        let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
+        let ph_file_addr = ph_file_src as usize;
+        let ph_file_size = entry.file_size as usize;
+        let ph_file_region = Region::new(ph_file_addr, ph_file_size);
+
         // construct ELF region structure
         let mem_region = Region::new(addr, size - 1);
-        let elf_region = ElfRegion::new(mem_region, None);
-        let elf_region = Box::new(elf_region);
+        let elf_region = ElfRegion::new(mem_region, None, ph_file_region);
+        let elf_region = Arc::new(Mutex::new(elf_region));
 
         match &mut last_region {
             Some(last_region) => {
-                last_region.next = Some(elf_region);
+                last_region.lock().next = Some(elf_region);
             }
             None => {
                 // initializing whole linked list
                 start_region = Some(elf_region);
                 last_region = start_region.clone();
             }
-        }
-
-        // map memory
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let start_page = Page::for_address(addr);
-        let end_page = Page::for_address(addr + size - 1);
-
-        controller.map(
-            start_page,
-            end_page,
-            EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
-        );
-        controller
-            .active_table
-            .verify(start_page, &mut controller.frame_allocator);
-
-        // load entry into memory
-        let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
-        let destination_ptr = addr as *mut u8;
-
-        unsafe {
-            core::ptr::copy_nonoverlapping(ph_file_src, destination_ptr, entry.file_size as usize);
-        }
-
-        // check if BSS exists
-        let bss_size = size - (entry.file_size as usize);
-        if bss_size > 0 {
-            // zero BSS
-            let bss_ptr = unsafe { destination_ptr.add(entry.file_size as usize) };
-            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size) };
         }
     }
 
@@ -136,5 +104,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     Some(ProcessEntry {
         entry: entry,
         start_region: start_region.unwrap(),
+        ring3_page_table: None,
     })
 }
