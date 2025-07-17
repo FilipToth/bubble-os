@@ -24,16 +24,20 @@ clean:
 
 run: userspace disk kernel_start iso run_without_building
 int_run: userspace disk kernel_start iso run_without_building_debug_interrupts
-debug_run: userspace disk kernel_start iso run_wait_for_debugger
+
+debug_run: userspace disk kernel_start iso
+	@echo "Starting QEMU and waiting for debugger..."
+	@$(base_qemu) -S & \
+	pid=$$!; \
+	until nc -z localhost 1234; do sleep 0.1; done; \
+	echo "Waiting for Debugger"; \
+	wait $$pid
 
 run_without_building:
 	$(base_qemu)
 
 run_without_building_debug_interrupts:
 	$(base_qemu) -d int
-
-run_wait_for_debugger:
-	$(base_qemu) -S
 
 gdb:
 	gdb "$(kernel)" -ex "target remote :1234"

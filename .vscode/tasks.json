@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "QEMU Debug Run",
+      "type": "process",
+      "command": "make",
+      "args": ["debug_run"],
+      "problemMatcher": {
+        "pattern": [
+          {
+            "regexp": ".*"
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Waiting for Debugger.*"
+        }
+      },
+      "isBackground": true
+    }
+  ]
+}
