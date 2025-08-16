@@ -14,9 +14,16 @@ resources := $(wildcard resources/*)
 user_binaries := $(wildcard userspace/bin/*)
 base_qemu := qemu-system-x86_64 -nographic -serial mon:stdio -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0
 
+grub_rescue := $(shell command -v grub2-mkrescue >/dev/null 2>&1 && echo grub2-mkrescue || echo grub-mkrescue)
+
 .PHONY: all clean run iso kernel disk userspace
 
 all: $(kernel)
+
+full_build: init_build userspace disk kernel_start iso
+
+init_build:
+	mkdir -p build
 
 clean:
 	cargo clean
@@ -68,7 +75,7 @@ $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub
 	cp $(kernel) build/isofiles/boot/kernel.bin
 	cp $(grub_cfg) build/isofiles/boot/grub
-	grub2-mkrescue -o $(iso) build/isofiles 2> /dev/null
+	$(grub_rescue) -o $(iso) build/isofiles 2> /dev/null
 # rm -r build/isofiles
 
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
