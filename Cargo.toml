@@ -10,7 +10,7 @@ crate-type = ["staticlib"]
 rlibc = "1.0"
 multiboot2 = { version = "0.23", default-features = false }
 bitflags = "2.4.1"
-x86_64 = "0.14.11"
+x86_64 = "=0.14.11"
 spin = "0.9.8"
 spinning_top = "0.3.0"
 
