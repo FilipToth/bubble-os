@@ -5,11 +5,7 @@ use process::{Process, ProcessEntry};
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
-    elf,
-    fs::fs::Directory,
-    mem::GLOBAL_MEMORY_CONTROLLER,
-    print, with_root_dir,
+    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame}, elf, fs::fs::Directory, mem::{paging::InactivePageTable, GLOBAL_MEMORY_CONTROLLER}, print, with_root_dir
 };
 
 pub mod process;
@@ -18,6 +14,7 @@ pub static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+pub static KERNEL_PAGE_TABLE: Mutex<Option<InactivePageTable>> = Mutex::new(None);
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
@@ -147,14 +144,24 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         }
     };
 
+    // switch to user page table
+    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+    let mc = mc.as_mut().unwrap();
+
+    let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
+    let kernel_table = mc.active_table.switch(ring3_page_table);
+
+    let mut global_kernel_table = KERNEL_PAGE_TABLE.lock();
+    *global_kernel_table = Some(kernel_table);
+
+    print!("Jumping\n");
+
     unsafe { jump(&process_to_jump.context) };
 }
 
 pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     let pid = PID_COUNTER.load(Ordering::SeqCst);
     PID_COUNTER.store(pid + 1, Ordering::SeqCst);
-
-    loop {}
 
     let mut processes = PROCESSES.lock();
     let cwd = if fork_current && processes.len() != 0 {
@@ -167,16 +174,7 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         with_root_dir!(root, { root })
     };
 
-    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-    let mc = mc.as_mut().unwrap();
-
-    // allocate process stack
-    let stack = match mc.alloc_stack(10, true) {
-        Some(s) => s,
-        None => unreachable!(),
-    };
-
-    let mut process = Process::from(entry, pid, cwd, stack);
+    let mut process = Process::from(entry, pid, cwd);
     let cs = GDT.1.user_code.0;
     let ss = GDT.1.user_data.0;
 

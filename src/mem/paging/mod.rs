@@ -1,7 +1,6 @@
 use core::ops::{Add, Deref, DerefMut};
 
 use multiboot2::BootInformation;
-use page_table::{PageLevel4, PageTable};
 use x86_64::instructions::tlb;
 use x86_64::registers::control::{self, Cr3, Cr3Flags};
 use x86_64::structures::paging::PhysFrame;
@@ -10,7 +9,6 @@ use x86_64::PhysAddr;
 use crate::mem::paging::entry::EntryFlags;
 use crate::mem::VirtualAddress;
 use crate::mem::{PageFrame, PAGE_SIZE};
-use crate::print;
 
 pub mod entry;
 pub mod page_mapper;
@@ -168,7 +166,6 @@ impl ActivePageTable {
 
         unsafe {
             let new_addr = PhysAddr::new(new.p4_frame.start_address() as u64);
-            print!("Switching cr3 to 0x{:X}\n", new_addr);
             let new_frame = PhysFrame::from_start_address(new_addr)
                 .expect("Cannot create cr3 new frame swap address.");
 
@@ -195,6 +192,7 @@ impl DerefMut for ActivePageTable {
 }
 
 /// A page table which isn't loaded in the CPU.
+#[derive(Clone)]
 pub struct InactivePageTable {
     pub p4_frame: PageFrame,
 }
@@ -245,7 +243,7 @@ impl InactivePageTable {
 
 pub fn create_temp_page<A>(allocator: &mut A) -> TempPage
 where
-    A: PageFrameAllocator
+    A: PageFrameAllocator,
 {
     let temporary_page_comp = Page {
         page_number: 0xFABCDABC,

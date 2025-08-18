@@ -105,5 +105,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         entry: entry,
         start_region: start_region.unwrap(),
         ring3_page_table: None,
+        stack: None
     })
 }

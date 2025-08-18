@@ -18,10 +18,11 @@ pub struct Process {
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
     pub stack: Stack,
+    pub ring3_page_table: Option<InactivePageTable>
 }
 
 impl Process {
-    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>, stack: Stack) -> Process {
+    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>) -> Process {
         let mut context = FullInterruptStackFrame::empty();
         context.rip = entry.entry;
 
@@ -33,7 +34,8 @@ impl Process {
             context: context,
             start_region: entry.start_region,
             curr_working_dir: cwd,
-            stack: stack,
+            stack: entry.stack.unwrap(),
+            ring3_page_table: entry.ring3_page_table
         }
     }
 }
@@ -42,4 +44,5 @@ pub struct ProcessEntry {
     pub entry: usize,
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub ring3_page_table: Option<InactivePageTable>,
+    pub stack: Option<Stack>,
 }

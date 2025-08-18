@@ -46,11 +46,18 @@ impl Mapper {
         A: PageFrameAllocator,
     {
         let p4 = self.get_p4_mut();
-        let p3 = p4.next_table_create(page.p4_index(), allocator);
-        let p2 = p3.next_table_create(page.p3_index(), allocator);
-        let p1 = p2.next_table_create(page.p2_index(), allocator);
 
-        let entry = &mut p1[page.p1_index()];
+        let p4_index = page.p4_index();
+        let p3 = p4.next_table_create(p4_index, allocator);
+
+        let p3_index = page.p3_index();
+        let p2 = p3.next_table_create(p3_index, allocator);
+
+        let p2_index = page.p2_index();
+        let p1 = p2.next_table_create(p2_index, allocator);
+
+        let p1_index = page.p1_index();
+        let entry = &mut p1[p1_index];
         assert!(entry.is_unused());
 
         entry.set(frame, flags | EntryFlags::PRESENT);

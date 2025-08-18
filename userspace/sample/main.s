@@ -33,8 +33,8 @@ success:
 
 exit:
     ; exit syscall
-    mov rax, 0x01
-    int 0x80
+    ; mov rax, 0x01
+    ; int 0x80
 
     jmp $
 

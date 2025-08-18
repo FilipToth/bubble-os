@@ -1,22 +1,15 @@
-use core::{
-    borrow::Borrow,
-    cell::{Ref, RefCell},
-    ops::Deref,
-};
-
-use alloc::{rc::Rc, sync::Arc};
+use alloc::sync::Arc;
 use spin::Mutex;
-use x86_64::instructions::tlb;
 
 use crate::{
     mem::{
         paging::{
-            clone_active_pml4, create_temp_page, entry::EntryFlags, page_table::{PageLevel4, PageTable}, Page
+            clone_active_pml4, create_temp_page,
+            entry::EntryFlags,
+            Page,
         },
-        PageFrameAllocator, Region, GLOBAL_MEMORY_CONTROLLER,
-    },
-    print,
-    scheduling::process::ProcessEntry,
+        Region, GLOBAL_MEMORY_CONTROLLER,
+    }, print, scheduling::process::ProcessEntry
 };
 
 mod loader;
@@ -99,27 +92,25 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     let mut ring3_table = clone_active_pml4(&mut mc.active_table, &mut mc.frame_allocator);
     let mut temp_page = create_temp_page(&mut mc.frame_allocator);
 
-    mc.active_table
-        .with(&mut temp_page, &mut ring3_table, |mapper| {
-            let iter = ElfRegionIterator::from(start_region.clone());
-
-            for region in iter {
-                let region = region.lock();
-                // map memory
-                let addr = region.region.addr;
-                let size = region.region.size;
-
-                let start_page = Page::for_address(addr);
-                let end_page = Page::for_address(addr + size);
-
-                let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
-                mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
-            }
-        });
-
     // load in the ring3 page table temporarily
     // so we can write ELF sections into memory
-    // let kernel_page_table = mc.active_table.switch(ring3_table);
+
+    mc.active_table.with(&mut temp_page, &mut ring3_table, |mapper| {
+        let iter = ElfRegionIterator::from(start_region.clone());
+        for region in iter {
+            let region = region.lock();
+
+            let addr = region.region.addr;
+            let size = region.region.size;
+
+            let start_page = Page::for_address(addr);
+            let end_page = Page::for_address(addr + size);
+            print!("Mapping elf section w/ start addr: 0x{:X}\n", addr);
+
+            let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
+            mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
+        }
+    });
 
     let kernel_table = mc.active_table.switch(ring3_table);
 
@@ -134,6 +125,8 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         let ph_file_size = region.origin_buffer.size;
         let size = region.region.size;
 
+        print!("Writing elf section w/ start addr: 0x{:X}\n", destination_ptr as usize);
+
         unsafe {
             core::ptr::copy_nonoverlapping(ph_file_src, destination_ptr, ph_file_size);
         }
@@ -147,9 +140,20 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         }
     }
 
+    loop {};
+
+    // allocate stack
+    let stack = mc.stack_allocator.alloc(
+        &mut mc.active_table,
+        &mut mc.frame_allocator,
+        10,
+        EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+    )?;
+
     // restore to the kernel page table
     let ring3_table = mc.active_table.switch(kernel_table);
     entry.ring3_page_table = Some(ring3_table);
+    entry.stack = Some(stack);
 
     Some(entry)
 }

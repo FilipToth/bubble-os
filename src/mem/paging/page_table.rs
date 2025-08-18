@@ -110,9 +110,18 @@ where
             );
 
             let frame = allocator.falloc().expect("No available frames to allocate");
-            self.entries[index].set(frame, EntryFlags::PRESENT | EntryFlags::WRITABLE);
 
-            self.next_table_mut(index).unwrap().null_all_entries();
+            // we can set these entries to also have RING3_ACCESSIBLE since
+            // because of the L::NextLevel trait bound, this method is only
+            // implemented on pml4, 3, and 2 entries and not on pml1, and we
+            // only need kernel pml1 entries to not have the ring3 flag.
+            self.entries[index].set(
+                frame,
+                EntryFlags::PRESENT | EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
+            );
+
+            let table = self.next_table_mut(index).unwrap();
+            table.null_all_entries();
         }
 
         self.next_table_mut(index).unwrap()

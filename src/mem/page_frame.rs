@@ -2,7 +2,7 @@ use super::PhysicalAddress;
 
 pub static PAGE_SIZE: usize = 4096;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct PageFrame {
     pub frame_number: usize,
 }
