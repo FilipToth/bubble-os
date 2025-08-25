@@ -61,7 +61,7 @@ where
 }
 
 impl PageTable<PageLevel4> {
-    pub fn clone_pml4(&self, buffer: PageFrame) {
+    pub fn raw_clone_pml4(&self, buffer: PageFrame) {
         let buffer_addr = buffer.start_address();
         let buffer_ptr = buffer_addr as *mut PageTable<PageLevel4>;
 

@@ -6,7 +6,8 @@ use x86_64::registers::control::{self, Cr3, Cr3Flags};
 use x86_64::structures::paging::PhysFrame;
 use x86_64::PhysAddr;
 
-use crate::mem::paging::entry::EntryFlags;
+use crate::mem::paging::entry::{EntryFlags, PageTableEntry};
+use crate::mem::paging::page_table::{PageLevel4, PageTable};
 use crate::mem::VirtualAddress;
 use crate::mem::{PageFrame, PAGE_SIZE};
 
@@ -332,7 +333,14 @@ where
     active_table.map_identity(frame.clone(), EntryFlags::WRITABLE, allocator);
 
     let pml4 = active_table.get_p4();
-    pml4.clone_pml4(frame.clone());
+    pml4.raw_clone_pml4(frame.clone());
+
+    // switch recursive entry
+    let addr = frame.start_address();
+    let cloned_ptr = addr as *mut PageTable<PageLevel4>;
+    let cloned = unsafe { &mut *cloned_ptr };
+
+    cloned[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
 
     InactivePageTable::from(frame)
 }

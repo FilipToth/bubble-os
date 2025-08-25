@@ -105,7 +105,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
             let start_page = Page::for_address(addr);
             let end_page = Page::for_address(addr + size);
-            print!("Mapping elf section w/ start addr: 0x{:X}\n", addr);
 
             let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
             mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
@@ -125,8 +124,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         let ph_file_size = region.origin_buffer.size;
         let size = region.region.size;
 
-        print!("Writing elf section w/ start addr: 0x{:X}\n", destination_ptr as usize);
-
         unsafe {
             core::ptr::copy_nonoverlapping(ph_file_src, destination_ptr, ph_file_size);
         }
@@ -139,8 +136,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
             unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size) };
         }
     }
-
-    loop {};
 
     // allocate stack
     let stack = mc.stack_allocator.alloc(
