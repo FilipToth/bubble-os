@@ -32,7 +32,7 @@ clean:
 run: userspace disk kernel_start iso run_without_building
 int_run: userspace disk kernel_start iso run_without_building_debug_interrupts
 
-debug_run: userspace disk kernel_start iso
+debug_run:
 	@echo "Starting QEMU and waiting for debugger..."
 	@$(base_qemu) -S & \
 	pid=$$!; \
