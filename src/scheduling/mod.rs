@@ -145,16 +145,19 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
     };
 
     // switch to user page table
-    let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-    let mc = mc.as_mut().unwrap();
+    {
+        let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+        let mc = mc.as_mut().unwrap();
 
-    let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
-    let kernel_table = mc.active_table.switch(ring3_page_table);
+        let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
+        let kernel_table = mc.active_table.switch(ring3_page_table);
 
-    let mut global_kernel_table = KERNEL_PAGE_TABLE.lock();
-    *global_kernel_table = Some(kernel_table);
+        let mut global_kernel_table = KERNEL_PAGE_TABLE.lock();
+        *global_kernel_table = Some(kernel_table);
 
-    print!("Jumping\n");
+        // drop memory controller ref
+        // and kernel page table ref
+    };
 
     unsafe { jump(&process_to_jump.context) };
 }

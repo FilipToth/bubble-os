@@ -1,3 +1,6 @@
+default rel
+bits 64
+
 struc DirEntry
     .name:      resb 64
     .attr:      resb 1

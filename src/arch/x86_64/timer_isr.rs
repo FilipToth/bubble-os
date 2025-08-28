@@ -1,11 +1,10 @@
 use core::sync::atomic::Ordering;
 
+use alloc::format;
 use x86_64::instructions::interrupts;
 
 use crate::{
-    arch, interrupt_trampoline,
-    io::serial,
-    scheduling::{self, SCHEDULING_ENABLED},
+    arch, interrupt_trampoline, io::serial, print, scheduling::{self, SCHEDULING_ENABLED}
 };
 
 use super::registers::FullInterruptStackFrame;

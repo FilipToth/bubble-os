@@ -1,3 +1,6 @@
+bits 64
+default rel
+
 section .bss
     stack_bottom:
         resb 4096

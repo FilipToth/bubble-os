@@ -1,43 +1,44 @@
+default rel
+bits 64
+
 section .bss
+    align 16
+
     stack_bottom:
         resb 4096
     stack_top:
 
-align 0x08
-
 section .text
-    global _start
 
+global _start
 _start:
-    mov rax, stack_top
-    mov rsp, rax
-
+    lea  rsp, [stack_top]
 
 mainloop:
     ; yield syscall
-    mov rax, 0x05
-    int 0x80
+    mov  rax, 0x05
+    int  0x80
 
-    mov rbx, [counter]
-    add rbx, 0x01
-    mov [counter], rbx
+    movzx ebx, byte [counter]
+    add   bl, 1
+    mov   byte [counter], bl
 
-    cmp rbx, 0x1FFF
-    jne mainloop
+    cmp  ebx, 0x1FFF
+    jne  mainloop
 
 final:
     ; print final message
-    mov rax, 0x02
-    mov rdi, 0x01
-    mov rsi, msg
-    mov rdx, msg_len
-    int 0x80
+    mov  rax, 0x02
+    mov  rdi, 0x01
+    lea  rsi, [msg]
+    mov  rdx, msg_len
+    int  0x80
 
     ; exit syscall
-    mov rax, 0x01
-    int 0x80
+    mov  rax, 0x01
+    int  0x80
 
-    jmp $
+    jmp  $
 
 section .data
     msg db "Hello, from Sample ELF 2!", 0xA
