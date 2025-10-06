@@ -85,6 +85,8 @@ where
     }
 
     fn next_table_address(&self, index: usize) -> Option<usize> {
+        let self_addr = self as *const _ as usize;
+
         let flags = self[index].flags();
         if flags.contains(EntryFlags::PRESENT) && !flags.contains(EntryFlags::HUGE_PAGE) {
             let self_addr = (self as *const _) as usize;

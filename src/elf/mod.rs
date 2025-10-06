@@ -4,9 +4,7 @@ use spin::Mutex;
 use crate::{
     mem::{
         paging::{
-            clone_active_pml4, create_temp_page,
-            entry::EntryFlags,
-            Page,
+            clone_active_pml4, create_temp_page, entry::EntryFlags, page_mapper::Mapper, page_table::{PageLevel4, PageTable}, InactivePageTable, Page
         },
         Region, GLOBAL_MEMORY_CONTROLLER,
     }, print, scheduling::process::ProcessEntry
@@ -90,36 +88,38 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     let mc = mc.as_mut().unwrap();
 
     let mut ring3_table = clone_active_pml4(&mut mc.active_table, &mut mc.frame_allocator);
-    let mut temp_page = create_temp_page(&mut mc.frame_allocator);
+    let active_table_addr = mc.active_table.get_p4() as *const _ as usize;
+    let ring3_table_addr = ring3_table.p4_frame.start_address();
 
-    // load in the ring3 page table temporarily
-    // so we can write ELF sections into memory
-
-    mc.active_table.with(&mut temp_page, &mut ring3_table, |mapper| {
-        let iter = ElfRegionIterator::from(start_region.clone());
-        for region in iter {
-            let region = region.lock();
-
-            let addr = region.region.addr;
-            let size = region.region.size;
-
-            let start_page = Page::for_address(addr);
-            let end_page = Page::for_address(addr + size);
-
-            let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
-            mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
-        }
-    });
-
+    let mut mapper = unsafe { Mapper::new(ring3_table_addr as *mut PageTable<PageLevel4>) };
     let kernel_table = mc.active_table.switch(ring3_table);
 
+    // map pages
+    let mapper_addr = mc.active_table.get_p4() as *const _ as usize;
+    print!("active: 0x{:X}, mapper: 0x{:X}, ring3: 0x{:X}\n", active_table_addr, mapper_addr, ring3_table_addr);
+
+    let iter = ElfRegionIterator::from(start_region.clone());
+    for region in iter {
+        let region = region.lock();
+
+        let addr = region.region.addr;
+        let size = region.region.size;
+
+        let start_page = Page::for_address(addr);
+        let end_page = Page::for_address(addr + size);
+
+        let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
+        mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
+    }
+
+    // load elf regions
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
         let region = region.lock();
 
         // load entry into memory
         let ph_file_src = region.origin_buffer.addr as *mut u8;
-        let destination_ptr = region.region.addr as *mut u8;
+        let destination_ptr = region.region.addr as *mut u8;    
 
         let ph_file_size = region.origin_buffer.size;
         let size = region.region.size;

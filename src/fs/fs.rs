@@ -6,7 +6,7 @@ use alloc::{
 };
 use spin::RwLock;
 
-use crate::mem::Region;
+use crate::{mem::Region, print};
 
 pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<RwLock<dyn File>>>);
 

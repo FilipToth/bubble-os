@@ -7,7 +7,7 @@ use x86_64::structures::paging::PhysFrame;
 use x86_64::PhysAddr;
 
 use crate::mem::paging::entry::{EntryFlags, PageTableEntry};
-use crate::mem::paging::page_table::{PageLevel4, PageTable};
+use crate::mem::paging::page_table::{PageLevel4, PageTable, P4};
 use crate::mem::VirtualAddress;
 use crate::mem::{PageFrame, PAGE_SIZE};
 
@@ -109,7 +109,7 @@ pub struct ActivePageTable {
 impl ActivePageTable {
     unsafe fn new() -> ActivePageTable {
         ActivePageTable {
-            mapper: Mapper::new(),
+            mapper: Mapper::new(P4),
         }
     }
 

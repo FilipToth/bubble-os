@@ -4,7 +4,7 @@ use x86_64::instructions::tlb;
 use x86_64::VirtAddr;
 
 use crate::mem::paging::entry::EntryFlags;
-use crate::mem::paging::page_table::{PageLevel3, PageLevel4, PageTable, P4};
+use crate::mem::paging::page_table::{PageLevel3, PageLevel4, PageTable};
 use crate::mem::PageFrameAllocator;
 use crate::mem::{PageFrame, PAGE_SIZE};
 use crate::mem::{PhysicalAddress, VirtualAddress};
@@ -17,9 +17,9 @@ pub struct Mapper {
 }
 
 impl Mapper {
-    pub unsafe fn new() -> Mapper {
+    pub unsafe fn new(p4: *mut PageTable<PageLevel4>) -> Mapper {
         Mapper {
-            p4: Unique::new_unchecked(P4),
+            p4: Unique::new_unchecked(p4),
         }
     }
 

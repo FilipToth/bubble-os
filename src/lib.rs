@@ -127,7 +127,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
                 }
             }
 
-            let shell_elf = root.find_file_recursive("shell.elf").unwrap();
+            let shell_elf = root.find_file_recursive("sample2.elf").unwrap();
             let shell_elf_guard = shell_elf.write();
             shell_elf_guard.read().unwrap()
         })
