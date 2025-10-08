@@ -4,7 +4,7 @@ use spin::Mutex;
 use crate::{
     mem::{
         paging::{
-            clone_active_pml4, create_temp_page, entry::EntryFlags, page_mapper::Mapper, page_table::{PageLevel4, PageTable}, InactivePageTable, Page
+            clone_active_pml4, create_temp_page, entry::EntryFlags, page_mapper::Mapper, Page
         },
         Region, GLOBAL_MEMORY_CONTROLLER,
     }, print, scheduling::process::ProcessEntry

@@ -1,7 +1,7 @@
 use crate::mem::paging::PageIter;
 
 use super::{
-    paging::{entry::EntryFlags, ActivePageTable, Page},
+    paging::{entry::EntryFlags, PageTable, Page},
     stack::Stack,
     PageFrameAllocator, PAGE_SIZE,
 };
@@ -17,7 +17,7 @@ impl StackAllocator {
 
     pub fn alloc<A: PageFrameAllocator>(
         &mut self,
-        active_table: &mut ActivePageTable,
+        active_table: &mut PageTable,
         frame_allocator: &mut A,
         pages_to_alloc: usize,
         flags: EntryFlags,

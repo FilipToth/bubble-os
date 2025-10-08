@@ -1,6 +1,6 @@
 use multiboot2::BootInformation;
 
-use crate::mem::paging::{entry::EntryFlags, ActivePageTable, Page};
+use crate::mem::paging::{entry::EntryFlags, Page};
 use crate::mem::{PageFrameAllocator, SimplePageFrameAllocator};
 use crate::print;
 

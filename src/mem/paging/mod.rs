@@ -1,27 +1,10 @@
-use core::ops::{Add, Deref, DerefMut};
+use core::ops::Add;
 
-use multiboot2::BootInformation;
-use x86_64::instructions::tlb;
-use x86_64::registers::control::{self, Cr3, Cr3Flags};
-use x86_64::structures::paging::PhysFrame;
-use x86_64::PhysAddr;
-
-use crate::mem::paging::entry::{EntryFlags, PageTableEntry};
-use crate::mem::paging::page_table::{PageLevel4, PageTable, P4};
-use crate::mem::VirtualAddress;
-use crate::mem::{PageFrame, PAGE_SIZE};
+use crate::mem::{PageFrameAllocator, VirtualAddress, PAGE_SIZE};
+pub use page_table::PageTable;
 
 pub mod entry;
-pub mod page_mapper;
-pub mod page_table;
-pub mod temp_page;
-
-use self::page_mapper::Mapper;
-use self::temp_page::TempPage;
-
-use super::PageFrameAllocator;
-
-const TABLE_ENTRY_COUNT: usize = 512;
+mod page_table;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Page {
@@ -47,6 +30,7 @@ impl Page {
         self.page_number * PAGE_SIZE
     }
 
+    // TODO: This is bullshit and relies on previous recursive indexing mechanism
     fn p4_index(&self) -> usize {
         (self.page_number >> 27) & 0o777
     }
@@ -101,246 +85,11 @@ impl Iterator for PageIter {
     }
 }
 
-/// A page table that is currently loaded in the CPU
-pub struct ActivePageTable {
-    mapper: Mapper,
-}
-
-impl ActivePageTable {
-    unsafe fn new() -> ActivePageTable {
-        ActivePageTable {
-            mapper: Mapper::new(P4),
-        }
-    }
-
-    /// Calls the provided closure on the
-    /// Inactive page table. Loads the table
-    /// into the recursive map.
-    ///
-    /// ## Arguments
-    ///
-    /// - `temp_page` requires a temporary
-    /// page to store a backup to the old
-    /// mappings in order to restore them
-    /// - `table` the inactive page table
-    /// to load
-    /// - `f` the closure to call
-    pub fn with<F>(&mut self, temp_page: &mut TempPage, table: &mut InactivePageTable, f: F)
-    where
-        F: FnOnce(&mut Mapper),
-    {
-        {
-            // maybe this works, maybe it doesn't...
-            let active_table_addr = control::Cr3::read().0.start_address().as_u64() as usize;
-
-            // need this to restore active table
-            // after calling the supplied closure
-            let p4_backup = PageFrame::from_address(active_table_addr);
-            let p4_table = temp_page.map_table_frame(p4_backup.clone(), self);
-
-            // overwrite the recursive mapping
-            self.get_p4_mut()[511].set(
-                table.p4_frame.clone(),
-                EntryFlags::PRESENT | EntryFlags::WRITABLE,
-            );
-
-            tlb::flush_all();
-            f(self);
-
-            // restore mappings to the active p4 table
-            p4_table[511].set(p4_backup, EntryFlags::PRESENT | EntryFlags::WRITABLE);
-
-            tlb::flush_all();
-
-            // inner scope drops the temp page
-        }
-
-        temp_page.unmap(self);
-    }
-
-    pub fn switch(&self, new: InactivePageTable) -> InactivePageTable {
-        let addr = Cr3::read().0.start_address().as_u64() as usize;
-        let old_frame = PageFrame::from_address(addr.clone());
-        let old = InactivePageTable {
-            p4_frame: old_frame,
-        };
-
-        unsafe {
-            let new_addr = PhysAddr::new(new.p4_frame.start_address() as u64);
-            let new_frame = PhysFrame::from_start_address(new_addr)
-                .expect("Cannot create cr3 new frame swap address.");
-
-            Cr3::write(new_frame, Cr3Flags::empty());
-            tlb::flush_all();
-        }
-
-        old
-    }
-}
-
-impl Deref for ActivePageTable {
-    type Target = Mapper;
-
-    fn deref(&self) -> &Self::Target {
-        &self.mapper
-    }
-}
-
-impl DerefMut for ActivePageTable {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.mapper
-    }
-}
-
-/// A page table which isn't loaded in the CPU.
-#[derive(Clone)]
-pub struct InactivePageTable {
-    pub p4_frame: PageFrame,
-}
-
-impl InactivePageTable {
-    /// Instantiates an inactive page table
-    /// for a frame to be used for the p4.
-    /// Also nulls all entries and creates
-    /// a recursive page.
-    ///
-    /// ## Arguments
-    ///
-    /// - `frame` the frame to be used for the p4
-    pub fn new(
-        frame: PageFrame,
-        active_table: &mut ActivePageTable,
-        temp_page: &mut TempPage,
-    ) -> Self {
-        // we need to null the frame, but the frame
-        // isn't yet mapped to a virtual address,
-        // therefore we need to create a temporary
-        // mapping.
-
-        {
-            let table = temp_page.map_table_frame(frame.clone(), active_table);
-
-            table.null_all_entries();
-            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
-
-            // inner scope drops the table
-        }
-
-        temp_page.unmap(active_table);
-        InactivePageTable { p4_frame: frame }
-    }
-
-    /// Instantiates a new inactive page table.
-    ///
-    /// ## Arguments
-    ///
-    /// - `frame` the frame to be used for the p4.
-    /// Must already be mapped and will be used
-    /// directly used without any modifications.
-    pub fn from(frame: PageFrame) -> Self {
-        InactivePageTable { p4_frame: frame }
-    }
-}
-
-pub fn create_temp_page<A>(allocator: &mut A) -> TempPage
+pub fn init_new_pml4<A>(allocator: &mut A) -> PageTable
 where
-    A: PageFrameAllocator,
+    A: PageFrameAllocator
 {
-    let temporary_page_comp = Page {
-        page_number: 0xFABCDABC,
-    };
-
-    TempPage::new(temporary_page_comp, allocator).unwrap()
-}
-
-pub fn new_page_table<A>(
-    allocator: &mut A,
-    frame: PageFrame,
-    active_table: &mut ActivePageTable,
-) -> (InactivePageTable, TempPage)
-where
-    A: PageFrameAllocator,
-{
-    let temporary_page_comp = Page {
-        page_number: 0xFABCDABC,
-    };
-
-    let mut temp_page = TempPage::new(temporary_page_comp, allocator).unwrap();
-    let table = InactivePageTable::new(frame, active_table, &mut temp_page);
-
-    (table, temp_page)
-}
-
-pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation) -> ActivePageTable
-where
-    A: PageFrameAllocator,
-{
-    let new_frame = allocator.falloc().unwrap();
-    let mut active_table = unsafe { ActivePageTable::new() };
-    let (mut inactive_table, mut temp_page) =
-        new_page_table(allocator, new_frame, &mut active_table);
-
-    active_table.with(&mut temp_page, &mut inactive_table, |mapper| {
-        // remap multiboot info structure
-        let multiboot_start = PageFrame::from_address(boot_info.start_address());
-        let multiboot_end = PageFrame::from_address(boot_info.end_address() - 1);
-
-        mapper.map_range_identity(
-            multiboot_start,
-            multiboot_end,
-            EntryFlags::PRESENT,
-            allocator,
-        );
-
-        let elf_sections = boot_info.elf_sections().unwrap();
-        for section in elf_sections {
-            if !section.is_allocated() {
-                // not loaded in memory :(
-                continue;
-            }
-
-            // check page alignment
-            let aligned = (section.start_address() as usize) % PAGE_SIZE == 0;
-            assert!(aligned, "ELF Sections need to be aligned to the page size");
-
-            // need to offset the end frame by one to prevent having the end frame
-            // and the starting frame of the next elf section from being the same
-            // and the page already being used, thus failing an assert when mapping...
-
-            let flags = EntryFlags::from_elf_section_flags(&section);
-            let start_frame = PageFrame::from_address(section.start_address() as usize);
-            let end_frame = PageFrame::from_address((section.end_address() - 1) as usize);
-
-            mapper.map_range_identity(start_frame, end_frame, flags, allocator);
-        }
-    });
-
-    let _ = active_table.switch(inactive_table);
-    active_table
-}
-
-pub fn clone_active_pml4<A>(
-    active_table: &mut ActivePageTable,
-    allocator: &mut A,
-) -> InactivePageTable
-where
-    A: PageFrameAllocator,
-{
-    let frame = allocator
-        .falloc()
-        .expect("Cannot allocate page frame, not enough memory\n");
-
-    active_table.map_identity(frame.clone(), EntryFlags::WRITABLE, allocator);
-
-    let pml4 = active_table.get_p4();
-    pml4.raw_clone_pml4(frame.clone());
-
-    // switch recursive entry
-    let addr = frame.start_address();
-    let cloned_ptr = addr as *mut PageTable<PageLevel4>;
-    let cloned = unsafe { &mut *cloned_ptr };
-
-    cloned[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
-
-    InactivePageTable::from(frame)
+    let pml4_frame = allocator.falloc().unwrap();
+    let pml4 = PageTable::new(pml4_frame);
+    return pml4;
 }

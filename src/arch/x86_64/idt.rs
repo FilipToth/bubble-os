@@ -11,7 +11,7 @@ use crate::{
     },
     interrupt_trampoline,
     io::io,
-    print, syscall,
+    print,
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -85,6 +85,7 @@ extern "x86-interrupt" fn syscall_trampoline() {
 
 #[no_mangle]
 extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
+    /*
     let syscall_number: usize;
     unsafe { core::arch::asm!("", lateout("rax") syscall_number) };
 
@@ -108,6 +109,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
     if let Some(rax) = rax {
         stack.rax = rax;
     }
+    */
 }
 
 pub fn remap_pic() {

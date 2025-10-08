@@ -8,14 +8,13 @@ mod stack;
 mod stack_allocator;
 
 use multiboot2::BootInformation;
-use paging::ActivePageTable;
 use spin::Mutex;
 use stack_allocator::StackAllocator;
 
 use crate::{
     mem::{
         heap::{HEAP_SIZE, HEAP_START},
-        paging::{entry::EntryFlags, remap_kernel, Page},
+        paging::{entry::EntryFlags, init_new_pml4, Page, PageTable},
     },
     print,
 };
@@ -29,7 +28,7 @@ pub type VirtualAddress = usize;
 pub type PhysicalAddress = usize;
 
 pub struct MemoryController {
-    pub active_table: ActivePageTable,
+    pub active_table: PageTable,
     pub frame_allocator: SimplePageFrameAllocator,
     pub stack_allocator: StackAllocator,
 }
@@ -38,7 +37,7 @@ pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::ne
 
 impl MemoryController {
     fn new(
-        active_table: ActivePageTable,
+        active_table: PageTable,
         frame_allocator: SimplePageFrameAllocator,
         stack_allocator: StackAllocator,
     ) -> MemoryController {
@@ -171,6 +170,12 @@ pub fn init(boot_info: &BootInformation) {
     // panics and faults
     let _ = allocator.falloc().unwrap();
 
+    let pml4 = init_new_pml4(&mut allocator);
+
+    loop {};
+
+    /*
+
     let mut active_table = remap_kernel(&mut allocator, &boot_info);
     print!("[ OK ] RAN KERNEL REMAP\n");
 
@@ -194,4 +199,5 @@ pub fn init(boot_info: &BootInformation) {
 
     let mut guard = GLOBAL_MEMORY_CONTROLLER.lock();
     *guard = Some(controller);
+    */
 }

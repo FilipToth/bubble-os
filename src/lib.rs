@@ -20,12 +20,12 @@ extern crate lazy_static;
 
 mod ahci;
 mod arch;
-mod elf;
+// mod elf;
 mod fs;
 mod io;
 mod mem;
-mod scheduling;
-mod syscall;
+// mod scheduling;
+// mod syscall;
 mod test;
 mod utils;
 
@@ -75,6 +75,10 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     enable_write_protect_bit();
 
     mem::init(&boot_info);
+
+    loop {}
+
+    /*
 
     unsafe {
         heap::init_heap();
@@ -140,6 +144,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     scheduling::enable();
     loop {}
+    */
 }
 
 #[no_mangle]
