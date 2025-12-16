@@ -1,7 +1,9 @@
-use crate::mem::paging::PageIter;
+use crate::mem::paging::{
+    slot_allocator::PageTableSlotAllocator, temp_mapper::TempMapper, PageIter,
+};
 
 use super::{
-    paging::{entry::EntryFlags, PageTable, Page},
+    paging::{entry::EntryFlags, Page, PageTable},
     stack::Stack,
     PageFrameAllocator, PAGE_SIZE,
 };
@@ -19,6 +21,8 @@ impl StackAllocator {
         &mut self,
         active_table: &mut PageTable,
         frame_allocator: &mut A,
+        slot_alloc: &mut PageTableSlotAllocator,
+        temp_mapper: &mut TempMapper,
         pages_to_alloc: usize,
         flags: EntryFlags,
     ) -> Option<Stack> {
@@ -44,7 +48,7 @@ impl StackAllocator {
                 self.range = range;
 
                 for page in Page::range(start, end) {
-                    active_table.map(page, flags, frame_allocator);
+                    active_table.map(page, flags, frame_allocator, slot_alloc, temp_mapper);
                 }
 
                 let stack_top = end.start_address() + PAGE_SIZE;

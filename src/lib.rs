@@ -18,10 +18,10 @@ extern crate bitflags;
 #[macro_use]
 extern crate lazy_static;
 
-mod ahci;
+// mod ahci;
 mod arch;
 // mod elf;
-mod fs;
+// mod fs;
 mod io;
 mod mem;
 // mod scheduling;
@@ -29,7 +29,7 @@ mod mem;
 mod test;
 mod utils;
 
-use ahci::init_ahci;
+// use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
 use io::serial::serial_init;

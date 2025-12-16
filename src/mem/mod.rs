@@ -14,7 +14,10 @@ use stack_allocator::StackAllocator;
 use crate::{
     mem::{
         heap::{HEAP_SIZE, HEAP_START},
-        paging::{entry::EntryFlags, init_new_pml4, Page, PageTable},
+        paging::{
+            entry::EntryFlags, map_kernel, slot_allocator::PageTableSlotAllocator, switch_table,
+            temp_mapper::TempMapper, Page, PageTable,
+        },
     },
     print,
 };
@@ -27,24 +30,33 @@ pub use self::stack::Stack;
 pub type VirtualAddress = usize;
 pub type PhysicalAddress = usize;
 
+pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::new(None);
+
+pub const PAGE_TABLE_REGION_START: usize = 0x0000_6BCF_0000_0000;
+pub const TEMP_MAPPING_VIRT_ADDRESS: usize = 0x0000_6CCF_0000_0000;
+
 pub struct MemoryController {
     pub active_table: PageTable,
     pub frame_allocator: SimplePageFrameAllocator,
     pub stack_allocator: StackAllocator,
+    pub slot_allocator: PageTableSlotAllocator,
+    pub temp_mapper: TempMapper,
 }
-
-pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::new(None);
 
 impl MemoryController {
     fn new(
         active_table: PageTable,
         frame_allocator: SimplePageFrameAllocator,
         stack_allocator: StackAllocator,
+        slot_allocator: PageTableSlotAllocator,
+        temp_mapper: TempMapper,
     ) -> MemoryController {
         MemoryController {
             active_table: active_table,
             frame_allocator: frame_allocator,
             stack_allocator: stack_allocator,
+            slot_allocator: slot_allocator,
+            temp_mapper: temp_mapper,
         }
     }
 
@@ -58,6 +70,8 @@ impl MemoryController {
         self.stack_allocator.alloc(
             &mut self.active_table,
             &mut self.frame_allocator,
+            &mut self.slot_allocator,
+            &mut self.temp_mapper,
             pages_to_alloc,
             flags,
         )
@@ -83,12 +97,19 @@ impl MemoryController {
 
         let range = PageFrame::range(start, end);
         for frame in range {
-            table.map_identity(frame, flags, allocator);
+            table.map_identity(
+                frame,
+                flags,
+                allocator,
+                &mut self.slot_allocator,
+                &mut self.temp_mapper,
+            );
         }
     }
 
-    pub fn translate_to_physical(&mut self, addr: usize) -> Option<usize> {
-        self.active_table.translate_to_phys(addr)
+    pub fn translate_to_physical(&mut self, addr: usize) -> Option<PageFrame> {
+        self.active_table
+            .translate_to_phys(addr, &mut self.temp_mapper)
     }
 
     /// Maps a range of pages to unused page frames
@@ -104,7 +125,14 @@ impl MemoryController {
 
         for page in Page::range(start, end) {
             let frame = allocator.falloc().expect("Out of memory");
-            table.map_to(page, frame, flags, allocator);
+            table.map_to(
+                page,
+                frame,
+                flags,
+                allocator,
+                &mut self.slot_allocator,
+                &mut self.temp_mapper,
+            );
         }
     }
 
@@ -170,9 +198,55 @@ pub fn init(boot_info: &BootInformation) {
     // panics and faults
     let _ = allocator.falloc().unwrap();
 
-    let pml4 = init_new_pml4(&mut allocator);
+    let mut slot_allocator = PageTableSlotAllocator::new(PAGE_TABLE_REGION_START);
+    let (mut pml4, mut temp) = slot_allocator.alloc_master_table(&mut allocator);
+    map_kernel(
+        &mut allocator,
+        &mut slot_allocator,
+        &mut pml4,
+        boot_info,
+        &mut temp,
+    );
 
-    loop {};
+    // switch to new pml4
+    switch_table(&pml4);
+
+    // switch slot allocator into virtual mode
+    slot_allocator.init_done = true;
+
+    // TODO: When doing the switch, you need to switch the page table from using physical (identity)
+    // addresses to using new virtual addresses, maybe just do that here, and not in the `switch_table`
+    // function, because this should only happen on the first table init...
+    // TEMPORARY, ONLY FOR TESTING
+    pml4.addr = PAGE_TABLE_REGION_START;
+
+    let va = PAGE_TABLE_REGION_START;
+    let pa = pml4
+        .translate_to_phys(va, &mut temp)
+        .unwrap()
+        .start_address();
+    print!("va: 0x{:X}, pa: 0x{:X}\n", va, pa);
+
+    loop {}
+
+    // test new page table
+    let rando_addr = PAGE_SIZE * 0xFFABCDEF;
+    let rando_page = Page::for_address(rando_addr);
+    let flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
+    pml4.map(
+        rando_page,
+        flags,
+        &mut allocator,
+        &mut slot_allocator,
+        &mut temp,
+    );
+
+    loop {}
+
+    let ptr = (rando_addr + 0x10) as *mut usize;
+    unsafe { *ptr = 33 };
+
+    loop {}
 
     /*
 

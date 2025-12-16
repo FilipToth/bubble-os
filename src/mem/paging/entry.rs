@@ -1,3 +1,5 @@
+use core::ptr;
+
 use multiboot2::{ElfSection, ElfSectionFlags};
 
 use crate::mem::PageFrame;
@@ -71,6 +73,8 @@ impl PageTableEntry {
         // make sure we have a valid address, if not, this is an os bug
         let addr = frame.start_address();
         assert!(addr & !0x000FFFFF_FFFFF000 == 0);
-        self.entry = (addr as u64) | flags.bits();
+
+        let val = (addr as u64) | flags.bits();
+        unsafe { ptr::write_volatile(&mut self.entry, val) };
     }
 }
