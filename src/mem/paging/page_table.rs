@@ -24,7 +24,7 @@ impl PageTable {
         Self { addr: addr }
     }
 
-    /// Maps a page to its exact corresponding page frame
+        /// Maps a page to its exact corresponding page frame
     ///
     /// ## Arguments
     ///
@@ -141,7 +141,7 @@ impl PageTable {
         alloc: &mut A,
         slot_alloc: &mut PageTableSlotAllocator,
         temp_mapper: &mut TempMapper,
-    ) -> PageTable
+    ) -> PageTableMappingChain
     where
         A: PageFrameAllocator,
     {
@@ -157,9 +157,15 @@ impl PageTable {
         let mut pml1 = pml2.next_table_create(pml2_index, is_phys, alloc, slot_alloc, temp_mapper);
 
         let pml1_index = page.p1_index();
-        pml1.set(pml1_index, frame, flags);
+        pml1.set(pml1_index, frame, flags | EntryFlags::PRESENT);
 
-        return pml1;
+        let map_chain = PageTableMappingChain {
+            pml3: pml3,
+            pml2: pml2,
+            pml1: pml1
+        };
+
+        return map_chain;
     }
 
     /// Removes the page mapping, frees all frames contained
@@ -269,7 +275,7 @@ impl PageTable {
         return &pml4;
     }
 
-    fn next_table_create<A>(
+    pub fn next_table_create<A>(
         &mut self,
         index: usize,
         return_physical: bool,
@@ -295,16 +301,32 @@ impl PageTable {
             }
         } else {
             // allocate new mapped table
-            let slot = slot_alloc.alloc(pf_alloc).unwrap();
+            let slot = slot_alloc.alloc(pf_alloc, temp_mapper).unwrap();
+
+            // the following contains a call to `translate_to_phys`,
+            // which overrides the temporary mapping, thus we need
+            // to save it and restore it later, since the current
+            // table might be temp-mapped.
+            let mut temp_mapping_restore: Option<PageFrame> = None;
 
             let slot_phys = if self.is_phys_identity() {
                 // if we're still in initial identity mapping system,
                 // the slot allocator returns physical addresses
                 PageFrame::from_address(slot)
             } else {
+                // set temp_mapping_restore since `translate_to_phys`
+                // overrides the temporary mapping
+                let current_phys = temp_mapper.get_current_phys();
+                temp_mapping_restore = current_phys;
+
                 let mut pml4 = slot_alloc.get_pml4();
                 pml4.translate_to_phys(slot, temp_mapper).unwrap()
             };
+
+            if let Some(restore_phys) = temp_mapping_restore {
+                // restore temp_mapping_restore
+                temp_mapper.set(restore_phys);
+            }
 
             // set entry
             let flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
@@ -316,3 +338,9 @@ impl PageTable {
 }
 
 type PageTableEntries = [PageTableEntry; 512];
+
+pub struct PageTableMappingChain {
+    pub pml3: PageTable,
+    pub pml2: PageTable,
+    pub pml1: PageTable,
+}

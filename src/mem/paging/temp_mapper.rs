@@ -51,4 +51,14 @@ impl TempMapper {
 
         self.temp_addr
     }
+
+    pub fn get_current_phys(&self) -> Option<PageFrame> {
+        // maybe cache this?
+
+        let temp_page = Page::for_address(self.temp_addr);
+        let entry_ptr = self.temp_entry_addr as *mut PageTableEntry;
+        let entry = unsafe { &mut *entry_ptr };
+
+        entry.get_frame()
+    }
 }

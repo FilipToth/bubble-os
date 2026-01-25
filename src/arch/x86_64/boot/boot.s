@@ -102,7 +102,7 @@ set_up_page_tables:
 
 ; this is a loop
 map_p2_table:
-    ; map ecx-th P2 entry to a huge page that starts at address 2MiB*ecx
+    ; map ecx-th P2 entry to a huge page that starts at address 2MiB * ecx
     mov eax, 0x200000  ; 2MiB
     mul ecx            ; start address of ecx-th page
     or eax, 0b10000011 ; present + writable + huge

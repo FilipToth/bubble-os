@@ -200,6 +200,7 @@ pub fn init(boot_info: &BootInformation) {
 
     let mut slot_allocator = PageTableSlotAllocator::new(PAGE_TABLE_REGION_START);
     let (mut pml4, mut temp) = slot_allocator.alloc_master_table(&mut allocator);
+
     map_kernel(
         &mut allocator,
         &mut slot_allocator,
@@ -220,45 +221,63 @@ pub fn init(boot_info: &BootInformation) {
     // TEMPORARY, ONLY FOR TESTING
     pml4.addr = PAGE_TABLE_REGION_START;
 
-    let va = PAGE_TABLE_REGION_START;
-    let pa = pml4
-        .translate_to_phys(va, &mut temp)
-        .unwrap()
-        .start_address();
-    print!("va: 0x{:X}, pa: 0x{:X}\n", va, pa);
-
-    loop {}
-
-    // test new page table
-    let rando_addr = PAGE_SIZE * 0xFFABCDEF;
-    let rando_page = Page::for_address(rando_addr);
-    let flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
-    pml4.map(
-        rando_page,
-        flags,
-        &mut allocator,
-        &mut slot_allocator,
-        &mut temp,
-    );
-
-    loop {}
-
-    let ptr = (rando_addr + 0x10) as *mut usize;
-    unsafe { *ptr = 33 };
-
-    loop {}
-
     /*
+    let mut pml3 = pml4.next_table_create(64, false, &mut allocator, &mut slot_allocator, &mut temp);
+    pml3.next_table_create(64, false, &mut allocator, &mut slot_allocator, &mut temp);
 
-    let mut active_table = remap_kernel(&mut allocator, &boot_info);
-    print!("[ OK ] RAN KERNEL REMAP\n");
+    let pml3_temp = pml4.next_table_temp(64, &mut temp).unwrap();
+    pml3_temp.next_table_temp(64, &mut temp);
+
+    let page_1 = Page::for_address(HEAP_START);
+    let page_2 = Page::for_address(HEAP_START + PAGE_SIZE);
+
+    let p1_pml4 = page_1.p4_index();
+    let p2_pml4 = page_2.p4_index();
+
+    let p1_pml3 = page_1.p3_index();
+    let p2_pml3 = page_2.p3_index();
+
+    let p1_pml2 = page_1.p2_index();
+    let p2_pml2 = page_2.p2_index();
+
+    let p1_pml1 = page_1.p1_index();
+    let p2_pml1 = page_2.p1_index();
+
+    pml4.map(page_1, EntryFlags::WRITABLE, &mut allocator, &mut slot_allocator, &mut temp);
+    pml4.map(page_2, EntryFlags::WRITABLE, &mut allocator, &mut slot_allocator, &mut temp);
+    
+    loop {};
+    */
+
+    // allocate 64 heaps to test slot_allocator's extension feature
 
     // map heap pages
     let heap_start = Page::for_address(HEAP_START);
-    let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
+    let heap_end = Page::for_address(HEAP_START + (HEAP_SIZE * 64) - 1);
 
+    let mut i = 0;
     for page in Page::range(heap_start, heap_end) {
-        active_table.map(page, EntryFlags::WRITABLE, &mut allocator);
+        let p4i = page.p4_index();
+        let p3i = page.p3_index();
+        let p2i = page.p2_index();
+        let p1i = page.p1_index();
+
+        print!("Allocating heap section {}, page (0x{:X}) => ({}, {}, {}, {})\n", i, page.start_address(), p4i, p3i, p2i, p1i);
+
+        if i == 250 {
+            let pg_s = page.start_address();
+            print!("Reached 250->0x{:X}\n", pg_s);
+        }
+
+        pml4.map(
+            page,
+            EntryFlags::WRITABLE,
+            &mut allocator,
+            &mut slot_allocator,
+            &mut temp,
+        );
+
+        i += 1;
     }
 
     let stack_allocator = {
@@ -269,9 +288,8 @@ pub fn init(boot_info: &BootInformation) {
         StackAllocator::new(stack_range)
     };
 
-    let controller = MemoryController::new(active_table, allocator, stack_allocator);
+    let controller = MemoryController::new(pml4, allocator, stack_allocator, slot_allocator, temp);
 
     let mut guard = GLOBAL_MEMORY_CONTROLLER.lock();
     *guard = Some(controller);
-    */
 }
