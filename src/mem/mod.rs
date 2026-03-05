@@ -86,10 +86,11 @@ impl MemoryController {
     /// - `flags` the page table entry flags to be applied
     pub fn identity_map(&mut self, start: PageFrame, end: PageFrame, flags: EntryFlags) {
         let allocator = &mut self.frame_allocator;
+        let temp_mapper = &mut self.temp_mapper;
         let table = &mut self.active_table;
 
         let page = Page::for_address(start.start_address());
-        let unused = table.is_unused(page, allocator);
+        let unused = table.is_unused(page, temp_mapper);
         if !unused {
             // already mapped
             return;
@@ -143,11 +144,11 @@ impl MemoryController {
     /// - `start` the start page
     /// - `end` the end page
     pub fn unmap(&mut self, start: Page, end: Page) {
-        let allocator = &mut self.frame_allocator;
+        let temp_mapper = &mut self.temp_mapper;
         let table = &mut self.active_table;
 
         for page in Page::range(start, end) {
-            table.unmap(page, allocator);
+            table.unmap(page, temp_mapper);
         }
     }
 }
@@ -253,22 +254,10 @@ pub fn init(boot_info: &BootInformation) {
 
     // map heap pages
     let heap_start = Page::for_address(HEAP_START);
-    let heap_end = Page::for_address(HEAP_START + (HEAP_SIZE * 64) - 1);
+    let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
 
     let mut i = 0;
     for page in Page::range(heap_start, heap_end) {
-        let p4i = page.p4_index();
-        let p3i = page.p3_index();
-        let p2i = page.p2_index();
-        let p1i = page.p1_index();
-
-        print!("Allocating heap section {}, page (0x{:X}) => ({}, {}, {}, {})\n", i, page.start_address(), p4i, p3i, p2i, p1i);
-
-        if i == 250 {
-            let pg_s = page.start_address();
-            print!("Reached 250->0x{:X}\n", pg_s);
-        }
-
         pml4.map(
             page,
             EntryFlags::WRITABLE,

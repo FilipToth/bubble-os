@@ -28,6 +28,8 @@ pub struct AcpiSDTHeader {
     pub creator_revision: u32,
 }
 
+
+
 pub fn init_acpi(boot_info: &BootInformation) -> PciDevices {
     let Some(rsdp) = boot_info.rsdp_v1_tag() else {
         print!("[ ERR ] Cannot find RSDP v1\n");

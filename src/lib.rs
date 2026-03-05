@@ -18,10 +18,10 @@ extern crate bitflags;
 #[macro_use]
 extern crate lazy_static;
 
-// mod ahci;
+mod ahci;
 mod arch;
 // mod elf;
-// mod fs;
+mod fs;
 mod io;
 mod mem;
 // mod scheduling;
@@ -29,8 +29,10 @@ mod mem;
 mod test;
 mod utils;
 
-// use ahci::init_ahci;
+use ahci::init_ahci;
+use alloc::alloc::alloc;
 use arch::x86_64::acpi::pci::PciDeviceClass;
+use core::alloc::Layout;
 use core::panic::PanicInfo;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
@@ -76,10 +78,6 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     mem::init(&boot_info);
 
-    loop {}
-
-    /*
-
     unsafe {
         heap::init_heap();
     }
@@ -117,7 +115,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             let root_entries = root.list_dir();
             for entry in root_entries.1 {
                 let name = entry.read().name();
-                print!("[ OK ] Root dir entry: {}, dir: false\n", name,);
+                print!("[ OK ] Root dir entry: {}, dir: false\n", name);
             }
 
             for entry in root_entries.0 {
@@ -139,12 +137,14 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Read Shell ELF binary\n");
 
+    /*
     let shell_entry = elf::load(shell_binary).unwrap();
     scheduling::deploy(shell_entry, false);
 
     scheduling::enable();
-    loop {}
     */
+
+    loop {};
 }
 
 #[no_mangle]

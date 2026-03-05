@@ -171,10 +171,13 @@ impl AHCIPort {
         let controller = controller.as_mut().unwrap();
 
         let buffer_addr = buffer as usize;
-        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
+        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
+
+        let buffer_offset = buffer_addr & 0xFFF;
+        let buffer_phys = buffer_frame.start_address() + buffer_offset;
 
         let command = AHCICommand {
-            buffer_addr: buffer_addr,
+            buffer_addr: buffer_phys,
             data_byte_count: 512,
             cmd: ATA_CMD_IDENTIFY,
             control: 0,
@@ -192,8 +195,6 @@ impl AHCIPort {
         let buffer = buffer.map(u16::to_be_bytes).concat();
 
         let block_count = u32::from_be_bytes(buffer[120..124].try_into().unwrap()).rotate_left(16);
-        print!("[ AHCI ] Block count: 0x{:x}\n", block_count);
-
         self.block_count = block_count;
 
         // success
@@ -205,10 +206,13 @@ impl AHCIPort {
         let controller = controller.as_mut().unwrap();
 
         let buffer_addr = buffer as usize;
-        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
+        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
+
+        let buffer_offset = buffer_addr & 0xFFF;
+        let buffer_phys = buffer_frame.start_address() + buffer_offset;
 
         let command = AHCICommand {
-            buffer_addr: buffer_addr,
+            buffer_addr: buffer_phys,
             data_byte_count: (sector_count << 9) as u32,
             cmd: ATA_CMD_READ_DMA_EX,
             control: 1,
@@ -237,10 +241,13 @@ impl AHCIPort {
         let controller = controller.as_mut().unwrap();
 
         let buffer_addr = buffer as usize;
-        let buffer_addr = controller.translate_to_physical(buffer_addr).unwrap();
+        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
+
+        let buffer_offset = buffer_addr& 0xFFF;
+        let buffer_phys = buffer_frame.start_address() + buffer_offset;
 
         let command = AHCICommand {
-            buffer_addr: buffer_addr,
+            buffer_addr: buffer_phys,
             data_byte_count: 512,
             cmd: ATA_CMD_WRITE_DMA_EX,
             control: 1,

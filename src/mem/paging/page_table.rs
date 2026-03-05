@@ -24,7 +24,7 @@ impl PageTable {
         Self { addr: addr }
     }
 
-        /// Maps a page to its exact corresponding page frame
+    /// Maps a page to its exact corresponding page frame
     ///
     /// ## Arguments
     ///
@@ -159,13 +159,11 @@ impl PageTable {
         let pml1_index = page.p1_index();
         pml1.set(pml1_index, frame, flags | EntryFlags::PRESENT);
 
-        let map_chain = PageTableMappingChain {
+        PageTableMappingChain {
             pml3: pml3,
             pml2: pml2,
             pml1: pml1
-        };
-
-        return map_chain;
+        }
     }
 
     /// Removes the page mapping, frees all frames contained
@@ -174,13 +172,23 @@ impl PageTable {
     /// ## Arguments
     ///
     /// - `page` the page to be unmapped
-    /// - `allocator` the page frame allocator to perform
-    /// the freeing of the page frames
-    pub fn unmap<A>(&mut self, page: Page, alloc: &mut A)
-    where
-        A: PageFrameAllocator,
-    {
-        unreachable!()
+    /// - `temp_mapper` a reference to the 
+    /// global temporary page mapping manager
+    pub fn unmap(&mut self, page: Page, temp_mapper: &mut TempMapper) -> Option<()> {
+        let p4_index = page.p4_index();
+        let pml3 = self.next_table_temp(p4_index, temp_mapper)?;
+
+        let p3_index = page.p3_index();
+        let pml2 = pml3.next_table_temp(p3_index, temp_mapper)?;
+
+        let p2_index = page.p2_index();
+        let mut pml1 = pml2.next_table_temp(p2_index, temp_mapper)?;
+
+        let p1_index = page.p1_index();
+        let entry = &mut pml1.entries_mut()[p1_index];
+        entry.set_to_unused();
+
+        Some(())
     }
 
     /// Checks whether a page has already been mapped.
@@ -188,13 +196,20 @@ impl PageTable {
     /// ## Arguments
     ///
     /// - `page` the page to be checked
-    /// - `allocator` the page frame allocator used to
-    /// get the page indices
-    pub fn is_unused<A>(&mut self, page: Page, alloc: &mut A) -> bool
-    where
-        A: PageFrameAllocator,
-    {
-        unreachable!()
+    /// - `temp_mapper` a reference to the
+    /// global temporary page mapping manager
+    pub fn is_unused(&mut self, page: Page, temp_mapper: &mut TempMapper) -> bool {
+        let is_mapped = (|| -> Option<()> {
+            let pml3 = self.next_table_temp(page.p4_index(), temp_mapper)?;
+            let pml2 = pml3.next_table_temp(page.p3_index(), temp_mapper)?;
+            let pml1 = pml2.next_table_temp(page.p2_index(), temp_mapper)?;
+
+            let entry = &pml1.entries()[page.p1_index()];
+            (!entry.is_unused()).then_some(())
+        })()
+        .is_some();
+
+        !is_mapped
     }
 
     /// Translates a virtual address to a physical one.
@@ -203,6 +218,8 @@ impl PageTable {
     ///
     /// - `addr` the virtual address to be mapped,
     /// assuming it's aligned to 0x1000
+    /// - `temp_mapper` a reference to the global
+    /// temporary page mapping manager
     pub fn translate_to_phys(
         &mut self,
         addr: usize,
