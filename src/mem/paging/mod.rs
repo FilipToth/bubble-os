@@ -2,11 +2,12 @@ use core::ops::Add;
 
 use crate::mem::{
     paging::{entry::EntryFlags, slot_allocator::PageTableSlotAllocator, temp_mapper::TempMapper},
-    PageFrame, PageFrameAllocator, VirtualAddress, PAGE_SIZE,
+    PageFrame, PageFrameAllocator, VirtualAddress, PAGE_SIZE, PAGE_TABLE_REGION_START,
 };
 use multiboot2::BootInformation;
 pub use page_table::PageTable;
 use x86_64::{
+    instructions::tlb,
     registers::control::{Cr3, Cr3Flags},
     structures::paging::PhysFrame,
     PhysAddr,
@@ -95,14 +96,30 @@ impl Iterator for PageIter {
     }
 }
 
-pub fn switch_table(new_table: &PageTable) {
-    // TODO: Handle when addr is a virtual address, Cr3 expects physical addresses
+pub fn switch_table(new_table: &PageTable, active_table: &mut PageTable, temp_mapper: &mut TempMapper) -> bool {
     let addr = new_table.addr;
-    let phys_addr = PhysAddr::new(addr as u64);
+    if addr < PAGE_TABLE_REGION_START {
+        // may be physical address or invalid page table
+        return false;
+    }
+
+    let Some(phys_frame) = active_table.translate_to_phys(addr, temp_mapper) else {
+        return false;
+    };
+
+    let phys_addr = phys_frame.start_address() as u64;
+    let phys_addr = PhysAddr::new(phys_addr);
     let phys_frame = PhysFrame::from_start_address(phys_addr)
         .expect("Cannot create cr3 new frame swap address.");
 
     unsafe { Cr3::write(phys_frame, Cr3Flags::empty()) };
+
+    // TODO: In the future, think about how to optimize the TLB here, maybe
+    // we don't have to flush the entire thing, just the user-sections,
+    // assuming this is switching between kernel->user tables
+    tlb::flush_all();
+
+    true
 }
 
 pub fn map_kernel<A>(

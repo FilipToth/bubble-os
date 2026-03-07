@@ -243,7 +243,7 @@ impl AHCIPort {
         let buffer_addr = buffer as usize;
         let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
 
-        let buffer_offset = buffer_addr& 0xFFF;
+        let buffer_offset = buffer_addr & 0xFFF;
         let buffer_phys = buffer_frame.start_address() + buffer_offset;
 
         let command = AHCICommand {

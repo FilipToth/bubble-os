@@ -1,18 +1,11 @@
-use core::ops::IndexMut;
-
-use x86_64::structures::paging::frame;
-
-use crate::{
-    mem::{
-        paging::{
-            entry::{EntryFlags, PageTableEntry},
-            slot_allocator::PageTableSlotAllocator,
-            temp_mapper::TempMapper,
-            Page,
-        },
-        PageFrame, PageFrameAllocator, PAGE_TABLE_REGION_START,
+use crate::mem::{
+    paging::{
+        entry::{EntryFlags, PageTableEntry},
+        slot_allocator::PageTableSlotAllocator,
+        temp_mapper::TempMapper,
+        Page,
     },
-    print,
+    PageFrame, PageFrameAllocator, PAGE_TABLE_REGION_START,
 };
 
 pub struct PageTable {
@@ -162,7 +155,7 @@ impl PageTable {
         PageTableMappingChain {
             pml3: pml3,
             pml2: pml2,
-            pml1: pml1
+            pml1: pml1,
         }
     }
 
@@ -172,7 +165,7 @@ impl PageTable {
     /// ## Arguments
     ///
     /// - `page` the page to be unmapped
-    /// - `temp_mapper` a reference to the 
+    /// - `temp_mapper` a reference to the
     /// global temporary page mapping manager
     pub fn unmap(&mut self, page: Page, temp_mapper: &mut TempMapper) -> Option<()> {
         let p4_index = page.p4_index();
@@ -263,7 +256,7 @@ impl PageTable {
     }
 
     pub fn set(&mut self, index: usize, frame: PageFrame, flags: EntryFlags) {
-        let mut entries = self.entries_mut();
+        let entries = self.entries_mut();
         let entry = &mut entries[index];
         entry.set(frame, flags);
     }

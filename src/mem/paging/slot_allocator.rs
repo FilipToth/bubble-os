@@ -150,15 +150,17 @@ impl PageTableSlotAllocator {
 
     fn extend_region<A>(&mut self, pf_alloc: &mut A, temp_mapper: &mut TempMapper)
     where
-        A: PageFrameAllocator
+        A: PageFrameAllocator,
     {
         let pml1_base = PAGE_TABLE_REGION_START + (PAGE_SIZE * 512 * self.pml1_count);
 
         // soft clone the active PML4
         let mut pml4 = PageTable::new(PAGE_TABLE_REGION_START);
-        
+
         let start = Page::for_address(pml1_base);
-        let end = Page { page_number: start.page_number + 512 };
+        let end = Page {
+            page_number: start.page_number + 512,
+        };
 
         for page in Page::range(start, end) {
             let p4i = page.p4_index();
@@ -166,7 +168,14 @@ impl PageTableSlotAllocator {
             let p2i = page.p2_index();
             let p1i = page.p1_index();
 
-            print!("Extending PT region with page (0x{:X}) => ({}, {}, {}, {})\n", page.start_address(), p4i, p3i, p2i, p1i);
+            print!(
+                "Extending PT region with page (0x{:X}) => ({}, {}, {}, {})\n",
+                page.start_address(),
+                p4i,
+                p3i,
+                p2i,
+                p1i
+            );
 
             // this should only make one extra alloc call for the new PML1 slot
             let flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;

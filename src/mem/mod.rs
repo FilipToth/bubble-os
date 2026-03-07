@@ -10,6 +10,11 @@ mod stack_allocator;
 use multiboot2::BootInformation;
 use spin::Mutex;
 use stack_allocator::StackAllocator;
+use x86_64::{
+    registers::control::{Cr3, Cr3Flags},
+    structures::paging::PhysFrame,
+    PhysAddr,
+};
 
 use crate::{
     mem::{
@@ -33,7 +38,6 @@ pub type PhysicalAddress = usize;
 pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::new(None);
 
 pub const PAGE_TABLE_REGION_START: usize = 0x0000_6BCF_0000_0000;
-pub const TEMP_MAPPING_VIRT_ADDRESS: usize = 0x0000_6CCF_0000_0000;
 
 pub struct MemoryController {
     pub active_table: PageTable,
@@ -151,6 +155,21 @@ impl MemoryController {
             table.unmap(page, temp_mapper);
         }
     }
+
+    /// Clones the current active table keeping all
+    /// active table mappings active in the sub-table.
+    pub fn clone_active_table(&mut self) -> Option<PageTable> {
+        let slot = self
+            .slot_allocator
+            .alloc(&mut self.frame_allocator, &mut self.temp_mapper)?;
+
+        let active_ptr = self.active_table.addr as *mut [u8; PAGE_SIZE];
+        let new_ptr = slot as *mut [u8; PAGE_SIZE];
+        unsafe { active_ptr.copy_to_nonoverlapping(new_ptr, 1) };
+
+        let new_table = PageTable::new(slot);
+        Some(new_table)
+    }
 }
 
 pub fn init(boot_info: &BootInformation) {
@@ -211,52 +230,23 @@ pub fn init(boot_info: &BootInformation) {
     );
 
     // switch to new pml4
-    switch_table(&pml4);
+    let phys_addr = PhysAddr::new(pml4.addr as u64);
+    let phys_frame = PhysFrame::from_start_address(phys_addr)
+        .expect("Cannot create cr3 new frame swap address.");
+
+    unsafe { Cr3::write(phys_frame, Cr3Flags::empty()) };
 
     // switch slot allocator into virtual mode
     slot_allocator.init_done = true;
 
-    // TODO: When doing the switch, you need to switch the page table from using physical (identity)
-    // addresses to using new virtual addresses, maybe just do that here, and not in the `switch_table`
-    // function, because this should only happen on the first table init...
-    // TEMPORARY, ONLY FOR TESTING
+    // reuse the table struct, just set the address
+    // where it's mapped virtually
     pml4.addr = PAGE_TABLE_REGION_START;
-
-    /*
-    let mut pml3 = pml4.next_table_create(64, false, &mut allocator, &mut slot_allocator, &mut temp);
-    pml3.next_table_create(64, false, &mut allocator, &mut slot_allocator, &mut temp);
-
-    let pml3_temp = pml4.next_table_temp(64, &mut temp).unwrap();
-    pml3_temp.next_table_temp(64, &mut temp);
-
-    let page_1 = Page::for_address(HEAP_START);
-    let page_2 = Page::for_address(HEAP_START + PAGE_SIZE);
-
-    let p1_pml4 = page_1.p4_index();
-    let p2_pml4 = page_2.p4_index();
-
-    let p1_pml3 = page_1.p3_index();
-    let p2_pml3 = page_2.p3_index();
-
-    let p1_pml2 = page_1.p2_index();
-    let p2_pml2 = page_2.p2_index();
-
-    let p1_pml1 = page_1.p1_index();
-    let p2_pml1 = page_2.p1_index();
-
-    pml4.map(page_1, EntryFlags::WRITABLE, &mut allocator, &mut slot_allocator, &mut temp);
-    pml4.map(page_2, EntryFlags::WRITABLE, &mut allocator, &mut slot_allocator, &mut temp);
-    
-    loop {};
-    */
-
-    // allocate 64 heaps to test slot_allocator's extension feature
 
     // map heap pages
     let heap_start = Page::for_address(HEAP_START);
     let heap_end = Page::for_address(HEAP_START + HEAP_SIZE - 1);
 
-    let mut i = 0;
     for page in Page::range(heap_start, heap_end) {
         pml4.map(
             page,
@@ -265,8 +255,6 @@ pub fn init(boot_info: &BootInformation) {
             &mut slot_allocator,
             &mut temp,
         );
-
-        i += 1;
     }
 
     let stack_allocator = {

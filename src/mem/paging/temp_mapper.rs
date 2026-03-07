@@ -1,10 +1,7 @@
 use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
 use crate::mem::{
-    paging::{
-        entry::{EntryFlags, PageTableEntry},
-        Page, PageTable,
-    },
+    paging::entry::{EntryFlags, PageTableEntry},
     PageFrame, PAGE_SIZE,
 };
 
@@ -40,7 +37,6 @@ impl TempMapper {
     }
 
     pub fn set(&mut self, phys: PageFrame) -> usize {
-        let temp_page = Page::for_address(self.temp_addr);
         let entry_ptr = self.temp_entry_addr as *mut PageTableEntry;
         let entry = unsafe { &mut *entry_ptr };
 
@@ -53,9 +49,8 @@ impl TempMapper {
     }
 
     pub fn get_current_phys(&self) -> Option<PageFrame> {
-        // maybe cache this?
+        // TODO: maybe cache this?
 
-        let temp_page = Page::for_address(self.temp_addr);
         let entry_ptr = self.temp_entry_addr as *mut PageTableEntry;
         let entry = unsafe { &mut *entry_ptr };
 
