@@ -19,7 +19,7 @@ impl StackAllocator {
 
     pub fn alloc<A: PageFrameAllocator>(
         &mut self,
-        active_table: &mut PageTable,
+        table: &mut PageTable,
         frame_allocator: &mut A,
         slot_alloc: &mut PageTableSlotAllocator,
         temp_mapper: &mut TempMapper,
@@ -48,7 +48,7 @@ impl StackAllocator {
                 self.range = range;
 
                 for page in Page::range(start, end) {
-                    active_table.map(page, flags, frame_allocator, slot_alloc, temp_mapper);
+                    table.map(page, flags, frame_allocator, slot_alloc, temp_mapper);
                 }
 
                 let stack_top = end.start_address() + PAGE_SIZE;

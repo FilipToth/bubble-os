@@ -5,7 +5,11 @@ use process::{Process, ProcessEntry};
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame}, elf, fs::fs::Directory, mem::{paging::InactivePageTable, GLOBAL_MEMORY_CONTROLLER}, print, with_root_dir
+    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
+    elf,
+    fs::fs::Directory,
+    mem::{GLOBAL_MEMORY_CONTROLLER, paging::switch_table},
+    print, with_root_dir,
 };
 
 pub mod process;
@@ -14,14 +18,11 @@ pub static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-pub static KERNEL_PAGE_TABLE: Mutex<Option<InactivePageTable>> = Mutex::new(None);
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
 
     core::arch::asm!(
-        "cli",
-
         "push {ss}",
         "push {rsp}",
         "push {rflags}",
@@ -150,10 +151,7 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         let mc = mc.as_mut().unwrap();
 
         let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
-        let kernel_table = mc.active_table.switch(ring3_page_table);
-
-        let mut global_kernel_table = KERNEL_PAGE_TABLE.lock();
-        *global_kernel_table = Some(kernel_table);
+        switch_table(&ring3_page_table, &mut mc.active_table, &mut mc.temp_mapper)
 
         // drop memory controller ref
         // and kernel page table ref
@@ -184,6 +182,7 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     process.context.cs = cs as usize;
     process.context.ss = ss as usize;
     process.context.rflags = 0x202;
+    process.context.rsp = process.stack.top;
 
     processes.push(process);
     pid
@@ -253,13 +252,6 @@ pub fn get_current_cwd() -> Arc<dyn Directory> {
     } else {
         let current_process = &mut processes[current_index];
         let cwd = &current_process.curr_working_dir;
-
-        print!(
-            "Loading cwd {}, for index: {}, pid: {}\n",
-            cwd.name(),
-            current_index,
-            current_process.pid
-        );
 
         cwd.clone()
     }

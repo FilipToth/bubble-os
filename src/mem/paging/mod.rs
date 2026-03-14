@@ -96,7 +96,11 @@ impl Iterator for PageIter {
     }
 }
 
-pub fn switch_table(new_table: &PageTable, active_table: &mut PageTable, temp_mapper: &mut TempMapper) -> bool {
+pub fn switch_table(
+    new_table: &PageTable,
+    active_table: &mut PageTable,
+    temp_mapper: &mut TempMapper,
+) -> bool {
     let addr = new_table.addr;
     if addr < PAGE_TABLE_REGION_START {
         // may be physical address or invalid page table

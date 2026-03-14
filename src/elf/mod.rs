@@ -3,11 +3,9 @@ use spin::Mutex;
 
 use crate::{
     mem::{
-        paging::{
-            clone_active_pml4, create_temp_page, entry::EntryFlags, page_mapper::Mapper, Page
-        },
-        Region, GLOBAL_MEMORY_CONTROLLER,
-    }, print, scheduling::process::ProcessEntry
+        GLOBAL_MEMORY_CONTROLLER, Region, paging::{Page, entry::EntryFlags, switch_table}
+    },
+    scheduling::process::ProcessEntry,
 };
 
 mod loader;
@@ -87,16 +85,8 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
-    let mut ring3_table = clone_active_pml4(&mut mc.active_table, &mut mc.frame_allocator);
-    let active_table_addr = mc.active_table.get_p4() as *const _ as usize;
-    let ring3_table_addr = ring3_table.p4_frame.start_address();
-
-    let mut mapper = unsafe { Mapper::new(ring3_table_addr as *mut PageTable<PageLevel4>) };
-    let kernel_table = mc.active_table.switch(ring3_table);
-
-    // map pages
-    let mapper_addr = mc.active_table.get_p4() as *const _ as usize;
-    print!("active: 0x{:X}, mapper: 0x{:X}, ring3: 0x{:X}\n", active_table_addr, mapper_addr, ring3_table_addr);
+    let mut ring3_table = mc.clone_active_table()?;
+    switch_table(&ring3_table, &mut mc.active_table, &mut mc.temp_mapper);
 
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
@@ -109,7 +99,14 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         let end_page = Page::for_address(addr + size);
 
         let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
-        mapper.map_range(start_page, end_page, flags, &mut mc.frame_allocator);
+        ring3_table.map_range(
+            start_page,
+            end_page,
+            flags,
+            &mut mc.frame_allocator,
+            &mut mc.slot_allocator,
+            &mut mc.temp_mapper,
+        );
     }
 
     // load elf regions
@@ -119,7 +116,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
         // load entry into memory
         let ph_file_src = region.origin_buffer.addr as *mut u8;
-        let destination_ptr = region.region.addr as *mut u8;    
+        let destination_ptr = region.region.addr as *mut u8;
 
         let ph_file_size = region.origin_buffer.size;
         let size = region.region.size;
@@ -139,14 +136,17 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
     // allocate stack
     let stack = mc.stack_allocator.alloc(
-        &mut mc.active_table,
+        &mut ring3_table,
         &mut mc.frame_allocator,
+        &mut mc.slot_allocator,
+        &mut mc.temp_mapper,
         10,
         EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
     )?;
 
-    // restore to the kernel page table
-    let ring3_table = mc.active_table.switch(kernel_table);
+    // Switch back to root table
+    switch_table(&mut mc.active_table, &mut ring3_table, &mut mc.temp_mapper);
+
     entry.ring3_page_table = Some(ring3_table);
     entry.stack = Some(stack);
 

@@ -8,6 +8,7 @@ use crate::mem::{
     PageFrame, PageFrameAllocator, PAGE_TABLE_REGION_START,
 };
 
+#[derive(Clone)]
 pub struct PageTable {
     pub addr: usize,
 }
@@ -139,21 +140,26 @@ impl PageTable {
         A: PageFrameAllocator,
     {
         let is_phys = self.is_phys_identity();
+        
+        let mut table_flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
+        if flags.contains(EntryFlags::RING3_ACCESSIBLE) {
+            table_flags |= EntryFlags::RING3_ACCESSIBLE;
+        }
 
         let pml4_index = page.p4_index();
-        let mut pml3 = self.next_table_create(pml4_index, is_phys, alloc, slot_alloc, temp_mapper);
+        let mut pml3 = self.next_table_create(pml4_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
 
         let pml3_index = page.p3_index();
-        let mut pml2 = pml3.next_table_create(pml3_index, is_phys, alloc, slot_alloc, temp_mapper);
+        let mut pml2 = pml3.next_table_create(pml3_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
 
         let pml2_index = page.p2_index();
-        let mut pml1 = pml2.next_table_create(pml2_index, is_phys, alloc, slot_alloc, temp_mapper);
+        let mut pml1 = pml2.next_table_create(pml2_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
 
         let pml1_index = page.p1_index();
         pml1.set(pml1_index, frame, flags | EntryFlags::PRESENT);
 
         PageTableMappingChain {
-            pml3: pml3,
+            _pml3: pml3,
             pml2: pml2,
             pml1: pml1,
         }
@@ -285,13 +291,14 @@ impl PageTable {
         return &pml4;
     }
 
-    pub fn next_table_create<A>(
+    fn next_table_create<A>(
         &mut self,
         index: usize,
         return_physical: bool,
         pf_alloc: &mut A,
         slot_alloc: &mut PageTableSlotAllocator,
         temp_mapper: &mut TempMapper,
+        flags: EntryFlags
     ) -> PageTable
     where
         A: PageFrameAllocator,
@@ -339,7 +346,6 @@ impl PageTable {
             }
 
             // set entry
-            let flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
             entry.set(slot_phys, flags);
 
             PageTable::new(slot)
@@ -350,7 +356,7 @@ impl PageTable {
 type PageTableEntries = [PageTableEntry; 512];
 
 pub struct PageTableMappingChain {
-    pub pml3: PageTable,
+    pub _pml3: PageTable,
     pub pml2: PageTable,
     pub pml1: PageTable,
 }

@@ -1,9 +1,8 @@
 use core::sync::atomic::Ordering;
 
-use alloc::format;
 use x86_64::instructions::interrupts;
 
-use crate::{arch, interrupt_trampoline, io::serial, print};
+use crate::{arch, interrupt_trampoline, io::serial, scheduling::{self, SCHEDULING_ENABLED}};
 
 use super::registers::FullInterruptStackFrame;
 
@@ -15,20 +14,17 @@ pub extern "x86-interrupt" fn timer_trampoline() {
 #[no_mangle]
 pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
     interrupts::disable();
-    interrupts::enable();
-}
 
-/*
-let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
-arch::x86_64::pit::end_of_interrupt(0);
+    let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
+    arch::x86_64::pit::end_of_interrupt(0);
 
-let stack = unsafe { &mut *stack };
-if sched_enabled {
-    if serial::serial_received() {
-        let input = serial::read_serial();
-        scheduling::process_input(input);
+    if sched_enabled {
+        if serial::serial_received() {
+            let input = serial::read_serial();
+            scheduling::process_input(input);
+        }
+
+        let stack = unsafe { &mut *stack };
+        scheduling::schedule(Some(&stack));
     }
-
-    scheduling::schedule(Some(&stack));
 }
-*/

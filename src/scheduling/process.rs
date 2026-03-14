@@ -5,7 +5,7 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     elf::ElfRegion,
     fs::fs::Directory,
-    mem::{paging::InactivePageTable, Stack},
+    mem::{Stack, paging::PageTable},
 };
 
 #[derive(Clone)]
@@ -18,7 +18,7 @@ pub struct Process {
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
     pub stack: Stack,
-    pub ring3_page_table: Option<InactivePageTable>
+    pub ring3_page_table: Option<PageTable>,
 }
 
 impl Process {
@@ -35,7 +35,7 @@ impl Process {
             start_region: entry.start_region,
             curr_working_dir: cwd,
             stack: entry.stack.unwrap(),
-            ring3_page_table: entry.ring3_page_table
+            ring3_page_table: entry.ring3_page_table,
         }
     }
 }
@@ -43,6 +43,6 @@ impl Process {
 pub struct ProcessEntry {
     pub entry: usize,
     pub start_region: Arc<Mutex<ElfRegion>>,
-    pub ring3_page_table: Option<InactivePageTable>,
+    pub ring3_page_table: Option<PageTable>,
     pub stack: Option<Stack>,
 }

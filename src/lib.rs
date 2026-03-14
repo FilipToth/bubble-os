@@ -20,17 +20,18 @@ extern crate lazy_static;
 
 mod ahci;
 mod arch;
-// mod elf;
+mod elf;
 mod fs;
 mod io;
 mod mem;
-// mod scheduling;
-// mod syscall;
+mod scheduling;
+mod syscall;
 mod test;
 mod utils;
 
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
+use x86_64::instructions::interrupts;
 use core::panic::PanicInfo;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
@@ -38,9 +39,7 @@ use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
-use crate::mem::paging::entry::EntryFlags;
-use crate::mem::paging::{Page, switch_table};
-use crate::mem::{heap, GLOBAL_MEMORY_CONTROLLER};
+use crate::mem::heap;
 use crate::utils::safe;
 
 #[global_allocator]
@@ -137,41 +136,12 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     print!("[ OK ] Read Shell ELF binary\n");
 
-    // test table switching functionality
-    {
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let mut new_table_1 = controller.clone_active_table().unwrap();
-        let mut new_table_2 = controller.clone_active_table().unwrap();
-
-        let addr: usize = 0x0000700040000000;
-        let ptr = addr as *mut usize;
-        let page = Page::for_address(addr);
-        
-        switch_table(&new_table_1, &mut controller.active_table, &mut controller.temp_mapper);
-        new_table_1.map(page, EntryFlags::WRITABLE, &mut controller.frame_allocator, &mut controller.slot_allocator, &mut controller.temp_mapper);
-        unsafe { ptr.write(0xABC) };
-
-        switch_table(&new_table_2, &mut controller.active_table, &mut controller.temp_mapper);
-        new_table_2.map(page, EntryFlags::WRITABLE, &mut controller.frame_allocator, &mut controller.slot_allocator, &mut controller.temp_mapper);
-        unsafe { ptr.write(0xDEAD) };
-
-        switch_table(&new_table_1, &mut controller.active_table, &mut controller.temp_mapper);
-        let val = unsafe { *ptr };
-        print!("Table 1 val: 0x{:X}\n", val);
-
-        switch_table(&new_table_2, &mut controller.active_table, &mut controller.temp_mapper);
-        let val = unsafe { *ptr };
-        print!("Table 2 val: 0x{:X}\n", val);
-    }
-
-    /*
     let shell_entry = elf::load(shell_binary).unwrap();
+
+    interrupts::enable();
     scheduling::deploy(shell_entry, false);
 
     scheduling::enable();
-    */
 
     loop {}
 }
