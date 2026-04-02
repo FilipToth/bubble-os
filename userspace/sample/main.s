@@ -24,7 +24,7 @@ _start:
     jmp exit
 
 success:
-    ; not in ring 3
+    ; in ring 3
     mov rax, 0x02
     mov rdi, 0x01
     mov rsi, success_msg

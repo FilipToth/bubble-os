@@ -3,6 +3,8 @@ macro_rules! interrupt_trampoline {
     ($isr:path) => {
         unsafe {
             core::arch::naked_asm!(
+                "cli",
+
                 "push rax",
                 "push rbx",
                 "push rcx",
@@ -21,6 +23,8 @@ macro_rules! interrupt_trampoline {
 
                 "mov rdi, rsp",
                 "call {isr}",
+
+                "sti",
 
                 "pop r8",
                 "pop r9",

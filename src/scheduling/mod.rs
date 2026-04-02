@@ -8,7 +8,7 @@ use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
     fs::fs::Directory,
-    mem::{GLOBAL_MEMORY_CONTROLLER, paging::switch_table},
+    mem::{GLOBAL_MEMORY_CONTROLLER},
     print, with_root_dir,
 };
 
@@ -151,12 +151,13 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         let mc = mc.as_mut().unwrap();
 
         let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
-        switch_table(&ring3_page_table, &mut mc.active_table, &mut mc.temp_mapper)
+        mc.switch_table(&ring3_page_table);
 
         // drop memory controller ref
         // and kernel page table ref
     };
 
+    print!("Jumping to pid: {}\n", process_to_jump.pid);
     unsafe { jump(&process_to_jump.context) };
 }
 
@@ -277,6 +278,6 @@ pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
 }
 
 pub fn enable() {
-    print!("[ SCHED ] Enabled Scheduling!\n");
+    print!("[ SCHED ] Enabled Scheduling!\n\n");
     SCHEDULING_ENABLED.store(true, Ordering::SeqCst);
 }

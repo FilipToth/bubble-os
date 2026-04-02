@@ -1,11 +1,11 @@
 use alloc::sync::Arc;
 use spin::Mutex;
+use x86_64::structures::paging::page;
 
 use crate::{
     mem::{
-        GLOBAL_MEMORY_CONTROLLER, Region, paging::{Page, entry::EntryFlags, switch_table}
-    },
-    scheduling::process::ProcessEntry,
+        GLOBAL_MEMORY_CONTROLLER, Region, paging::{Page, entry::EntryFlags}
+    }, print, scheduling::process::ProcessEntry
 };
 
 mod loader;
@@ -85,8 +85,12 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
-    let mut ring3_table = mc.clone_active_table()?;
-    switch_table(&ring3_table, &mut mc.active_table, &mut mc.temp_mapper);
+    let mut ring3_table = mc.clone_kernel_table()?;
+    print!("Created ring3 table at 0x{:X}\n", ring3_table.addr);
+
+    let Some(prev_table) = mc.switch_table(&ring3_table) else {
+        panic!("Cannot switch to new page table clone on ELF load!\n");
+    };
 
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
@@ -107,6 +111,14 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
             &mut mc.slot_allocator,
             &mut mc.temp_mapper,
         );
+
+        // inspect mapped pages
+        print!("\n");
+
+        for page in Page::range(start_page, end_page) {
+            ring3_table.inspect_page(page, &mut mc.temp_mapper);
+            print!("\n");
+        }
     }
 
     // load elf regions
@@ -126,11 +138,11 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         }
 
         // check if BSS exists
-        let bss_size = size - (ph_file_size as usize);
+        let bss_size = (size as i64) - (ph_file_size as i64);
         if bss_size > 0 {
             // zero BSS
             let bss_ptr = unsafe { destination_ptr.add(ph_file_size as usize) };
-            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size) };
+            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size as usize) };
         }
     }
 
@@ -145,7 +157,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     )?;
 
     // Switch back to root table
-    switch_table(&mut mc.active_table, &mut ring3_table, &mut mc.temp_mapper);
+    mc.switch_table(&prev_table);
 
     entry.ring3_page_table = Some(ring3_table);
     entry.stack = Some(stack);

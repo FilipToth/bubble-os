@@ -11,16 +11,14 @@ use multiboot2::BootInformation;
 use spin::Mutex;
 use stack_allocator::StackAllocator;
 use x86_64::{
-    registers::control::{Cr3, Cr3Flags},
-    structures::paging::PhysFrame,
-    PhysAddr,
+    PhysAddr, instructions::tlb, registers::control::{Cr3, Cr3Flags}, structures::paging::PhysFrame
 };
 
 use crate::{
     mem::{
         heap::{HEAP_SIZE, HEAP_START},
         paging::{
-            entry::EntryFlags, map_kernel, slot_allocator::PageTableSlotAllocator, switch_table,
+            entry::EntryFlags, map_kernel, slot_allocator::PageTableSlotAllocator,
             temp_mapper::TempMapper, Page, PageTable,
         },
     },
@@ -41,6 +39,7 @@ pub const PAGE_TABLE_REGION_START: usize = 0x0000_6BCF_0000_0000;
 
 pub struct MemoryController {
     pub active_table: PageTable,
+    pub kernel_table: PageTable,
     pub frame_allocator: SimplePageFrameAllocator,
     pub stack_allocator: StackAllocator,
     pub slot_allocator: PageTableSlotAllocator,
@@ -50,6 +49,7 @@ pub struct MemoryController {
 impl MemoryController {
     fn new(
         active_table: PageTable,
+        kernel_table: PageTable,
         frame_allocator: SimplePageFrameAllocator,
         stack_allocator: StackAllocator,
         slot_allocator: PageTableSlotAllocator,
@@ -57,6 +57,7 @@ impl MemoryController {
     ) -> MemoryController {
         MemoryController {
             active_table: active_table,
+            kernel_table: kernel_table,
             frame_allocator: frame_allocator,
             stack_allocator: stack_allocator,
             slot_allocator: slot_allocator,
@@ -156,9 +157,9 @@ impl MemoryController {
         }
     }
 
-    /// Clones the current active table keeping all
-    /// active table mappings active in the sub-table.
-    pub fn clone_active_table(&mut self) -> Option<PageTable> {
+    /// Clones the kernel base page table, keeping all
+    /// kernel table mappings active in the sub-table
+    pub fn clone_kernel_table(&mut self) -> Option<PageTable> {
         let slot = self
             .slot_allocator
             .alloc(&mut self.frame_allocator, &mut self.temp_mapper)?;
@@ -169,6 +170,49 @@ impl MemoryController {
 
         let new_table = PageTable::new(slot);
         Some(new_table)
+    }
+
+    /// Switches the active page table into a the provided page table.
+    /// Also changes the active table reference in the memory controller
+    /// to the new table.
+    /// 
+    /// ## Arguments
+    /// 
+    ///  - `new_table`: the page table to switch to
+    /// 
+    /// ## Returns
+    /// The old page table if successful, None if unsuccessful
+    pub fn switch_table(
+        &mut self,
+        new_table: &PageTable
+    ) -> Option<PageTable> {
+        let addr = new_table.addr;
+        if addr < PAGE_TABLE_REGION_START {
+            // may be physical address or invalid page table
+            return None;
+        }
+
+        let Some(phys_frame) = self.active_table.translate_to_phys(addr, &mut self.temp_mapper) else {
+            return None;
+        };
+
+        let phys_addr = phys_frame.start_address() as u64;
+        let phys_addr = PhysAddr::new(phys_addr);
+        let phys_frame = PhysFrame::from_start_address(phys_addr)
+            .expect("Cannot create cr3 new frame swap address.");
+
+        print!("Switching cr3 to 0x{:X}\n", addr);
+        unsafe { Cr3::write(phys_frame, Cr3Flags::empty()) };
+
+        // TODO: In the future, think about how to optimize the TLB here, maybe
+        // we don't have to flush the entire thing, just the user-sections,
+        // assuming this is switching between kernel->user tables
+        tlb::flush_all();
+
+        let old_table = self.active_table.clone();
+        self.active_table = new_table.clone();
+
+        Some(old_table)
     }
 }
 
@@ -265,7 +309,7 @@ pub fn init(boot_info: &BootInformation) {
         StackAllocator::new(stack_range)
     };
 
-    let controller = MemoryController::new(pml4, allocator, stack_allocator, slot_allocator, temp);
+    let controller = MemoryController::new(pml4.clone(), pml4, allocator, stack_allocator, slot_allocator, temp);
 
     let mut guard = GLOBAL_MEMORY_CONTROLLER.lock();
     *guard = Some(controller);

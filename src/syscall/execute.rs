@@ -29,7 +29,11 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         file_guard.read()?
     };
 
+    print!("Executing {}\n", path);
+
     let elf_entry = elf::load(region)?;
-    let pid = scheduling::deploy(elf_entry, true);
-    Some(pid)
+
+    // let pid = scheduling::deploy(elf_entry, true);
+    // Some(pid)
+    Some(0)
 }

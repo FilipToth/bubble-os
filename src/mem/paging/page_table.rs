@@ -1,12 +1,8 @@
-use crate::mem::{
-    paging::{
-        entry::{EntryFlags, PageTableEntry},
-        slot_allocator::PageTableSlotAllocator,
-        temp_mapper::TempMapper,
-        Page,
-    },
-    PageFrame, PageFrameAllocator, PAGE_TABLE_REGION_START,
-};
+use crate::{mem::{
+    PAGE_TABLE_REGION_START, PageFrame, PageFrameAllocator, paging::{
+        Page, entry::{EntryFlags, PageTableEntry}, slot_allocator::PageTableSlotAllocator, temp_mapper::TempMapper
+    }
+}, print};
 
 #[derive(Clone)]
 pub struct PageTable {
@@ -278,6 +274,45 @@ impl PageTable {
     /// physical frame.
     pub fn is_phys_identity(&self) -> bool {
         self.addr < PAGE_TABLE_REGION_START
+    }
+
+    pub fn inspect_page(&mut self, page: Page, temp_mapper: &mut TempMapper) {
+        print!("Dumping page table info for page (0x{:X})\n", page.start_address());
+
+        // P4
+        let p4_index = page.p4_index();
+        let p4_e = &self.entries()[p4_index];
+        let p4_e_addr = p4_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
+        print!("P4-{}, pointing to: 0x{:X}, flags: {:?}\n", p4_index, p4_e_addr, p4_e.flags());
+
+        let Some(pml3) = self.next_table_temp(page.p4_index(), temp_mapper) else {
+            return;
+        };
+
+        // P3
+        let p3_index = page.p3_index();
+        let p3_e = &pml3.entries()[p3_index];
+        let p3_e_addr = p3_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
+        print!("P3-{}, pointing to: 0x{:X}, flags: {:?}\n", p4_index, p3_e_addr, p3_e.flags());
+
+        let Some(pml2) = pml3.next_table_temp(page.p3_index(), temp_mapper) else {
+            return;
+        };
+
+        // P2
+        let p2_index = page.p2_index();
+        let p2_e = &pml2.entries()[p2_index];
+        let p2_e_addr = p2_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
+        print!("P2-{}, pointing to: 0x{:X}, flags: {:?}\n", p2_index, p2_e_addr, p2_e.flags());
+
+        let Some(pml1) = pml2.next_table_temp(page.p2_index(), temp_mapper) else {
+            return;
+        };
+
+        let p1_index = page.p1_index();
+        let p1_e = &pml1.entries()[p1_index];
+        let p1_e_addr = p1_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
+        print!("P1-{}, mapping: 0x{:X}, flags: {:?}\n", p1_index, p1_e_addr, p1_e.flags());
     }
 
     fn entries_mut(&mut self) -> &'static mut PageTableEntries {
