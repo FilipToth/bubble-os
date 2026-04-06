@@ -164,9 +164,9 @@ impl MemoryController {
             .slot_allocator
             .alloc(&mut self.frame_allocator, &mut self.temp_mapper)?;
 
-        let active_ptr = self.active_table.addr as *mut [u8; PAGE_SIZE];
+        let kernel_ptr = self.kernel_table.addr as *mut [u8; PAGE_SIZE];
         let new_ptr = slot as *mut [u8; PAGE_SIZE];
-        unsafe { active_ptr.copy_to_nonoverlapping(new_ptr, 1) };
+        unsafe { kernel_ptr.copy_to_nonoverlapping(new_ptr, 1) };
 
         let new_table = PageTable::new(slot);
         Some(new_table)
@@ -201,7 +201,7 @@ impl MemoryController {
         let phys_frame = PhysFrame::from_start_address(phys_addr)
             .expect("Cannot create cr3 new frame swap address.");
 
-        print!("Switching cr3 to 0x{:X}\n", addr);
+        // print!("Switching cr3 to 0x{:X}\n", addr);
         unsafe { Cr3::write(phys_frame, Cr3Flags::empty()) };
 
         // TODO: In the future, think about how to optimize the TLB here, maybe

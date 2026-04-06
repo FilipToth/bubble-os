@@ -85,6 +85,9 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
     let mc = mc.as_mut().unwrap();
 
+    // for some reason when we execute a program from a running program, the default program region is already mapped
+    // THIS IS BECAUSE IN CLONE KERNEL TABLE, WE"RE CLONING THE ACTIVE TABLE NOT THE KERNEL TABLE!!!!
+
     let mut ring3_table = mc.clone_kernel_table()?;
     print!("Created ring3 table at 0x{:X}\n", ring3_table.addr);
 

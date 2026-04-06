@@ -33,7 +33,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     let elf_entry = elf::load(region)?;
 
-    // let pid = scheduling::deploy(elf_entry, true);
-    // Some(pid)
-    Some(0)
+    let pid = scheduling::deploy(elf_entry, true);
+    Some(pid)
+    // Some(0)
 }

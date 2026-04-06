@@ -157,7 +157,6 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
         // and kernel page table ref
     };
 
-    print!("Jumping to pid: {}\n", process_to_jump.pid);
     unsafe { jump(&process_to_jump.context) };
 }
 

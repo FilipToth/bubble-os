@@ -39,7 +39,8 @@ use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
-use crate::mem::heap;
+use crate::mem::paging::Page;
+use crate::mem::{GLOBAL_MEMORY_CONTROLLER, heap};
 use crate::utils::safe;
 
 #[global_allocator]
@@ -108,6 +109,21 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let port = ports.remove(0);
     fs::init(port);
+
+    {
+        print!("\nDumping default userspace program page in master table:\n");
+
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut().unwrap();
+
+        let master_loaded = controller.active_table.addr == controller.kernel_table.addr;
+        print!("Is master table loaded: {}\n", master_loaded);
+
+        let page = Page::for_address(0x700040000000);
+        controller.active_table.inspect_page(page, &mut controller.temp_mapper);
+
+        print!("\n");
+    }
 
     let shell_binary = {
         with_root_dir!(root, {
