@@ -21,7 +21,7 @@ _start:
     mov  rdx, msg_len
     int  0x80
 
-    ; execute exit
+    ; execute sample.elf
     mov rax, 0x04
     mov rdi, elf
     mov rsi, elf_len
