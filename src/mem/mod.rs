@@ -11,7 +11,10 @@ use multiboot2::BootInformation;
 use spin::Mutex;
 use stack_allocator::StackAllocator;
 use x86_64::{
-    PhysAddr, instructions::tlb, registers::control::{Cr3, Cr3Flags}, structures::paging::PhysFrame
+    instructions::tlb,
+    registers::control::{Cr3, Cr3Flags},
+    structures::paging::PhysFrame,
+    PhysAddr,
 };
 
 use crate::{
@@ -175,24 +178,24 @@ impl MemoryController {
     /// Switches the active page table into a the provided page table.
     /// Also changes the active table reference in the memory controller
     /// to the new table.
-    /// 
+    ///
     /// ## Arguments
-    /// 
+    ///
     ///  - `new_table`: the page table to switch to
-    /// 
+    ///
     /// ## Returns
     /// The old page table if successful, None if unsuccessful
-    pub fn switch_table(
-        &mut self,
-        new_table: &PageTable
-    ) -> Option<PageTable> {
+    pub fn switch_table(&mut self, new_table: &PageTable) -> Option<PageTable> {
         let addr = new_table.addr;
         if addr < PAGE_TABLE_REGION_START {
             // may be physical address or invalid page table
             return None;
         }
 
-        let Some(phys_frame) = self.active_table.translate_to_phys(addr, &mut self.temp_mapper) else {
+        let Some(phys_frame) = self
+            .active_table
+            .translate_to_phys(addr, &mut self.temp_mapper)
+        else {
             return None;
         };
 
@@ -309,7 +312,14 @@ pub fn init(boot_info: &BootInformation) {
         StackAllocator::new(stack_range)
     };
 
-    let controller = MemoryController::new(pml4.clone(), pml4, allocator, stack_allocator, slot_allocator, temp);
+    let controller = MemoryController::new(
+        pml4.clone(),
+        pml4,
+        allocator,
+        stack_allocator,
+        slot_allocator,
+        temp,
+    );
 
     let mut guard = GLOBAL_MEMORY_CONTROLLER.lock();
     *guard = Some(controller);

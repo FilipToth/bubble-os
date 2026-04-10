@@ -24,6 +24,7 @@ mod elf;
 mod fs;
 mod io;
 mod mem;
+mod net;
 mod scheduling;
 mod syscall;
 mod test;
@@ -31,16 +32,15 @@ mod utils;
 
 use ahci::init_ahci;
 use arch::x86_64::acpi::pci::PciDeviceClass;
-use x86_64::instructions::interrupts;
 use core::panic::PanicInfo;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
+use x86_64::instructions::interrupts;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
 use crate::io::print;
-use crate::mem::paging::Page;
-use crate::mem::{GLOBAL_MEMORY_CONTROLLER, heap};
+use crate::mem::heap;
 use crate::utils::safe;
 
 #[global_allocator]
@@ -106,24 +106,15 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
 
     let mut ports = init_ahci(sata_controller);
-
     let port = ports.remove(0);
     fs::init(port);
 
-    {
-        print!("\nDumping default userspace program page in master table:\n");
+    let ethernet = devices
+        .get_device(PciDeviceClass::EthernetController)
+        .unwrap();
+    net::init(ethernet);
 
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let master_loaded = controller.active_table.addr == controller.kernel_table.addr;
-        print!("Is master table loaded: {}\n", master_loaded);
-
-        let page = Page::for_address(0x700040000000);
-        controller.active_table.inspect_page(page, &mut controller.temp_mapper);
-
-        print!("\n");
-    }
+    loop {}
 
     let shell_binary = {
         with_root_dir!(root, {

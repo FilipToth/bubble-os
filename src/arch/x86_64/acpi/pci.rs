@@ -1,3 +1,5 @@
+use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
+
 use alloc::vec::Vec;
 
 use crate::{mem::PAGE_SIZE, print};
@@ -18,6 +20,13 @@ pub struct PciDeviceHeader {
     latency_timer: u8,
     header_type: u8,
     bist: u8,
+}
+
+#[derive(Debug)]
+pub enum BarType {
+    IO { address: u32 },
+    Memory32 { address: u32, prefetchable: bool },
+    Memory64 { address: u64, prefetchable: bool },
 }
 
 #[repr(C)]
@@ -41,6 +50,143 @@ pub struct PciDeviceHeaderType0 {
     pub interrupt_pin: u8,
     pub min_grant: u8,
     pub max_latency: u8,
+}
+
+impl PciDeviceHeaderType0 {
+    pub fn get_bar_type(&self, bar_index: usize) -> Option<BarType> {
+        match bar_index {
+            0 => Self::parse_bar_type(self.bar0, Some(self.bar1)),
+            1 => Self::parse_bar_type(self.bar1, Some(self.bar2)),
+            2 => Self::parse_bar_type(self.bar2, Some(self.bar3)),
+            3 => Self::parse_bar_type(self.bar3, Some(self.bar4)),
+            4 => Self::parse_bar_type(self.bar4, Some(self.bar5)),
+            5 => Self::parse_bar_type(self.bar5, None),
+            _ => None
+        }
+    }
+
+    pub fn parse_bar_type(bar: u32, next_bar: Option<u32>) -> Option<BarType> {
+        if bar == 0 {
+            return None;
+        }
+
+        if bar & 0x1 == 1 {
+            Some(BarType::IO {
+                address: bar & 0xFFFFFFFC,
+            })
+        } else {
+            let mem_type = (bar >> 1) & 0x3;
+            let prefetchable = (bar & 0x8) != 0;
+
+            match mem_type {
+                0b00 => Some(BarType::Memory32 {
+                    address: bar & 0xFFFFFFF0,
+                    prefetchable,
+                }),
+                0b10 => {
+                    let next = next_bar?;
+                    let addr = ((next as u64) << 32) | ((bar & 0xFFFFFFF0) as u64);
+                    Some(BarType::Memory64 {
+                        address: addr,
+                        prefetchable,
+                    })
+                }
+                _ => None,
+            }
+        }
+    }
+
+    pub unsafe fn probe_bar_size(&mut self, bar_index: usize) -> Option<u64> {
+        if bar_index >= 6 {
+            return None;
+        }
+
+        let command_ptr = addr_of_mut!(self.header.command);
+        let bars_ptr = addr_of_mut!(self.bar0) as *mut u32;
+        let bar_ptr = bars_ptr.add(bar_index);
+
+        let command_orig = read_volatile(command_ptr);
+        write_volatile(command_ptr, command_orig & !0x3);
+
+        let original = read_volatile(bar_ptr);
+        if original == 0 {
+            write_volatile(command_ptr, command_orig);
+            return None;
+        }
+
+        if (original & 0x1) != 0 {
+            // IO BAR
+            write_volatile(bar_ptr, 0xFFFF_FFFF);
+
+            let probed = read_volatile(bar_ptr);
+            write_volatile(bar_ptr, original);
+            write_volatile(command_ptr, command_orig);
+
+            let mask = probed & 0xFFFF_FFFC;
+            if mask == 0 {
+                return None;
+            }
+
+            let size = (!(mask as u64)).wrapping_add(1);
+            return Some(size);
+        }
+
+        let mem_type = (original >> 1) & 0x3;
+        match mem_type {
+            0b00 => {
+                // 32-bit MMIO BAR
+                write_volatile(bar_ptr, 0xFFFF_FFFF);
+
+                let probed = read_volatile(bar_ptr);
+                write_volatile(bar_ptr, original);
+                write_volatile(command_ptr, command_orig);
+                
+                let mask = probed & 0x0000_0000_FFFF_FFF0;
+                if mask == 0 {
+                    return None;
+                }
+
+                let size = (!(mask as u64)).wrapping_add(1);
+                Some(size & 0x0000_0000_FFFF_FFFF)
+            }
+            0b10 => {
+                // 64-bit MMIO BAR
+                let next_ptr = bars_ptr.add(bar_index + 1);
+                let original_hi = read_volatile(next_ptr);
+
+                write_volatile(bar_ptr, 0xFFFF_FFFF);
+                write_volatile(next_ptr, 0xFFFF_FFFF);
+
+                let probed_lo = read_volatile(bar_ptr);
+                let probed_hi = read_volatile(next_ptr);
+
+                write_volatile(bar_ptr, original);
+                write_volatile(next_ptr, original_hi);
+                write_volatile(command_ptr, command_orig);
+
+                let probed = ((probed_hi as u64) << 32) | ((probed_lo & 0xFFFF_FFF0) as u64);
+                if probed == 0 {
+                    return None;
+                }
+
+                let size = (!probed).wrapping_add(1);
+                Some(size)
+            }
+            _ => {
+                write_volatile(command_ptr, command_orig);
+                None
+            }
+        }
+    }
+
+    pub unsafe fn read_bar_raw(&self, bar_index: usize) -> Option<u32> {
+        if bar_index >= 6 {
+            return None;
+        }
+
+        let bars_ptr = addr_of!(self.bar0) as *const u32;
+        Some(read_volatile(bars_ptr.add(bar_index)))
+    }
 }
 
 #[derive(Debug, PartialEq)]

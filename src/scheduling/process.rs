@@ -5,7 +5,7 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     elf::ElfRegion,
     fs::fs::Directory,
-    mem::{Stack, paging::PageTable},
+    mem::{paging::PageTable, Stack},
 };
 
 #[derive(Clone)]

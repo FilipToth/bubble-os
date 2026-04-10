@@ -8,7 +8,7 @@ use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
     fs::fs::Directory,
-    mem::{GLOBAL_MEMORY_CONTROLLER},
+    mem::GLOBAL_MEMORY_CONTROLLER,
     print, with_root_dir,
 };
 

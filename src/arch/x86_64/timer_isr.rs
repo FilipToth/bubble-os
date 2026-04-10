@@ -2,7 +2,11 @@ use core::sync::atomic::Ordering;
 
 use x86_64::instructions::interrupts;
 
-use crate::{arch, interrupt_trampoline, io::serial, scheduling::{self, SCHEDULING_ENABLED}};
+use crate::{
+    arch, interrupt_trampoline,
+    io::serial,
+    scheduling::{self, SCHEDULING_ENABLED},
+};
 
 use super::registers::FullInterruptStackFrame;
 

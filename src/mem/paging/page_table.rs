@@ -1,8 +1,15 @@
-use crate::{mem::{
-    PAGE_TABLE_REGION_START, PageFrame, PageFrameAllocator, paging::{
-        Page, entry::{EntryFlags, PageTableEntry}, slot_allocator::PageTableSlotAllocator, temp_mapper::TempMapper
-    }
-}, print};
+use crate::{
+    mem::{
+        paging::{
+            entry::{EntryFlags, PageTableEntry},
+            slot_allocator::PageTableSlotAllocator,
+            temp_mapper::TempMapper,
+            Page,
+        },
+        PageFrame, PageFrameAllocator, PAGE_TABLE_REGION_START,
+    },
+    print,
+};
 
 #[derive(Clone)]
 pub struct PageTable {
@@ -136,20 +143,41 @@ impl PageTable {
         A: PageFrameAllocator,
     {
         let is_phys = self.is_phys_identity();
-        
+
         let mut table_flags = EntryFlags::PRESENT | EntryFlags::WRITABLE;
         if flags.contains(EntryFlags::RING3_ACCESSIBLE) {
             table_flags |= EntryFlags::RING3_ACCESSIBLE;
         }
 
         let pml4_index = page.p4_index();
-        let mut pml3 = self.next_table_create(pml4_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
+        let mut pml3 = self.next_table_create(
+            pml4_index,
+            is_phys,
+            alloc,
+            slot_alloc,
+            temp_mapper,
+            table_flags,
+        );
 
         let pml3_index = page.p3_index();
-        let mut pml2 = pml3.next_table_create(pml3_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
+        let mut pml2 = pml3.next_table_create(
+            pml3_index,
+            is_phys,
+            alloc,
+            slot_alloc,
+            temp_mapper,
+            table_flags,
+        );
 
         let pml2_index = page.p2_index();
-        let mut pml1 = pml2.next_table_create(pml2_index, is_phys, alloc, slot_alloc, temp_mapper, table_flags);
+        let mut pml1 = pml2.next_table_create(
+            pml2_index,
+            is_phys,
+            alloc,
+            slot_alloc,
+            temp_mapper,
+            table_flags,
+        );
 
         let pml1_index = page.p1_index();
         pml1.set(pml1_index, frame, flags | EntryFlags::PRESENT);
@@ -277,13 +305,21 @@ impl PageTable {
     }
 
     pub fn inspect_page(&mut self, page: Page, temp_mapper: &mut TempMapper) {
-        print!("Dumping page table info for page (0x{:X})\n", page.start_address());
+        print!(
+            "Dumping page table info for page (0x{:X})\n",
+            page.start_address()
+        );
 
         // P4
         let p4_index = page.p4_index();
         let p4_e = &self.entries()[p4_index];
         let p4_e_addr = p4_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!("P4-{}, pointing to: 0x{:X}, flags: {:?}\n", p4_index, p4_e_addr, p4_e.flags());
+        print!(
+            "P4-{}, pointing to: 0x{:X}, flags: {:?}\n",
+            p4_index,
+            p4_e_addr,
+            p4_e.flags()
+        );
 
         let Some(pml3) = self.next_table_temp(page.p4_index(), temp_mapper) else {
             return;
@@ -293,7 +329,12 @@ impl PageTable {
         let p3_index = page.p3_index();
         let p3_e = &pml3.entries()[p3_index];
         let p3_e_addr = p3_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!("P3-{}, pointing to: 0x{:X}, flags: {:?}\n", p4_index, p3_e_addr, p3_e.flags());
+        print!(
+            "P3-{}, pointing to: 0x{:X}, flags: {:?}\n",
+            p4_index,
+            p3_e_addr,
+            p3_e.flags()
+        );
 
         let Some(pml2) = pml3.next_table_temp(page.p3_index(), temp_mapper) else {
             return;
@@ -303,7 +344,12 @@ impl PageTable {
         let p2_index = page.p2_index();
         let p2_e = &pml2.entries()[p2_index];
         let p2_e_addr = p2_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!("P2-{}, pointing to: 0x{:X}, flags: {:?}\n", p2_index, p2_e_addr, p2_e.flags());
+        print!(
+            "P2-{}, pointing to: 0x{:X}, flags: {:?}\n",
+            p2_index,
+            p2_e_addr,
+            p2_e.flags()
+        );
 
         let Some(pml1) = pml2.next_table_temp(page.p2_index(), temp_mapper) else {
             return;
@@ -312,7 +358,12 @@ impl PageTable {
         let p1_index = page.p1_index();
         let p1_e = &pml1.entries()[p1_index];
         let p1_e_addr = p1_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!("P1-{}, mapping: 0x{:X}, flags: {:?}\n", p1_index, p1_e_addr, p1_e.flags());
+        print!(
+            "P1-{}, mapping: 0x{:X}, flags: {:?}\n",
+            p1_index,
+            p1_e_addr,
+            p1_e.flags()
+        );
     }
 
     fn entries_mut(&mut self) -> &'static mut PageTableEntries {
@@ -333,7 +384,7 @@ impl PageTable {
         pf_alloc: &mut A,
         slot_alloc: &mut PageTableSlotAllocator,
         temp_mapper: &mut TempMapper,
-        flags: EntryFlags
+        flags: EntryFlags,
     ) -> PageTable
     where
         A: PageFrameAllocator,

@@ -1,6 +1,4 @@
-use core::alloc::Layout;
-
-use alloc::{alloc::alloc, string::String, vec::Vec};
+use alloc::vec::Vec;
 use hba::{HBAMemory, HBAPort};
 use port::AHCIPort;
 

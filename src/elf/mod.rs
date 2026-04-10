@@ -4,8 +4,11 @@ use x86_64::structures::paging::page;
 
 use crate::{
     mem::{
-        GLOBAL_MEMORY_CONTROLLER, Region, paging::{Page, entry::EntryFlags}
-    }, print, scheduling::process::ProcessEntry
+        paging::{entry::EntryFlags, Page},
+        Region, GLOBAL_MEMORY_CONTROLLER,
+    },
+    print,
+    scheduling::process::ProcessEntry,
 };
 
 mod loader;
