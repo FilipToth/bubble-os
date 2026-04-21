@@ -1,3 +1,5 @@
+use core::ops::IndexMut;
+
 use x86_64::{
     registers::control::Cr2,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
@@ -16,33 +18,9 @@ use crate::{
 
 use super::registers::FullInterruptStackFrame;
 
-lazy_static! {
-    static ref IDT: InterruptDescriptorTable = {
-        let mut idt = InterruptDescriptorTable::new();
+pub const IRQ0: usize = 0x20;
 
-        idt.breakpoint.set_handler_fn(breakpoint_isr);
-        idt.double_fault.set_handler_fn(double_fault_isr);
-        idt.general_protection_fault.set_handler_fn(gpf_isr);
-        idt.page_fault.set_handler_fn(page_fault_isr);
-
-        unsafe {
-            idt[0x20 as usize]
-                .set_handler_addr(VirtAddr::new(timer_trampoline as u64))
-                .set_stack_index(PIT_STACK_INDEX as u16);
-        }
-
-        idt[0x34 as usize].set_handler_fn(debug_isr);
-
-        unsafe {
-            idt[0x80 as usize]
-                .set_handler_addr(VirtAddr::new(syscall_trampoline as u64))
-                .set_stack_index(SYSCALL_STACK_INDEX as u16)
-                .set_privilege_level(PrivilegeLevel::Ring3);
-        }
-
-        idt
-    };
-}
+static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 extern "x86-interrupt" fn breakpoint_isr(_stack: InterruptStackFrame) {
     print!("\n[ EXCEPTION ] Breakpoint interrupt called!\n");
@@ -138,7 +116,37 @@ pub fn remap_pic() {
     }
 }
 
-pub fn load_idt() {
+pub unsafe fn register_interrupt(vector: usize, handler_addr: usize, is_ring3: bool) {
+    let dpl = if is_ring3 {
+        PrivilegeLevel::Ring0
+    } else {
+        PrivilegeLevel::Ring3
+    };
+
+    IDT[vector]
+        .set_handler_addr(VirtAddr::new(handler_addr as u64))
+        .set_privilege_level(dpl);
+}
+
+pub unsafe fn init_idt() {
+    IDT.breakpoint.set_handler_fn(breakpoint_isr);
+    IDT.double_fault.set_handler_fn(double_fault_isr);
+    IDT.general_protection_fault.set_handler_fn(gpf_isr);
+    IDT.page_fault.set_handler_fn(page_fault_isr);
+
+    IDT[IRQ0 as usize]
+        .set_handler_addr(VirtAddr::new(timer_trampoline as u64))
+        .set_stack_index(PIT_STACK_INDEX as u16);
+
+    IDT[0x34 as usize].set_handler_fn(debug_isr);
+
+    IDT[0x80 as usize]
+        .set_handler_addr(VirtAddr::new(syscall_trampoline as u64))
+        .set_stack_index(SYSCALL_STACK_INDEX as u16)
+        .set_privilege_level(PrivilegeLevel::Ring3);
+}
+
+pub unsafe fn load_idt() {
     // TODO: Initialize interrupt stack
     IDT.load();
 }

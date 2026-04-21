@@ -4,10 +4,7 @@ use pci::{enumerate_pci, PciDevices};
 use rsdt::parse_rsdt;
 
 use crate::{
-    mem::{
-        paging::{entry::EntryFlags, Page},
-        PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
-    },
+    mem::{paging::entry::EntryFlags, PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE},
     print,
 };
 

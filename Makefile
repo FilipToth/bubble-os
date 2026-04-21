@@ -9,10 +9,22 @@ linker_script := src/arch/$(arch)/boot/linker.ld
 grub_cfg := src/arch/$(arch)/boot/grub.cfg
 assembly_source_files := $(wildcard src/arch/$(arch)/boot/*.s)
 assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
-	build/arch/$(arch)/boot/%.o, $(assembly_source_files))
+						 build/arch/$(arch)/boot/%.o, $(assembly_source_files))
 resources := $(wildcard resources/*)
 user_binaries := $(wildcard userspace/bin/*)
-base_qemu := qemu-system-x86_64 -nographic -serial mon:stdio -m 256M -cdrom $(iso) -boot d -s -no-reboot -machine q35 -drive file=$(disk_path),if=none,id=disk0,format=raw -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0 -net nic,model=e1000
+base_qemu := qemu-system-x86_64 \
+			 -nographic -serial mon:stdio \
+			 -m 256M \
+			 -cdrom $(iso) \
+			 -boot d \
+			 -s \
+			 -no-reboot \
+			 -machine q35 \
+			 -drive file=$(disk_path),if=none,id=disk0,format=raw \
+			 -device ahci,id=ahci \
+			 -device ide-hd,drive=disk0,bus=ahci.0 \
+			 -netdev socket,id=n0,udp=127.0.0.1:1234,localaddr=127.0.0.1:1235 \
+			 -device e1000,netdev=n0
 
 grub_rescue := $(shell command -v grub2-mkrescue >/dev/null 2>&1 && echo grub2-mkrescue || echo grub-mkrescue)
 
@@ -29,8 +41,8 @@ clean:
 	cargo clean
 	rm -r build
 
-run: userspace disk kernel_start iso run_without_building
-int_run: userspace disk kernel_start iso run_without_building_debug_interrupts
+build_and_run: userspace disk kernel_start iso run
+int_run: userspace disk kernel_start iso run_w_debug_interrupts
 
 debug_run:
 	@echo "Starting QEMU and waiting for debugger..."
@@ -40,10 +52,10 @@ debug_run:
 	echo "Waiting for Debugger"; \
 	wait $$pid
 
-run_without_building:
+run:
 	$(base_qemu)
 
-run_without_building_debug_interrupts:
+run_w_debug_interrupts:
 	$(base_qemu) -d int
 
 gdb:

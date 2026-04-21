@@ -7,7 +7,7 @@ use crate::{
             temp_mapper::TempMapper,
             Page, PageTable,
         },
-        PageFrame, PageFrameAllocator, PAGE_SIZE, PAGE_TABLE_REGION_START,
+        PageFrameAllocator, PAGE_SIZE, PAGE_TABLE_REGION_START,
     },
     print,
 };

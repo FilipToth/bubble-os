@@ -35,7 +35,6 @@ use arch::x86_64::acpi::pci::PciDeviceClass;
 use core::panic::PanicInfo;
 use io::serial::serial_init;
 use mem::heap::LinkedListHeap;
-use x86_64::instructions::interrupts;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
@@ -90,7 +89,12 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     x86_64::instructions::interrupts::disable();
 
     arch::x86_64::idt::remap_pic();
-    arch::x86_64::idt::load_idt();
+
+    unsafe {
+        arch::x86_64::idt::init_idt();
+        arch::x86_64::idt::load_idt();
+    }
+
     arch::x86_64::pit::init_pit();
 
     x86_64::instructions::interrupts::enable();
@@ -112,9 +116,28 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let ethernet = devices
         .get_device(PciDeviceClass::EthernetController)
         .unwrap();
-    net::init(ethernet);
 
-    loop {}
+    let mut eth = net::init(ethernet);
+    eth.start();
+
+    let mut i: usize = 0;
+    loop {
+        let print_all = if i % 1_000_000 == 0 {
+            i = 1;
+            print!("\n");
+            true
+        } else {
+            false
+        };
+
+        if eth.poll(print_all) {
+            break;
+        }
+
+        i += 1;
+    }
+
+    loop {};
 
     let shell_binary = {
         with_root_dir!(root, {
@@ -145,7 +168,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let shell_entry = elf::load(shell_binary).unwrap();
 
-    interrupts::enable();
+    x86_64::instructions::interrupts::enable();
     scheduling::deploy(shell_entry, false);
 
     scheduling::enable();

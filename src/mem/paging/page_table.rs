@@ -404,6 +404,7 @@ impl PageTable {
             }
         } else {
             // allocate new mapped table
+            print!("[ MEM ] Allocating new page table page frame\n");
             let slot = slot_alloc.alloc(pf_alloc, temp_mapper).unwrap();
 
             // the following contains a call to `translate_to_phys`,

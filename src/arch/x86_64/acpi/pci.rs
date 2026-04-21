@@ -61,7 +61,7 @@ impl PciDeviceHeaderType0 {
             3 => Self::parse_bar_type(self.bar3, Some(self.bar4)),
             4 => Self::parse_bar_type(self.bar4, Some(self.bar5)),
             5 => Self::parse_bar_type(self.bar5, None),
-            _ => None
+            _ => None,
         }
     }
 
@@ -140,7 +140,7 @@ impl PciDeviceHeaderType0 {
                 let probed = read_volatile(bar_ptr);
                 write_volatile(bar_ptr, original);
                 write_volatile(command_ptr, command_orig);
-                
+
                 let mask = probed & 0x0000_0000_FFFF_FFF0;
                 if mask == 0 {
                     return None;
@@ -186,6 +186,15 @@ impl PciDeviceHeaderType0 {
 
         let bars_ptr = addr_of!(self.bar0) as *const u32;
         Some(read_volatile(bars_ptr.add(bar_index)))
+    }
+
+    pub fn enable_bus_mastering(&mut self) {
+        let command_ptr = addr_of_mut!(self.header.command);
+        let command = unsafe { read_volatile(command_ptr) };
+
+        // bus master enable and memory space enable
+        let new_val = command | (1 << 2) | (1 << 1);
+        unsafe { write_volatile(command_ptr, new_val) };
     }
 }
 
@@ -280,7 +289,14 @@ fn enumerate_function(dev_addr: usize, function: usize, devices: &mut PciDevices
     }
 
     let device_class = get_device_class(header.dev_class, header.subclass);
-    print!("[ PCI ] Found {:?}\n", device_class);
+    print!("[ PCI ] Found {:?} -> (cls: 0x{:X}, subcls: 0x{:X}, devid: 0x{:X}, vendor: 0x{:X}, revid: 0x{:X})\n",
+        device_class,
+        header.dev_class,
+        header.subclass,
+        header.device_id,
+        header.vendor_id,
+        header.rev_id
+    );
 
     let device = PciDevice {
         pci_base_addr: func_addr,
@@ -329,7 +345,7 @@ pub fn enumerate_pci(mcfg: Mcfg) -> PciDevices {
         let start = entry.bus_start_num;
         let end = entry.bus_end_num;
 
-        for bus in start..end {
+        for bus in start..=end {
             enumerate_bus(entry.pcie_config_addr as usize, bus, &mut devices);
         }
     }
