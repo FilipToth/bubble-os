@@ -1,16 +1,19 @@
 use core::{
-    alloc::Layout, ops::Add, ptr::{null_mut, read_volatile, write_volatile}
+    ops::Add,
+    ptr::{read_volatile, write_volatile},
 };
 
-use alloc::alloc::alloc_zeroed;
-use x86_64::{PhysAddr, structures::idt::InterruptStackFrame};
+use x86_64::{structures::idt::InterruptStackFrame};
 
 use crate::{
     arch::{
         self,
-        x86_64::acpi::pci::{BarType, PciDevice, PciDeviceHeaderType0},
+        x86_64::{acpi::pci::{BarType, PciDevice, PciDeviceHeaderType0}, idt::IRQ0, pit::end_of_interrupt},
     },
-    mem::{GLOBAL_MEMORY_CONTROLLER, PageFrame, paging::{Page, entry::EntryFlags}},
+    mem::{
+        GLOBAL_MEMORY_CONTROLLER, PageFrame, paging::{Page, entry::EntryFlags}
+    },
+    net::{ETH_DRIVER, dma_ptr::DMAPtr},
     print,
 };
 
@@ -21,6 +24,7 @@ const DMA_REGION_START: usize = 0x0000_6DCF_0000_0000;
 const REG_CONTROL: usize = 0x0000;
 const REG_STATUS: usize = 0x0008;
 const REG_EEPROM: usize = 0x0014;
+const REG_ICR: usize = 0x00C0; // Interrupt Control Register
 const REG_MAC: usize = 0x5400;
 const REG_MTA: usize = 0x5200; // Multicast Table
 const REG_IMASK: usize = 0x00D0;
@@ -71,6 +75,11 @@ const RCTL_BUFFER_SIZE_4096: usize = (3 << 16) | (1 << 25);
 const RCTL_BUFFER_SIZE_8192: usize = (2 << 16) | (1 << 25);
 const RCTL_BUFFER_SIZE_16384: usize = (1 << 16) | (1 << 25);
 
+const ICR_RXT0: u32 = 1 << 7; // RX Timer Interrupt
+const ICR_RXDMT0: u32 = 1 << 4; // RX Descriptor Threshold
+const ICR_RXSEQ: u32 = 1 << 3; // RX Sequence Error
+const ICR_LSC: u32 = 1 << 2; // Link Status Change
+
 const NUM_RX_BUFFERS: usize = 32;
 const NUM_TX_BUFFERS: usize = 8;
 const BUFFER_SIZE: usize = 0x1000;
@@ -101,8 +110,8 @@ pub struct E1000Driver {
     eeprom_exists: bool,
     interrupt_line: u8,
     rx_curr: usize,
-    rx_descs: *mut RxDesc,
-    mac: [u8; 6]
+    rx_descs: DMAPtr<RxDesc>,
+    mac: [u8; 6],
 }
 
 impl E1000Driver {
@@ -138,7 +147,7 @@ impl E1000Driver {
             eeprom_exists: false,
             interrupt_line: header.interrupt_line,
             rx_curr: 0,
-            rx_descs: null_mut(),
+            rx_descs: DMAPtr::null(),
             mac: [0; 6],
         }
     }
@@ -162,7 +171,7 @@ impl E1000Driver {
 
         // register interrupt
         let vector = arch::x86_64::idt::IRQ0 + (self.interrupt_line as usize);
-        let handler = Self::handle_interrupt as usize;
+        let handler = handle_interrupt as usize;
 
         unsafe {
             arch::x86_64::idt::register_interrupt(vector, handler, false);
@@ -172,7 +181,7 @@ impl E1000Driver {
 
         self.start_rx();
 
-        // self.enable_interrupt();
+        self.enable_interrupt();
 
         let rctl = self.read_command(REG_RCTRL);
         print!("[ ETH ] RCTL: 0x{:X}\n", rctl);
@@ -180,20 +189,24 @@ impl E1000Driver {
         print!("[ ETH ] Up!\n");
     }
 
+    #[allow(dead_code)]
     pub fn poll(&self, print_all: bool) -> bool {
         if self.rx_descs.is_null() {
             print!("[ ETH ] Rx Descriptor Table Pointer is null\n");
             return false;
         }
 
-        let mut ptr = self.rx_descs;
+        let mut ptr = unsafe { self.rx_descs.as_ptr() };
         for i in 0..NUM_RX_BUFFERS {
             let status = unsafe { core::ptr::read_volatile(core::ptr::addr_of!((*ptr).status)) };
             let length = unsafe { core::ptr::read_volatile(core::ptr::addr_of!((*ptr).length)) };
             let errors = unsafe { core::ptr::read_volatile(core::ptr::addr_of!((*ptr).errors)) };
 
             if status & 0x1 != 0 || print_all {
-                print!("[ ETH ] RX Buffer ({}), status: 0x{:X}, len: 0x{:X}, errors: 0x{:X}\n", i, status, length, errors);
+                print!(
+                    "[ ETH ] RX Buffer ({}), status: 0x{:X}, len: 0x{:X}, errors: 0x{:X}\n",
+                    i, status, length, errors
+                );
 
                 if !print_all {
                     return true;
@@ -208,11 +221,14 @@ impl E1000Driver {
             let status = self.read_command(REG_STATUS);
             let trp = self.read_command(REG_TPR);
             let mpc = self.read_command(REG_MPC);
-            
+
             let prc64 = self.read_command(REG_PRC64);
             let prc127 = self.read_command(REG_PRC127);
 
-            print!("[ ETH ] STATUS: 0x{:X}, TRP: 0x{:X}, MPC: 0x{:X}, PRC64: 0x{:X}, PRC127: 0x{:X}\n", status, trp, mpc, prc64, prc127);
+            print!(
+                "[ ETH ] STATUS: 0x{:X}, TRP: 0x{:X}, MPC: 0x{:X}, PRC64: 0x{:X}, PRC127: 0x{:X}\n",
+                status, trp, mpc, prc64, prc127
+            );
         }
 
         return false;
@@ -242,7 +258,7 @@ impl E1000Driver {
         for _ in 0..NUM_RX_BUFFERS {
             let start_page = last_page;
             let end_page = Page::for_address(start_page.start_address() + BUFFER_SIZE - 1);
-            
+
             mc.map(start_page, end_page, EntryFlags::WRITABLE);
             last_page = end_page.add(1);
 
@@ -290,7 +306,7 @@ impl E1000Driver {
         self.send_command(REG_RXDESCTAIL, (NUM_RX_BUFFERS - 1) as u32);
 
         self.rx_curr = 0;
-        self.rx_descs = descs_ptr;
+        self.rx_descs = DMAPtr::from_ptr(ptr);
 
         self.send_command(
             REG_RCTRL,
@@ -318,9 +334,7 @@ impl E1000Driver {
             | ((mac[3] as u32) << 24);
 
         // RAH
-        let rah = (mac[4] as u32)
-            | ((mac[5] as u32) << 8)
-            | (1 << 31); // VALID bit
+        let rah = (mac[4] as u32) | ((mac[5] as u32) << 8) | (1 << 31); // VALID bit
 
         self.send_command(REG_MAC, ral);
         self.send_command(REG_MAC + 0x04, rah);
@@ -419,7 +433,23 @@ impl E1000Driver {
         }
     }
 
-    fn handle_interrupt(stack: InterruptStackFrame) {
-        print!("[ ETH ] Received Interrupt!\n");
+    fn handle_rx(&self) {
+        let icr = self.read_command(REG_ICR);
+        
+        print!("[ ETH ] Received RX, icr: 0x{:X}\n", icr);
+
+        self.poll(true);
+    }
+}
+
+extern "x86-interrupt" fn handle_interrupt(_stack: InterruptStackFrame) {
+    let mut guard = ETH_DRIVER.lock();
+
+    if let Some(driver) = guard.as_mut() {
+        driver.handle_rx();
+
+        // send EOI
+        let vector = IRQ0 + driver.interrupt_line as usize;
+        end_of_interrupt(vector as u8);
     }
 }

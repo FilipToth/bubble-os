@@ -119,6 +119,9 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let mut eth = net::init(ethernet);
     eth.start();
+    net::load(eth);
+
+    loop {}
 
     let mut i: usize = 0;
     loop {
@@ -137,7 +140,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         i += 1;
     }
 
-    loop {};
+    loop {}
 
     let shell_binary = {
         with_root_dir!(root, {
