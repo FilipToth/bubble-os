@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::print;
+use crate::log;
 
 use super::{complies_table_checksum, AcpiSDTHeader};
 
@@ -23,7 +23,7 @@ pub fn parse_mcfg(mcfg: &'static AcpiSDTHeader) -> Mcfg {
     // checksum
     let slice = unsafe { core::slice::from_raw_parts(mcfg_ptr, mcfg.length as usize) };
     if !complies_table_checksum(slice) {
-        print!("[ ERR ] MCFG doesn't match checksum!\n");
+        log!(crate::io::LogType::ERR, "MCFG doesn't match checksum!");
         unreachable!()
     }
 

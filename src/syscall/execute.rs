@@ -1,6 +1,7 @@
 use alloc::format;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, print, scheduling};
+use crate::log;
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, scheduling};
 
 pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
@@ -15,7 +16,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
                 buffer_addr, buffer_size
             );
 
-            print!("{}\n{:?}\n", msg, e);
+            log!(crate::io::LogType::SYS, "{}\n{:?}", msg, e);
             return Some(0);
         }
     };

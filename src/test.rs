@@ -1,5 +1,6 @@
 use multiboot2::BootInformation;
 
+use crate::log;
 use crate::mem::paging::{entry::EntryFlags, Page};
 use crate::mem::{PageFrameAllocator, SimplePageFrameAllocator};
 use crate::print;
@@ -33,9 +34,9 @@ impl<'a> TestUnit<'a> {
         self.succeeded = success;
 
         if success {
-            print!("[   OK   ] Case \"{}\" succeeded!\n", self.name);
+            log!(crate::io::LogType::OK, "Case \"{}\" succeeded!", self.name);
         } else {
-            print!("[ FAILED ] Case \"{}\" failed!\n", self.name);
+            log!(crate::io::LogType::FAILED, "Case \"{}\" failed!", self.name);
         }
     }
 }

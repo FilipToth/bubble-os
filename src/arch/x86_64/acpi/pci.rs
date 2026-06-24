@@ -2,7 +2,8 @@ use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
 use alloc::vec::Vec;
 
-use crate::{mem::PAGE_SIZE, print};
+use crate::log;
+use crate::mem::PAGE_SIZE;
 
 use super::{acpi_mapping, mcfg::Mcfg};
 
@@ -289,7 +290,9 @@ fn enumerate_function(dev_addr: usize, function: usize, devices: &mut PciDevices
     }
 
     let device_class = get_device_class(header.dev_class, header.subclass);
-    print!("[ PCI ] Found {:?} -> (cls: 0x{:X}, subcls: 0x{:X}, devid: 0x{:X}, vendor: 0x{:X}, revid: 0x{:X})\n",
+    log!(
+        crate::io::LogType::PCI,
+        "Found {:?} -> (cls: 0x{:X}, subcls: 0x{:X}, devid: 0x{:X}, vendor: 0x{:X}, revid: 0x{:X})",
         device_class,
         header.dev_class,
         header.subclass,

@@ -6,6 +6,7 @@ use x86_64::{
     PrivilegeLevel, VirtAddr,
 };
 
+use crate::log;
 use crate::{
     arch::x86_64::{
         gdt::{PIT_STACK_INDEX, SYSCALL_STACK_INDEX},
@@ -23,37 +24,51 @@ pub const IRQ0: usize = 0x20;
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 extern "x86-interrupt" fn breakpoint_isr(_stack: InterruptStackFrame) {
-    print!("\n[ EXCEPTION ] Breakpoint interrupt called!\n");
+    log!(
+        crate::io::LogType::EXCEPTION,
+        "Breakpoint interrupt called!"
+    );
+
     loop {}
 }
 
 extern "x86-interrupt" fn double_fault_isr(stack: InterruptStackFrame, err_code: u64) -> ! {
-    print!("\n[ EXCEPTION ] Double fault, err_code: 0x{:x}\n", err_code);
-    print!("Dumping stack frame\n{:#?}\n", stack);
+    log!(
+        crate::io::LogType::EXCEPTION,
+        "Double fault, err_code: 0x{:x}",
+        err_code
+    );
+
+    log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
     loop {}
 }
 
 extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
-    print!(
-        "\n[ EXCEPTION ] General protection fault! With error code: 0x{:X}\n",
+    log!(
+        crate::io::LogType::EXCEPTION,
+        "General protection fault! With error code: 0x{:X}",
         err_code
     );
-    print!("Dumping stack frame\n{:#?}\n", stack);
+
+    log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
     loop {}
 }
 
 extern "x86-interrupt" fn page_fault_isr(stack: InterruptStackFrame, err_code: PageFaultErrorCode) {
     let cr2 = Cr2::read().as_u64();
-    print!(
-        "[ EXCEPTION ] Page fault! With error code: 0x{:X}, and cr2: 0x{:X}\n",
-        err_code, cr2
+    log!(
+        crate::io::LogType::EXCEPTION,
+        "Page fault! With error code: 0x{:X}, and cr2: 0x{:X}",
+        err_code,
+        cr2
     );
-    print!("Dumping stack frame\n{:#?}\n", stack);
+
+    log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
     loop {}
 }
 
 extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
-    print!("[ OK ] Debug isr called!\n");
+    log!(crate::io::LogType::OK, "Debug isr called!");
 }
 
 #[naked]
@@ -77,7 +92,12 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         7 => syscall::read_dir(stack),
         8 => syscall::cd(stack),
         _ => {
-            print!("[ SYS ] Unknown syscall: 0x{:x}\n", syscall_number);
+            log!(
+                crate::io::LogType::SYS,
+                "Unknown syscall: 0x{:x}",
+                syscall_number
+            );
+
             None
         }
     };

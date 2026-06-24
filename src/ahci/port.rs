@@ -2,12 +2,9 @@ use core::alloc::Layout;
 
 use alloc::alloc::alloc;
 
-use crate::{
-    mem::{
-        paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER,
-        PAGE_SIZE,
-    },
-    print,
+use crate::log;
+use crate::mem::{
+    paging::entry::EntryFlags, PageFrame, PageFrameAllocator, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
 };
 
 use super::{
@@ -77,7 +74,7 @@ impl AHCIPort {
         self.stop_cmd();
 
         let port = self.get_port();
-        print!("[ HBA ] Port SIG: 0x{:x}\n", port.sig);
+        log!(crate::io::LogType::HBA, "Port SIG: 0x{:x}", port.sig);
 
         let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
         let controller = controller.as_mut().unwrap();

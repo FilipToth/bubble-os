@@ -1,4 +1,4 @@
-use crate::print;
+use crate::log;
 
 use super::{complies_table_checksum, AcpiSDTHeader};
 
@@ -13,7 +13,7 @@ pub fn parse_rsdt(address: usize) -> Rsdt {
     // checksum
     let slice = unsafe { core::slice::from_raw_parts(rsdt_ptr, rsdt.length as usize) };
     if !complies_table_checksum(slice) {
-        print!("[ ERR ] RSDT doesn't match checksum!\n");
+        log!(crate::io::LogType::ERR, "RSDT doesn't match checksum!");
         unreachable!()
     }
 
@@ -32,9 +32,11 @@ pub fn parse_rsdt(address: usize) -> Rsdt {
         let header = unsafe { &*(*ptr as *const AcpiSDTHeader) };
 
         let signature = core::str::from_utf8(&header.signature).unwrap();
-        print!(
-            "[ OK ] Found RSDT Table with Signature: {}, rev: {}\n",
-            signature, header.revision
+        log!(
+            crate::io::LogType::OK,
+            "Found RSDT Table with Signature: {}, rev: {}",
+            signature,
+            header.revision
         );
 
         match signature {

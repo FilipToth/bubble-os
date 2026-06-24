@@ -16,6 +16,6 @@ macro_rules! print {
         <$crate::io::print::EfiWriter as core::fmt::Write>::write_fmt(
             &mut $crate::io::print::EfiWriter,
             format_args!($($arg )*)
-        ).unwrap();
+        ).unwrap()
     );
 }

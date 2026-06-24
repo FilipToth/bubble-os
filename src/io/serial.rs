@@ -1,6 +1,5 @@
 use crate::io::io::{inb, outb};
-use crate::print;
-
+use crate::log;
 static PORT: u16 = 0x3f8;
 
 pub fn serial_init() {
@@ -17,7 +16,11 @@ pub fn serial_init() {
 
         // serial check
         if inb(PORT + 0) != 0xAE {
-            print!("Serial port is not working correctly\n");
+            log!(
+                crate::io::LogType::ERR,
+                "Serial port is not working correctly"
+            );
+
             return;
         }
 

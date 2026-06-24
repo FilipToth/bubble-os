@@ -3,10 +3,8 @@ use multiboot2::BootInformation;
 use pci::{enumerate_pci, PciDevices};
 use rsdt::parse_rsdt;
 
-use crate::{
-    mem::{paging::entry::EntryFlags, PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE},
-    print,
-};
+use crate::log;
+use crate::mem::{paging::entry::EntryFlags, PageFrame, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE};
 
 mod mcfg;
 pub mod pci;
@@ -27,12 +25,12 @@ pub struct AcpiSDTHeader {
 
 pub fn init_acpi(boot_info: &BootInformation) -> PciDevices {
     let Some(rsdp) = boot_info.rsdp_v1_tag() else {
-        print!("[ ERR ] Cannot find RSDP v1\n");
+        log!(crate::io::LogType::ERR, "Cannot find RSDP v1");
         loop {}
     };
 
     if !rsdp.checksum_is_valid() {
-        print!("[ ERR ] Invalid RSDP v2 checksum\n");
+        log!(crate::io::LogType::ERR, "Invalid RSDP v2 checksum");
         loop {}
     }
 
@@ -44,7 +42,7 @@ pub fn init_acpi(boot_info: &BootInformation) -> PciDevices {
     let mcfg = match rsdt.mcfg {
         Some(mcfg) => parse_mcfg(mcfg),
         None => {
-            print!("[ ERR ] MCFG Not found\n");
+            log!(crate::io::LogType::ERR, "MCFG Not found");
             loop {}
         }
     };

@@ -38,7 +38,7 @@ use mem::heap::LinkedListHeap;
 use x86_64::registers::control::{Cr0, Cr0Flags};
 use x86_64::registers::model_specific::{Efer, EferFlags};
 
-use crate::io::print;
+use crate::io::{print, LogType};
 use crate::mem::heap;
 use crate::utils::safe;
 
@@ -55,17 +55,22 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     let boot_info = match boot_info_load_res {
         Ok(info) => {
-            print!(
-                "[ OK ] Successfully loaded boot info at addr: 0x{:x}\n",
+            log!(
+                LogType::OK,
+                "Successfully loaded boot info at addr: 0x{:x}",
                 boot_info_addr
             );
+
             info
         }
         Err(e) => {
-            print!(
-                "Couldn't load boot info at addr: 0x{:x}\nErr: {:?}\n",
-                boot_info_addr, e
+            log!(
+                LogType::ERR,
+                "Couldn't load boot info at addr: 0x{:x}\nErr: {:?}",
+                boot_info_addr,
+                e
             );
+
             return;
         }
     };
@@ -81,10 +86,12 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         heap::init_heap();
     }
 
-    print!("[ OK ] Initialized kernel heap...\n");
+    log!(LogType::OK, "Initialized kernel heap...");
+
+    log!(LogType::OK, "Off... 0x{:X}", 55 * 22);
 
     arch::x86_64::gdt::init_gdt();
-    print!("[ OK ] Initialized kernel GDT\n");
+    log!(LogType::OK, "Initialized kernel GDT");
 
     x86_64::instructions::interrupts::disable();
 
@@ -98,13 +105,13 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     arch::x86_64::pit::init_pit();
 
     x86_64::instructions::interrupts::enable();
-    print!("[ OK ] Initialized IDT\n");
+    log!(LogType::OK, "Initialized IDT");
 
     unsafe {
         core::arch::asm!("int 0x34");
     }
 
-    print!("[ OK ] Returned from interrupt\n");
+    log!(LogType::OK, "Returned from interrupt");
 
     let devices = arch::x86_64::acpi::init_acpi(&boot_info);
     let sata_controller = devices.get_device(PciDeviceClass::SATAController).unwrap();
@@ -147,12 +154,12 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
             let root_entries = root.list_dir();
             for entry in root_entries.1 {
                 let name = entry.read().name();
-                print!("[ OK ] Root dir entry: {}, dir: false\n", name);
+                log!(LogType::OK, "Root dir entry: {}, dir: false", name);
             }
 
             for entry in root_entries.0 {
                 let name = entry.name();
-                print!("[ OK ] Root dir entry: {}, dir: true\n", name,);
+                log!(LogType::OK, "Root dir entry: {}, dir: true", name);
 
                 let subentries = entry.list_dir();
                 for file in subentries.1 {
@@ -167,7 +174,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
         })
     };
 
-    print!("[ OK ] Read Shell ELF binary\n");
+    log!(LogType::OK, "Read Shell ELF binary");
 
     let shell_entry = elf::load(shell_binary).unwrap();
 
@@ -196,7 +203,14 @@ fn panic(info: &PanicInfo) -> ! {
     let line = location.line();
     let msg = info.message();
 
-    print!("PANIC on line {:?} in\n{:?}\n{:?}\n\n\n", line, file, msg);
+    log!(
+        LogType::ERR,
+        "PANIC on line {:?} in\n{:?}\n{:?}",
+        line,
+        file,
+        msg
+    );
+
     loop {}
 }
 

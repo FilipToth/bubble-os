@@ -17,6 +17,7 @@ use x86_64::{
     PhysAddr,
 };
 
+use crate::log;
 use crate::{
     mem::{
         heap::{HEAP_SIZE, HEAP_START},
@@ -221,7 +222,10 @@ impl MemoryController {
 
 pub fn init(boot_info: &BootInformation) {
     let map_tag = boot_info.memory_map_tag().unwrap();
-    print!("\n[ OK ] Kernel Init Done, Entered Rust 64-Bit Mode\n");
+    log!(
+        crate::io::LogType::OK,
+        "Kernel Init Done, Entered Rust 64-Bit Mode"
+    );
 
     let elf_sections = boot_info.elf_sections().unwrap();
     let kernel_start = elf_sections
@@ -238,13 +242,18 @@ pub fn init(boot_info: &BootInformation) {
     let multiboot_start = boot_info.start_address();
     let multiboot_end = multiboot_start + (boot_info.total_size() as usize);
 
-    print!(
-        "[ OK ] Identified kernel at start: 0x{:x} end: 0x{:x}\n",
-        kernel_start, kernel_end
+    log!(
+        crate::io::LogType::OK,
+        "Identified kernel at start: 0x{:x} end: 0x{:x}",
+        kernel_start,
+        kernel_end
     );
-    print!(
-        "[ OK ] Identified multiboot info at start: 0x{:x} end: 0x{:x}\n",
-        multiboot_start, multiboot_end
+
+    log!(
+        crate::io::LogType::OK,
+        "Identified multiboot info at start: 0x{:x} end: 0x{:x}",
+        multiboot_start,
+        multiboot_end
     );
 
     // memory
@@ -256,7 +265,7 @@ pub fn init(boot_info: &BootInformation) {
     let mem_areas = map_tag.memory_areas();
     let memory_end = mem_areas[mem_areas.len() - 2].end_address();
 
-    print!("[ OK ] Memory end: 0x{:x}\n", memory_end);
+    log!(crate::io::LogType::OK, "Memory end: 0x{:x}", memory_end);
 
     let mut allocator = SimplePageFrameAllocator::new(multiboot_end as usize, memory_end as usize);
 

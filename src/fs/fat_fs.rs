@@ -9,11 +9,11 @@ use alloc::{
 };
 use spin::{Mutex, RwLock};
 
+use crate::log;
 use crate::{
     ahci::port::AHCIPort,
     fs::fat::{Fat32ExtendedBootSector, FatBootSector},
     mem::Region,
-    print,
 };
 
 use super::{
@@ -37,7 +37,7 @@ impl Directory for FATDirectory {
         let fs = match self.fs.upgrade() {
             Some(f) => f,
             None => {
-                print!("[ ROOTFS ] Failed to upgrade weak\n");
+                log!(crate::io::LogType::ROOTFS, "Failed to upgrade weak");
                 panic!()
             }
         };
@@ -276,7 +276,7 @@ impl FATFileSystem {
 
         let buffer = unsafe { alloc(layout) };
         if buffer.is_null() {
-            print!("[ FS ] Filesystem read buffer is null\n");
+            log!(crate::io::LogType::FS, "Filesystem read buffer is null");
             panic!();
         }
 
@@ -284,7 +284,7 @@ impl FATFileSystem {
 
         let status = self.port.read(dir_sector, num_sectors, buffer);
         if !status {
-            print!("[ FS ] ERROR: Cannot cluster {}!\n", cluster);
+            log!(crate::io::LogType::FS, "ERROR: Cannot cluster {}!", cluster);
             None
         } else {
             let region = Region::from(buffer, buffer_size);
@@ -307,7 +307,7 @@ fn read_boot_sector(port: &mut AHCIPort) -> Option<(FatBootSector, Fat32Extended
 
     let status = port.read(0, 1, buffer);
     if !status {
-        print!("[ FS ] Failed to read FAT32 Boot Sector\n");
+        log!(crate::io::LogType::FS, "Failed to read FAT32 Boot Sector");
         None
     } else {
         let bs = unsafe { &*(buffer as *const FatBootSector) };
@@ -317,8 +317,13 @@ fn read_boot_sector(port: &mut AHCIPort) -> Option<(FatBootSector, Fat32Extended
         let bs_32 = unsafe { &*(buffer.add(bs_size) as *const Fat32ExtendedBootSector) };
         let version = bs_32.fat_version;
 
-        print!("[ FS ] Bytes per sector: {}\n", bytes_per_sector);
-        print!("[ FS ] FAT version: {}\n", version);
+        log!(
+            crate::io::LogType::FS,
+            "Bytes per sector: {}",
+            bytes_per_sector
+        );
+
+        log!(crate::io::LogType::FS, "FAT version: {}", version);
 
         let bs = unsafe { core::ptr::read(bs) };
         let bs_32 = unsafe { core::ptr::read(bs_32) };
@@ -349,14 +354,17 @@ fn read_fat(
 
     unsafe { core::ptr::write_bytes(buffer, 0, fat_size_bytes) }
 
-    print!(
-        "[ FS ] Reading fat with, start = 0x{:x}, sectors = 0x{:x}, buffer addr: 0x{:X}\n",
-        fat_start, sectors_per_fat, buffer as usize
+    log!(
+        crate::io::LogType::FS,
+        "Reading fat with, start = 0x{:x}, sectors = 0x{:x}, buffer addr: 0x{:X}",
+        fat_start,
+        sectors_per_fat,
+        buffer as usize
     );
 
     let status = port.read(fat_start, 1, buffer);
     if !status {
-        print!("[ FS ] Failed to read FAT\n");
+        log!(crate::io::LogType::FS, "Failed to read FAT");
         None
     } else {
         let num_fat_entries = fat_size_bytes / core::mem::size_of::<u32>();

@@ -4,6 +4,7 @@ use alloc::{sync::Arc, vec::Vec};
 use process::{Process, ProcessEntry};
 use spin::Mutex;
 
+use crate::log;
 use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
@@ -277,6 +278,6 @@ pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
 }
 
 pub fn enable() {
-    print!("[ SCHED ] Enabled Scheduling!\n\n");
+    log!(crate::io::LogType::SCHED, "Enabled Scheduling!");
     SCHEDULING_ENABLED.store(true, Ordering::SeqCst);
 }

@@ -2,13 +2,13 @@ use alloc::vec::Vec;
 use hba::{HBAMemory, HBAPort};
 use port::AHCIPort;
 
+use crate::log;
 use crate::{
     arch::x86_64::acpi::{
         acpi_mapping,
         pci::{PciDevice, PciDeviceHeaderType0},
     },
     mem::PAGE_SIZE,
-    print,
 };
 
 mod fis;
@@ -41,8 +41,9 @@ pub fn probe_ports(abar: &'static HBAMemory) -> Vec<AHCIPort> {
     let mut ports: Vec<AHCIPort> = Vec::new();
 
     let max_slots = ((abar.cap & 0x1F) as u32) + 1;
-    print!(
-        "[ AHCI ] Number of HBA command slots available: {}\n",
+    log!(
+        crate::io::LogType::AHCI,
+        "Number of HBA command slots available: {}",
         max_slots
     );
 

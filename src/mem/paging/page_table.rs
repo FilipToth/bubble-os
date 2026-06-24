@@ -1,3 +1,4 @@
+use crate::log;
 use crate::{
     mem::{
         paging::{
@@ -305,8 +306,9 @@ impl PageTable {
     }
 
     pub fn inspect_page(&mut self, page: Page, temp_mapper: &mut TempMapper) {
-        print!(
-            "Dumping page table info for page (0x{:X})\n",
+        log!(
+            crate::io::LogType::MEM,
+            "Dumping page table info for page (0x{:X})",
             page.start_address()
         );
 
@@ -314,8 +316,9 @@ impl PageTable {
         let p4_index = page.p4_index();
         let p4_e = &self.entries()[p4_index];
         let p4_e_addr = p4_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!(
-            "P4-{}, pointing to: 0x{:X}, flags: {:?}\n",
+        log!(
+            crate::io::LogType::MEM,
+            "P4-{}, pointing to: 0x{:X}, flags: {:?}",
             p4_index,
             p4_e_addr,
             p4_e.flags()
@@ -329,8 +332,9 @@ impl PageTable {
         let p3_index = page.p3_index();
         let p3_e = &pml3.entries()[p3_index];
         let p3_e_addr = p3_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!(
-            "P3-{}, pointing to: 0x{:X}, flags: {:?}\n",
+        log!(
+            crate::io::LogType::MEM,
+            "P3-{}, pointing to: 0x{:X}, flags: {:?}",
             p4_index,
             p3_e_addr,
             p3_e.flags()
@@ -344,8 +348,9 @@ impl PageTable {
         let p2_index = page.p2_index();
         let p2_e = &pml2.entries()[p2_index];
         let p2_e_addr = p2_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!(
-            "P2-{}, pointing to: 0x{:X}, flags: {:?}\n",
+        log!(
+            crate::io::LogType::MEM,
+            "P2-{}, pointing to: 0x{:X}, flags: {:?}",
             p2_index,
             p2_e_addr,
             p2_e.flags()
@@ -358,12 +363,14 @@ impl PageTable {
         let p1_index = page.p1_index();
         let p1_e = &pml1.entries()[p1_index];
         let p1_e_addr = p1_e.get_frame().map(|f| f.start_address()).unwrap_or(0);
-        print!(
-            "P1-{}, mapping: 0x{:X}, flags: {:?}\n",
+        log!(
+            crate::io::LogType::MEM,
+            "P1-{}, mapping: 0x{:X}, flags: {:?}",
             p1_index,
             p1_e_addr,
             p1_e.flags()
         );
+
     }
 
     fn entries_mut(&mut self) -> &'static mut PageTableEntries {
@@ -404,7 +411,11 @@ impl PageTable {
             }
         } else {
             // allocate new mapped table
-            print!("[ MEM ] Allocating new page table page frame\n");
+            log!(
+                crate::io::LogType::MEM,
+                "Allocating new page table page frame"
+            );
+
             let slot = slot_alloc.alloc(pf_alloc, temp_mapper).unwrap();
 
             // the following contains a call to `translate_to_phys`,

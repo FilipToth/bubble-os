@@ -1,20 +1,27 @@
+#![allow(dead_code)]
+
 use core::{
     ops::Add,
     ptr::{read_volatile, write_volatile},
 };
 
-use x86_64::{structures::idt::InterruptStackFrame};
+use x86_64::structures::idt::InterruptStackFrame;
 
+use crate::log;
 use crate::{
     arch::{
         self,
-        x86_64::{acpi::pci::{BarType, PciDevice, PciDeviceHeaderType0}, idt::IRQ0, pit::end_of_interrupt},
+        x86_64::{
+            acpi::pci::{BarType, PciDevice, PciDeviceHeaderType0},
+            idt::IRQ0,
+            pit::end_of_interrupt,
+        },
     },
     mem::{
-        GLOBAL_MEMORY_CONTROLLER, PageFrame, paging::{Page, entry::EntryFlags}
+        paging::{entry::EntryFlags, Page},
+        PageFrame, GLOBAL_MEMORY_CONTROLLER,
     },
-    net::{ETH_DRIVER, dma_ptr::DMAPtr},
-    print,
+    net::{dma_ptr::DMAPtr, ETH_DRIVER},
 };
 
 // https://pdos.csail.mit.edu/6.828/2019/readings/hardware/8254x_GBe_SDM.pdf
@@ -120,11 +127,16 @@ impl E1000Driver {
         let header = unsafe { &mut *(addr as *mut PciDeviceHeaderType0) };
 
         let bar0_type = header.get_bar_type(0).unwrap();
-        print!("[ ETH ] vendor id: 0x{:X}\n", header.subsystem_vendor_id);
-        print!("[ ETH ] bar0: {:#?}\n", bar0_type);
+        log!(
+            crate::io::LogType::ETH,
+            "vendor id: 0x{:X}",
+            header.subsystem_vendor_id
+        );
+
+        log!(crate::io::LogType::ETH, "bar0: {:#?}", bar0_type);
 
         let bar_size = unsafe { header.probe_bar_size(0) }.unwrap();
-        print!("[ ETH ] bar0 size: 0x{:X}\n", bar_size);
+        log!(crate::io::LogType::ETH, "bar0 size: 0x{:X}", bar_size);
 
         let addr = match bar0_type {
             BarType::IO { address } => address as usize,
@@ -155,7 +167,7 @@ impl E1000Driver {
     pub fn start(&mut self) {
         let eeprom_exists = self.detect_eeprom();
         self.eeprom_exists = eeprom_exists;
-        print!("[ ETH ] Is EEPROM: {}\n", eeprom_exists);
+        log!(crate::io::LogType::ETH, "Is EEPROM: {}", eeprom_exists);
 
         let mac = self.read_mac_address().unwrap();
         self.print_mac(mac);
@@ -184,15 +196,19 @@ impl E1000Driver {
         self.enable_interrupt();
 
         let rctl = self.read_command(REG_RCTRL);
-        print!("[ ETH ] RCTL: 0x{:X}\n", rctl);
+        log!(crate::io::LogType::ETH, "RCTL: 0x{:X}", rctl);
 
-        print!("[ ETH ] Up!\n");
+        log!(crate::io::LogType::ETH, "Up!");
     }
 
     #[allow(dead_code)]
     pub fn poll(&self, print_all: bool) -> bool {
         if self.rx_descs.is_null() {
-            print!("[ ETH ] Rx Descriptor Table Pointer is null\n");
+            log!(
+                crate::io::LogType::ETH,
+                "Rx Descriptor Table Pointer is null"
+            );
+
             return false;
         }
 
@@ -203,9 +219,13 @@ impl E1000Driver {
             let errors = unsafe { core::ptr::read_volatile(core::ptr::addr_of!((*ptr).errors)) };
 
             if status & 0x1 != 0 || print_all {
-                print!(
-                    "[ ETH ] RX Buffer ({}), status: 0x{:X}, len: 0x{:X}, errors: 0x{:X}\n",
-                    i, status, length, errors
+                log!(
+                    crate::io::LogType::ETH,
+                    "RX Buffer ({}), status: 0x{:X}, len: 0x{:X}, errors: 0x{:X}",
+                    i,
+                    status,
+                    length,
+                    errors
                 );
 
                 if !print_all {
@@ -225,17 +245,23 @@ impl E1000Driver {
             let prc64 = self.read_command(REG_PRC64);
             let prc127 = self.read_command(REG_PRC127);
 
-            print!(
-                "[ ETH ] STATUS: 0x{:X}, TRP: 0x{:X}, MPC: 0x{:X}, PRC64: 0x{:X}, PRC127: 0x{:X}\n",
-                status, trp, mpc, prc64, prc127
+            log!(
+                crate::io::LogType::ETH,
+                "STATUS: 0x{:X}, TRP: 0x{:X}, MPC: 0x{:X}, PRC64: 0x{:X}, PRC127: 0x{:X}",
+                status,
+                trp,
+                mpc,
+                prc64,
+                prc127
             );
+
         }
 
         return false;
     }
 
     fn start_rx(&mut self) -> bool {
-        print!("[ ETH ] Starting ETH RX\n");
+        log!(crate::io::LogType::ETH, "Starting ETH RX");
         let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
         let mc = mc.as_mut().unwrap();
 
@@ -395,18 +421,17 @@ impl E1000Driver {
     }
 
     fn print_mac(&self, mac: [u8; 6]) {
-        print!("[ ETH ] Mac Address: ");
+        log!(
+            crate::io::LogType::ETH,
+            "Mac Address: {:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
+            mac[0],
+            mac[1],
+            mac[2],
+            mac[3],
+            mac[4],
+            mac[5]
+        );
 
-        for i in 0..mac.len() {
-            let m = mac[i];
-            print!("{:X}", m);
-
-            if i != mac.len() - 1 {
-                print!(":")
-            }
-        }
-
-        print!("\n");
     }
 
     fn send_command(&self, p_address: usize, p_value: u32) {
@@ -435,8 +460,8 @@ impl E1000Driver {
 
     fn handle_rx(&self) {
         let icr = self.read_command(REG_ICR);
-        
-        print!("[ ETH ] Received RX, icr: 0x{:X}\n", icr);
+
+        log!(crate::io::LogType::ETH, "Received RX, icr: 0x{:X}", icr);
 
         self.poll(true);
     }

@@ -8,7 +8,8 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::{mem::GLOBAL_MEMORY_CONTROLLER, print};
+use crate::log;
+use crate::mem::GLOBAL_MEMORY_CONTROLLER;
 
 pub struct Selectors {
     tss: SegmentSelector,
@@ -65,7 +66,7 @@ fn alloc_ist_stack() -> u64 {
     match mc.alloc_stack(16, false) {
         Some(s) => s.top as u64,
         None => {
-            print!("[ ERR ] Couldn't allocate IST stack!\n");
+            log!(crate::io::LogType::ERR, "Couldn't allocate IST stack!");
             panic!();
         }
     }

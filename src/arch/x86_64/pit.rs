@@ -1,4 +1,5 @@
-use crate::{io::io, print};
+use crate::io::io;
+use crate::log;
 
 pub const PIT_FREQUENCY: usize = 1193182;
 pub const PIT_HZ: usize = 100;
@@ -26,7 +27,11 @@ pub fn end_of_interrupt(irq: u8) {
 
 pub fn init_pit() {
     let divisor = PIT_FREQUENCY / PIT_HZ;
-    print!("[ OK ] Initialized PIT, divisor: {}\n", divisor);
+    log!(
+        crate::io::LogType::OK,
+        "Initialized PIT, divisor: {}",
+        divisor
+    );
 
     unsafe {
         io::outb(PIT_CMD_PORT, 0x36);

@@ -1,5 +1,6 @@
 use alloc::format;
 
+use crate::log;
 use crate::{arch::x86_64::registers::FullInterruptStackFrame, print};
 
 pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
@@ -16,7 +17,7 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
                 file_descriptor, buffer_addr, buffer_size
             );
 
-            print!("{}\n{:?}\n", msg, e);
+            log!(crate::io::LogType::ERR, "{}\n{:?}", msg, e);
             return Some(0);
         }
     };
