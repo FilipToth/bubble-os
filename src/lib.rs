@@ -120,6 +120,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let port = ports.remove(0);
     fs::init(port);
 
+    /*
     let ethernet = devices
         .get_device(PciDeviceClass::EthernetController)
         .unwrap();
@@ -127,27 +128,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     let mut eth = net::init(ethernet);
     eth.start();
     net::load(eth);
-
-    loop {}
-
-    let mut i: usize = 0;
-    loop {
-        let print_all = if i % 1_000_000 == 0 {
-            i = 1;
-            print!("\n");
-            true
-        } else {
-            false
-        };
-
-        if eth.poll(print_all) {
-            break;
-        }
-
-        i += 1;
-    }
-
-    loop {}
+    */
 
     let shell_binary = {
         with_root_dir!(root, {

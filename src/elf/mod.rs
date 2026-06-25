@@ -13,11 +13,42 @@ use crate::{
 
 mod loader;
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct ElfProgramHeaderFlags: u32 {
+        const NONE = 0;
+        const PF_X = 1;
+        const PF_W = 1 << 1;
+        const PF_R = 1 << 2;
+    }
+}
+
+impl ElfProgramHeaderFlags {
+    pub fn to_entry_flags(self) -> EntryFlags {
+        let mut flags = EntryFlags::empty();
+
+        if !self.is_empty() {
+            flags |= EntryFlags::RING3_ACCESSIBLE;
+        }
+
+        if self.contains(ElfProgramHeaderFlags::PF_W) {
+            flags |= EntryFlags::WRITABLE;
+        }
+
+        if !self.contains(ElfProgramHeaderFlags::PF_X) {
+            flags |= EntryFlags::NO_EXECUTE;
+        }
+
+        flags
+    }
+}
+
 /// Linked List of ELF Mapped Memory Regions
 #[derive(Clone)]
 pub struct ElfRegion {
     pub region: Region,
     pub next: Option<Arc<Mutex<ElfRegion>>>,
+    pub flags: ElfProgramHeaderFlags,
 
     /// A buffer to copy the ELF sections from when loading
     /// into virtual memory. Only useful for the ELF loader.
@@ -55,10 +86,16 @@ impl Iterator for ElfRegionIterator {
 }
 
 impl ElfRegion {
-    pub fn new(region: Region, next: Option<Arc<Mutex<ElfRegion>>>, origin_buffer: Region) -> Self {
+    pub fn new(
+        region: Region,
+        next: Option<Arc<Mutex<ElfRegion>>>,
+        origin_buffer: Region,
+        flags: ElfProgramHeaderFlags,
+    ) -> Self {
         ElfRegion {
             region: region,
             next: next,
+            flags: flags,
             origin_buffer: origin_buffer,
         }
     }
@@ -103,7 +140,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         let start_page = Page::for_address(addr);
         let end_page = Page::for_address(addr + size);
 
-        let flags = EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE;
+        let flags = region.flags.to_entry_flags();
         ring3_table.map_range(
             start_page,
             end_page,

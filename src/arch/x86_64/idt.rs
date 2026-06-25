@@ -78,10 +78,9 @@ extern "x86-interrupt" fn syscall_trampoline() {
 
 #[no_mangle]
 extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
-    let syscall_number: usize;
-    unsafe { core::arch::asm!("", lateout("rax") syscall_number) };
-
     let stack = unsafe { &mut *stack };
+    let syscall_number = stack.rax;
+
     let rax = match syscall_number {
         1 => syscall::exit(),
         2 => syscall::write(stack),

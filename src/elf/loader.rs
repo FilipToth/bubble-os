@@ -3,7 +3,7 @@ use spin::Mutex;
 
 use crate::{mem::Region, scheduling::process::ProcessEntry};
 
-use super::ElfRegion;
+use super::{ElfProgramHeaderFlags, ElfRegion};
 
 #[repr(C)]
 /// Represents a 32-bit ELF Header.
@@ -60,10 +60,11 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Arc<Mutex<E
         let ph_file_addr = ph_file_src as usize;
         let ph_file_size = entry.file_size as usize;
         let ph_file_region = Region::new(ph_file_addr, ph_file_size);
+        let flags = ElfProgramHeaderFlags::from_bits_retain(entry.flags);
 
         // construct ELF region structure
         let mem_region = Region::new(addr, size - 1);
-        let elf_region = ElfRegion::new(mem_region, None, ph_file_region);
+        let elf_region = ElfRegion::new(mem_region, None, ph_file_region, flags);
         let elf_region = Arc::new(Mutex::new(elf_region));
 
         match &mut last_region {
