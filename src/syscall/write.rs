@@ -1,15 +1,25 @@
 use alloc::format;
 
 use crate::log;
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, print};
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, print, scheduling,
+    scheduling::process::Process,
+};
 
 pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
     let file_descriptor = stack.rdi;
     let buffer_addr = stack.rsi;
     let buffer_size = stack.rdx;
 
-    let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
-    let string = match core::str::from_utf8(slice) {
+    let Some(page_table) = scheduling::get_current_process_page_table() else {
+        return Some(0);
+    };
+
+    let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
+        return Some(0);
+    };
+
+    let string = match core::str::from_utf8(&buffer) {
         Ok(s) => s,
         Err(e) => {
             let msg = format!(

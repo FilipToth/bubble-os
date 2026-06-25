@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, scheduling};
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
+};
 
 /// Simplified version of the FAT directory entry
 #[repr(C)]
@@ -13,6 +15,9 @@ struct SyscallDirEntry {
 pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let max_items = stack.rsi;
+    let Some(page_table) = scheduling::get_current_process_page_table() else {
+        return Some(0);
+    };
 
     let cwd = scheduling::get_current_cwd();
     let entries = cwd.list_dir();
@@ -37,6 +42,7 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .take(max_items)
         .collect();
 
+    let remaining_items = max_items.saturating_sub(directory_entries.len());
     let file_entries: Vec<SyscallDirEntry> = entries
         .1
         .iter()
@@ -54,20 +60,14 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
                 size: 0,
             }
         })
-        .take(max_items)
+        .take(remaining_items)
         .collect();
 
     directory_entries.extend(file_entries);
 
-    // write entries into supplied entries buffer
-    let mut buffer_ptr = buffer_addr as *mut SyscallDirEntry;
     let num_entries = directory_entries.len();
-
-    for entry in directory_entries.iter() {
-        unsafe {
-            core::ptr::copy(entry as *const SyscallDirEntry, buffer_ptr, 1);
-            buffer_ptr = buffer_ptr.add(1);
-        }
+    if Process::copy_slice_to_user(&page_table, buffer_addr, &directory_entries).is_none() {
+        return Some(0);
     }
 
     Some(num_entries)

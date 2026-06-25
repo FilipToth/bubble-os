@@ -254,7 +254,6 @@ impl E1000Driver {
                 prc64,
                 prc127
             );
-
         }
 
         return false;
@@ -431,7 +430,6 @@ impl E1000Driver {
             mac[4],
             mac[5]
         );
-
     }
 
     fn send_command(&self, p_address: usize, p_value: u32) {

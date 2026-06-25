@@ -265,6 +265,48 @@ impl PageTable {
         pml1.get_frame(p1_index)
     }
 
+    /// Walks every PML1 entry touched by a virtual address range.
+    ///
+    /// ## Arguments
+    ///
+    /// - `addr` the start virtual address of the range
+    /// - `size` the size of the range in bytes
+    /// - `temp_mapper` a reference to the global temporary page mapping manager
+    /// - `callback` a callback that receives each virtual page and its PML1 entry
+    ///
+    /// ## Returns
+    /// Some if the entire range was walked successfully, None if any page table
+    /// level is missing, the range overflows, or the callback rejects an entry.
+    pub fn walk_range_entries<F>(
+        &self,
+        addr: usize,
+        size: usize,
+        temp_mapper: &mut TempMapper,
+        mut callback: F,
+    ) -> Option<()>
+    where
+        F: FnMut(Page, &PageTableEntry) -> Option<()>,
+    {
+        if size == 0 {
+            return Some(());
+        }
+
+        let end_addr = addr.checked_add(size - 1)?;
+        let start_page = Page::for_address(addr);
+        let end_page = Page::for_address(end_addr);
+
+        for page in Page::range(start_page, end_page) {
+            let pml3 = self.next_table_temp(page.p4_index(), temp_mapper)?;
+            let pml2 = pml3.next_table_temp(page.p3_index(), temp_mapper)?;
+            let pml1 = pml2.next_table_temp(page.p2_index(), temp_mapper)?;
+            let entry = &pml1.entries()[page.p1_index()];
+
+            callback(page, entry)?;
+        }
+
+        Some(())
+    }
+
     /// Creates a temporary next-level page table. Only valid until the temporary page
     /// mapping changes, only use when in control of temporary page state!
     ///
@@ -370,7 +412,6 @@ impl PageTable {
             p1_e_addr,
             p1_e.flags()
         );
-
     }
 
     fn entries_mut(&mut self) -> &'static mut PageTableEntries {

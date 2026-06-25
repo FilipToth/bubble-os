@@ -1,13 +1,23 @@
 use alloc::format;
 
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, print, scheduling};
+use crate::log;
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
+};
 
 pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
-    let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
-    let path = match core::str::from_utf8(slice) {
+    let Some(page_table) = scheduling::get_current_process_page_table() else {
+        return Some(0);
+    };
+
+    let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
+        return Some(0);
+    };
+
+    let path = match core::str::from_utf8(&buffer) {
         Ok(f) => f,
         Err(e) => {
             let msg = format!(
@@ -15,7 +25,7 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
                 buffer_addr, buffer_size
             );
 
-            print!("{}\n{:?}\n", msg, e);
+            log!(crate::io::LogType::SYS, "{}\n{:?}", msg, e);
             return Some(0);
         }
     };

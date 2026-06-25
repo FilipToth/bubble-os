@@ -9,7 +9,7 @@ use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
     fs::fs::Directory,
-    mem::GLOBAL_MEMORY_CONTROLLER,
+    mem::{paging::PageTable, GLOBAL_MEMORY_CONTROLLER},
     print, with_root_dir,
 };
 
@@ -256,6 +256,14 @@ pub fn get_current_cwd() -> Arc<dyn Directory> {
 
         cwd.clone()
     }
+}
+
+pub fn get_current_process_page_table() -> Option<PageTable> {
+    let processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get(current_index)?;
+
+    current_process.ring3_page_table.clone()
 }
 
 pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {

@@ -1,14 +1,24 @@
 use alloc::format;
 
 use crate::log;
-use crate::{arch::x86_64::registers::FullInterruptStackFrame, elf, scheduling};
+use crate::{
+    arch::x86_64::registers::FullInterruptStackFrame, elf, scheduling, scheduling::process::Process,
+};
 
 pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
-    let slice = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, buffer_size) };
-    let path = match core::str::from_utf8(slice) {
+    let Some(page_table) = scheduling::get_current_process_page_table() else {
+        return Some(0);
+    };
+
+    let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
+        log!(crate::io::LogType::ERR, "Failed to copy user pointer");
+        return Some(0);
+    };
+
+    let path = match core::str::from_utf8(&buffer) {
         Ok(f) => f,
         Err(e) => {
             let msg = format!(
@@ -22,7 +32,9 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     };
 
     let cwd = scheduling::get_current_cwd();
-    let file = cwd.find_file_recursive(path)?;
+    let Some(file) = cwd.find_file_recursive(path) else {
+        return Some(0);
+    };
 
     // read file
     let region = {
@@ -31,8 +43,6 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     };
 
     let elf_entry = elf::load(region)?;
-
     let pid = scheduling::deploy(elf_entry, true);
     Some(pid)
-    // Some(0)
 }
