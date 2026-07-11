@@ -1,4 +1,5 @@
 /target
+userspace/*/target
 /build
 .img
 

@@ -1,4 +1,4 @@
-.PHONY: all sample sample2 shell ls cat prepare
+.PHONY: all sample sample2 tempshell shell ls cat prepare
 
 all: prepare sample sample2 shell ls cat
 
@@ -14,9 +14,13 @@ sample2:
 	nasm -f elf64 sample2/main.s -o obj/sample2.o
 	ld -T sample2/linker.ld -m elf_x86_64 obj/sample2.o -o bin/sample2.elf
 
+tempshell:
+	nasm -f elf64 tempshell/shell.s -o obj/tempshell.o
+	ld -T tempshell/linker.ld -m elf_x86_64 obj/tempshell.o -o bin/tshell.elf
+
 shell:
-	nasm -f elf64 shell/shell.s -o obj/shell.o
-	ld -T shell/linker.ld -m elf_x86_64 obj/shell.o -o bin/shell.elf
+	cargo rustc --manifest-path shell/Cargo.toml -Z build-std=core --target shell/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
+	cp shell/target/x86_64-bubble-userspace/release/shell bin/shell.elf
 
 ls:
 	nasm -f elf64 ls/ls.s -o obj/ls.o
