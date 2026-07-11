@@ -1,12 +1,12 @@
-use core::{mem::size_of, ptr};
+use core::{cmp::min, mem::size_of, ptr};
 
 use alloc::{sync::Arc, vec::Vec};
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     elf::ElfRegion,
-    fs::fs::Directory,
+    fs::fs::{Directory, File},
     mem::{
         paging::{entry::EntryFlags, PageTable},
         Stack, GLOBAL_MEMORY_CONTROLLER,
@@ -24,6 +24,23 @@ pub struct Process {
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
     pub stack: Stack,
     pub ring3_page_table: Option<PageTable>,
+    pub fd_table: Vec<Option<FileDescriptor>>,
+}
+
+#[derive(Clone)]
+pub enum FileDescriptor {
+    Stdin,
+    Stdout,
+    Stderr,
+    File(OpenFile),
+}
+
+#[derive(Clone)]
+pub struct OpenFile {
+    pub file: Arc<RwLock<dyn File>>,
+    pub offset: usize,
+    pub readable: bool,
+    pub writable: bool,
 }
 
 impl Process {
@@ -41,6 +58,86 @@ impl Process {
             curr_working_dir: cwd,
             stack: entry.stack.unwrap(),
             ring3_page_table: entry.ring3_page_table,
+            fd_table: Self::standard_fd_table(),
+        }
+    }
+
+    fn standard_fd_table() -> Vec<Option<FileDescriptor>> {
+        let mut fd_table = Vec::new();
+        fd_table.push(Some(FileDescriptor::Stdin));
+        fd_table.push(Some(FileDescriptor::Stdout));
+        fd_table.push(Some(FileDescriptor::Stderr));
+
+        fd_table
+    }
+
+    pub fn open_file(
+        &mut self,
+        file: Arc<RwLock<dyn File>>,
+        readable: bool,
+        writable: bool,
+    ) -> usize {
+        let descriptor = Some(FileDescriptor::File(OpenFile {
+            file: file,
+            offset: 0,
+            readable: readable,
+            writable: writable,
+        }));
+
+        for fd in 3..self.fd_table.len() {
+            if self.fd_table[fd].is_none() {
+                self.fd_table[fd] = descriptor.clone();
+                return fd;
+            }
+        }
+
+        self.fd_table.push(descriptor);
+        self.fd_table.len() - 1
+    }
+
+    pub fn close_fd(&mut self, fd: usize) -> bool {
+        if fd < 3 || fd >= self.fd_table.len() {
+            return false;
+        }
+
+        self.fd_table[fd] = None;
+        true
+    }
+
+    pub fn get_fd(&self, fd: usize) -> Option<&FileDescriptor> {
+        self.fd_table.get(fd)?.as_ref()
+    }
+
+    pub fn read_fd(&mut self, fd: usize, size: usize) -> Option<Vec<u8>> {
+        let descriptor = self.fd_table.get_mut(fd)?.as_mut()?;
+        match descriptor {
+            FileDescriptor::File(open_file) => {
+                if !open_file.readable {
+                    return None;
+                }
+
+                let file = open_file.file.read();
+                let file_region = file.read()?;
+                let file_bytes = file_region.as_slice();
+
+                if open_file.offset >= file_bytes.len() {
+                    return Some(Vec::new());
+                }
+
+                let requested_end = open_file
+                    .offset
+                    .checked_add(size)
+                    .unwrap_or(file_bytes.len());
+                let end = min(requested_end, file_bytes.len());
+                let bytes = &file_bytes[open_file.offset..end];
+                open_file.offset = end;
+
+                let mut buffer = Vec::with_capacity(bytes.len());
+                buffer.extend_from_slice(bytes);
+
+                Some(buffer)
+            }
+            _ => None,
         }
     }
 

@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::{sync::Arc, vec::Vec};
-use process::{Process, ProcessEntry};
+use process::{FileDescriptor, Process, ProcessEntry};
 use spin::Mutex;
 
 use crate::log;
@@ -166,17 +166,27 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     PID_COUNTER.store(pid + 1, Ordering::SeqCst);
 
     let mut processes = PROCESSES.lock();
-    let cwd = if fork_current && processes.len() != 0 {
+    let parent_state = if fork_current && processes.len() != 0 {
         // basically fork the cwd from calling process
         let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
         let current = &processes[current_index];
-        current.curr_working_dir.clone()
+        Some((current.curr_working_dir.clone(), current.fd_table.clone()))
+    } else {
+        None
+    };
+
+    let cwd = if let Some((cwd, _)) = &parent_state {
+        cwd.clone()
     } else {
         // root directory
         with_root_dir!(root, { root })
     };
 
     let mut process = Process::from(entry, pid, cwd);
+    if let Some((_, fd_table)) = parent_state {
+        process.fd_table = fd_table;
+    }
+
     let cs = GDT.1.user_code.0;
     let ss = GDT.1.user_data.0;
 
@@ -264,6 +274,43 @@ pub fn get_current_process_page_table() -> Option<PageTable> {
     let current_process = processes.get(current_index)?;
 
     current_process.ring3_page_table.clone()
+}
+
+pub fn get_current_file_descriptor(fd: usize) -> Option<FileDescriptor> {
+    let processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get(current_index)?;
+
+    current_process.get_fd(fd).cloned()
+}
+
+pub fn curr_process_open_file(path: &str, readable: bool, writable: bool) -> Option<usize> {
+    let cwd = get_current_cwd();
+    let file = cwd.find_file_recursive(path)?;
+
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    Some(current_process.open_file(file, readable, writable))
+}
+
+pub fn close_current_file_descriptor(fd: usize) -> bool {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let Some(current_process) = processes.get_mut(current_index) else {
+        return false;
+    };
+
+    current_process.close_fd(fd)
+}
+
+pub fn read_current_file_descriptor(fd: usize, size: usize) -> Option<Vec<u8>> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    current_process.read_fd(fd, size)
 }
 
 pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {

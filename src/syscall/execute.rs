@@ -1,3 +1,5 @@
+// syscall 4 - execute an ELF binary from the current working directory
+
 use alloc::format;
 
 use crate::log;

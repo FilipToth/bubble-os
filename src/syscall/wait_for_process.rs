@@ -1,3 +1,5 @@
+// syscall 6 - wait for a process to exit
+
 use crate::{arch::x86_64::registers::FullInterruptStackFrame, scheduling};
 
 pub fn wait_for_process(stack: &FullInterruptStackFrame) -> Option<usize> {

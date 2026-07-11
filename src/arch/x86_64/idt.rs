@@ -90,6 +90,8 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         6 => syscall::wait_for_process(stack),
         7 => syscall::read_dir(stack),
         8 => syscall::cd(stack),
+        9 => syscall::open(stack),
+        10 => syscall::close(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

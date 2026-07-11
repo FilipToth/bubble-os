@@ -1,6 +1,8 @@
 mod cd;
+mod close;
 mod execute;
 mod exit;
+mod open;
 mod read;
 mod read_dir;
 mod wait_for_process;
@@ -8,8 +10,10 @@ mod write;
 mod yld;
 
 pub use cd::cd;
+pub use close::close;
 pub use execute::execute;
 pub use exit::exit;
+pub use open::open;
 pub use read::read;
 pub use read_dir::read_dir;
 pub use wait_for_process::wait_for_process;

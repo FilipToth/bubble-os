@@ -1,3 +1,7 @@
+// syscall 7 - read current directory entries into a user buffer
+
+use core::mem::size_of;
+
 use alloc::vec::Vec;
 
 use crate::{
@@ -18,6 +22,14 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
     let Some(page_table) = scheduling::get_current_process_page_table() else {
         return Some(0);
     };
+
+    let Some(buffer_size) = max_items.checked_mul(size_of::<SyscallDirEntry>()) else {
+        return Some(0);
+    };
+
+    if !Process::can_process_pointer(&page_table, buffer_addr, buffer_size, true) {
+        return Some(0);
+    }
 
     let cwd = scheduling::get_current_cwd();
     let entries = cwd.list_dir();

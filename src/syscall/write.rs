@@ -1,9 +1,12 @@
+// syscall 2 - write bytes to a file descriptor
+
 use alloc::format;
 
 use crate::log;
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, print, scheduling,
-    scheduling::process::Process,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    print, scheduling,
+    scheduling::process::{FileDescriptor, Process},
 };
 
 pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
@@ -32,13 +35,12 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    match file_descriptor {
-        1 => {
-            // stdout write
+    match scheduling::get_current_file_descriptor(file_descriptor) {
+        Some(FileDescriptor::Stdout) | Some(FileDescriptor::Stderr) => {
             print!("{}", string);
+            Some(buffer.len())
         }
-        _ => {}
+        Some(FileDescriptor::File(_)) => Some(0),
+        _ => Some(0),
     }
-
-    Some(0)
 }

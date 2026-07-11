@@ -42,6 +42,7 @@ input_loop:
 
     ; wait for user input
     mov rax, 0x03
+    mov rdi, 0x00
     int 0x80
 
     ; check if char is enter

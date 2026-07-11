@@ -1,4 +1,4 @@
-// syscall 8 - change the current working directory
+// syscall 9 - open a regular file descriptor
 
 use alloc::format;
 
@@ -7,7 +7,7 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
 };
 
-pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn open(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
@@ -20,10 +20,10 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
     };
 
     let path = match core::str::from_utf8(&buffer) {
-        Ok(f) => f,
+        Ok(p) => p.trim(),
         Err(e) => {
             let msg = format!(
-                "Invalid string for change directory syscall, rdi: 0x{:X}, rsi: 0x{:X}\n",
+                "Invalid string for open syscall, rdi: 0x{:X}, rsi: 0x{:X}\n",
                 buffer_addr, buffer_size
             );
 
@@ -32,11 +32,5 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    let path = path.trim();
-
-    let cwd = scheduling::get_current_cwd();
-    let new_dir = cwd.find_directory_recursive(path)?;
-    scheduling::change_cwd(new_dir);
-
-    None
+    scheduling::curr_process_open_file(path, true, false)
 }
