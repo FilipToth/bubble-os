@@ -2,13 +2,14 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::{sync::Arc, vec::Vec};
 use process::{FileDescriptor, Process, ProcessEntry};
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::log;
 use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
-    fs::fs::Directory,
+    fs::fs::{normalize_path_components, Directory, File},
+    io::LogType,
     mem::{paging::PageTable, GLOBAL_MEMORY_CONTROLLER},
     print, with_root_dir,
 };
@@ -97,7 +98,14 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
                     current.context = interrupt_stack.clone();
                 }
             }
-            None => {}
+            None => {
+                log!(
+                    LogType::ERR,
+                    "schedule: current index {} out of bounds, process count {}",
+                    current_index,
+                    processes_len
+                );
+            }
         };
     }
 
@@ -149,10 +157,38 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
     // switch to user page table
     {
         let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-        let mc = mc.as_mut().unwrap();
+        let Some(mc) = mc.as_mut() else {
+            log!(
+                LogType::ERR,
+                "schedule: memory controller is not initialized"
+            );
 
-        let ring3_page_table = process_to_jump.ring3_page_table.unwrap();
-        mc.switch_table(&ring3_page_table);
+            unsafe { core::arch::asm!("sti") };
+            loop {}
+        };
+
+        let Some(ring3_page_table) = process_to_jump.ring3_page_table else {
+            log!(
+                LogType::ERR,
+                "schedule: pid {} has no ring3 page table",
+                process_to_jump.pid
+            );
+
+            unsafe { core::arch::asm!("sti") };
+            loop {}
+        };
+
+        if mc.switch_table(&ring3_page_table).is_none() {
+            log!(
+                LogType::ERR,
+                "schedule: failed to switch to pid {} page table 0x{:X}",
+                process_to_jump.pid,
+                ring3_page_table.addr
+            );
+
+            unsafe { core::arch::asm!("sti") };
+            loop {}
+        }
 
         // drop memory controller ref
         // and kernel page table ref
@@ -169,7 +205,18 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     let parent_state = if fork_current && processes.len() != 0 {
         // basically fork the cwd from calling process
         let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-        let current = &processes[current_index];
+        let Some(current) = processes.get(current_index) else {
+            log!(
+                LogType::ERR,
+                "deploy: current index {} out of bounds while forking pid {}, process count {}",
+                current_index,
+                pid,
+                processes.len()
+            );
+
+            return 0;
+        };
+
         Some((current.curr_working_dir.clone(), current.fd_table.clone()))
     } else {
         None
@@ -182,7 +229,16 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         with_root_dir!(root, { root })
     };
 
-    let mut process = Process::from(entry, pid, cwd);
+    let Some(mut process) = Process::from(entry, pid, cwd) else {
+        log!(
+            LogType::ERR,
+            "deploy: failed to construct process pid {}",
+            pid
+        );
+
+        return 0;
+    };
+
     if let Some((_, fd_table)) = parent_state {
         process.fd_table = fd_table;
     }
@@ -196,6 +252,7 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     process.context.rsp = process.stack.top;
 
     processes.push(process);
+
     pid
 }
 
@@ -229,6 +286,24 @@ pub fn current_wait_for_process(subprocess: usize) {
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
     if processes.len() == 0 {
+        log!(
+            LogType::ERR,
+            "wait_for_process: no processes while waiting for pid {}",
+            subprocess
+        );
+
+        return;
+    }
+
+    if current_index >= processes.len() {
+        log!(
+            LogType::ERR,
+            "wait_for_process: current index {} out of bounds, process count {}, waiting for pid {}",
+            current_index,
+            processes.len(),
+            subprocess
+        );
+
         return;
     }
 
@@ -240,9 +315,38 @@ pub fn current_wait_for_process(subprocess: usize) {
 pub fn exit_current() {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    if processes.len() == 0 {
+        log!(LogType::ERR, "exit_current: no processes to exit");
+        return;
+    }
+
+    if current_index >= processes.len() {
+        log!(
+            LogType::ERR,
+            "exit_current: current index {} out of bounds, process count {}",
+            current_index,
+            processes.len()
+        );
+
+        return;
+    }
+
     let removed = processes.remove(current_index);
 
     elf::unmap(&removed.start_region);
+
+    {
+        let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
+        if let Some(mc) = mc.as_mut() {
+            mc.free_stack(&removed.stack);
+        } else {
+            log!(
+                LogType::ERR,
+                "exit_current: memory controller is not initialized while freeing pid {} stack",
+                removed.pid
+            );
+        }
+    }
 
     // adjust current process index
     let new_index = if current_index != 0 {
@@ -284,9 +388,63 @@ pub fn get_current_file_descriptor(fd: usize) -> Option<FileDescriptor> {
     current_process.get_fd(fd).cloned()
 }
 
+pub fn find_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
+    if let Some(path) = path.strip_prefix("~/") {
+        with_root_dir!(root, {
+            let components = normalize_path_components(path);
+            root.find_file_components(&components)
+        })
+    } else if let Some(path) = path.strip_prefix('/') {
+        with_root_dir!(root, {
+            let components = normalize_path_components(path);
+            root.find_file_components(&components)
+        })
+    } else {
+        let cwd = get_current_cwd();
+        let components = normalize_path_components(path);
+        cwd.find_file_components(&components)
+    }
+}
+
+pub fn find_directory_from_path(path: &str) -> Option<Arc<dyn Directory>> {
+    if path == "/" || path == "~" {
+        with_root_dir!(root, {
+            let root: Arc<dyn Directory> = root;
+            Some(root)
+        })
+    } else if let Some(path) = path.strip_prefix("~/") {
+        with_root_dir!(root, {
+            let components = normalize_path_components(path);
+            if components.is_empty() {
+                let root: Arc<dyn Directory> = root;
+                Some(root)
+            } else {
+                root.find_directory_components(&components)
+            }
+        })
+    } else if let Some(path) = path.strip_prefix('/') {
+        with_root_dir!(root, {
+            let components = normalize_path_components(path);
+            if components.is_empty() {
+                let root: Arc<dyn Directory> = root;
+                Some(root)
+            } else {
+                root.find_directory_components(&components)
+            }
+        })
+    } else {
+        let cwd = get_current_cwd();
+        let components = normalize_path_components(path);
+        if components.is_empty() {
+            Some(cwd)
+        } else {
+            cwd.find_directory_components(&components)
+        }
+    }
+}
+
 pub fn curr_process_open_file(path: &str, readable: bool, writable: bool) -> Option<usize> {
-    let cwd = get_current_cwd();
-    let file = cwd.find_file_recursive(path)?;
+    let file = find_file_from_path(path)?;
 
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);

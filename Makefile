@@ -69,6 +69,7 @@ disk:
 
 	mmd -i $(disk_path) ::res
 	mmd -i $(disk_path) ::res/dir
+	mmd -i $(disk_path) ::bin
 
 	@for file in $(resources); do \
 		echo $$(basename $$file); \
@@ -77,7 +78,7 @@ disk:
 
 	@for file in $(user_binaries); do \
 		echo $$(basename $$file); \
-		mcopy -i $(disk_path) "$$file" ::$$(basename $$file); \
+		mcopy -i $(disk_path) "$$file" ::bin/$$(basename $$file); \
 	done
 
 userspace:

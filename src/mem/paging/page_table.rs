@@ -198,7 +198,7 @@ impl PageTable {
     /// - `page` the page to be unmapped
     /// - `temp_mapper` a reference to the
     /// global temporary page mapping manager
-    pub fn unmap(&mut self, page: Page, temp_mapper: &mut TempMapper) -> Option<()> {
+    pub fn unmap(&mut self, page: Page, temp_mapper: &mut TempMapper) -> Option<PageFrame> {
         let p4_index = page.p4_index();
         let pml3 = self.next_table_temp(p4_index, temp_mapper)?;
 
@@ -210,9 +210,10 @@ impl PageTable {
 
         let p1_index = page.p1_index();
         let entry = &mut pml1.entries_mut()[p1_index];
+        let frame = entry.get_frame()?;
         entry.set_to_unused();
 
-        Some(())
+        Some(frame)
     }
 
     /// Checks whether a page has already been mapped.
@@ -452,10 +453,13 @@ impl PageTable {
             }
         } else {
             // allocate new mapped table
+
+            /*
             log!(
                 crate::io::LogType::MEM,
                 "Allocating new page table page frame"
             );
+            */
 
             let slot = slot_alloc.alloc(pf_alloc, temp_mapper).unwrap();
 

@@ -7,6 +7,8 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     elf::ElfRegion,
     fs::fs::{Directory, File},
+    io::LogType,
+    log,
     mem::{
         paging::{entry::EntryFlags, PageTable},
         Stack, GLOBAL_MEMORY_CONTROLLER,
@@ -44,11 +46,33 @@ pub struct OpenFile {
 }
 
 impl Process {
-    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>) -> Process {
+    pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>) -> Option<Process> {
         let mut context = FullInterruptStackFrame::empty();
         context.rip = entry.entry;
 
-        Process {
+        let Some(stack) = entry.stack else {
+            log!(
+                LogType::ERR,
+                "process_from: missing stack for pid {}, entry: 0x{:X}",
+                pid,
+                entry.entry
+            );
+
+            return None;
+        };
+
+        if entry.ring3_page_table.is_none() {
+            log!(
+                LogType::ERR,
+                "process_from: missing ring3 page table for pid {}, entry: 0x{:X}",
+                pid,
+                entry.entry
+            );
+
+            return None;
+        }
+
+        Some(Process {
             pid: pid,
             pre_schedule: true,
             blocking: false,
@@ -56,10 +80,10 @@ impl Process {
             context: context,
             start_region: entry.start_region,
             curr_working_dir: cwd,
-            stack: entry.stack.unwrap(),
+            stack: stack,
             ring3_page_table: entry.ring3_page_table,
             fd_table: Self::standard_fd_table(),
-        }
+        })
     }
 
     fn standard_fd_table() -> Vec<Option<FileDescriptor>> {

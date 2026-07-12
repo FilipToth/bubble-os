@@ -40,6 +40,7 @@ pub type PhysicalAddress = usize;
 pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::new(None);
 
 pub const PAGE_TABLE_REGION_START: usize = 0x0000_6BCF_0000_0000;
+const STACK_ALLOCATOR_PAGES: usize = 4096;
 
 pub struct MemoryController {
     pub active_table: PageTable,
@@ -157,8 +158,25 @@ impl MemoryController {
         let table = &mut self.active_table;
 
         for page in Page::range(start, end) {
-            table.unmap(page, temp_mapper);
+            if let Some(frame) = table.unmap(page, temp_mapper) {
+                self.frame_allocator.free(frame);
+            }
         }
+    }
+
+    pub fn free_stack(&mut self, stack: &Stack) {
+        if stack.top <= stack.bottom {
+            return;
+        }
+
+        unsafe {
+            core::ptr::write_bytes(stack.bottom as *mut u8, 0, stack.top - stack.bottom);
+        }
+
+        let start = Page::for_address(stack.bottom);
+        let end = Page::for_address(stack.top - 1);
+        self.unmap(start, end);
+        self.stack_allocator.free(stack);
     }
 
     /// Clones the kernel base page table, keeping all
@@ -315,7 +333,7 @@ pub fn init(boot_info: &BootInformation) {
 
     let stack_allocator = {
         let stack_start = heap_end + 1;
-        let stack_end = stack_start + 100;
+        let stack_end = stack_start + (STACK_ALLOCATOR_PAGES - 1);
         let stack_range = Page::range(stack_start, stack_end);
 
         StackAllocator::new(stack_range)

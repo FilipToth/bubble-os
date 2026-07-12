@@ -1,17 +1,18 @@
-use alloc::sync::Arc;
-use spin::Mutex;
-use x86_64::structures::paging::page;
-
 use crate::{
+    io::LogType,
+    log,
     mem::{
         paging::{entry::EntryFlags, Page},
-        Region, GLOBAL_MEMORY_CONTROLLER,
+        MemoryController, Region, GLOBAL_MEMORY_CONTROLLER,
     },
-    print,
     scheduling::process::ProcessEntry,
 };
+use alloc::sync::Arc;
+use spin::Mutex;
 
 mod loader;
+
+const USER_STACK_PAGES: usize = 32;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,13 +104,32 @@ impl ElfRegion {
 
 pub fn unmap(start_region: &Arc<Mutex<ElfRegion>>) {
     let mut mem_controller = GLOBAL_MEMORY_CONTROLLER.lock();
-    let mem_controller = mem_controller.as_mut().unwrap();
+    let Some(mem_controller) = mem_controller.as_mut() else {
+        log!(
+            LogType::ERR,
+            "elf_unmap: memory controller is not initialized"
+        );
+        return;
+    };
 
+    unmap_regions_from_active_table(mem_controller, start_region);
+}
+
+fn unmap_regions_from_active_table(
+    mem_controller: &mut MemoryController,
+    start_region: &Arc<Mutex<ElfRegion>>,
+) {
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
         let region = region.lock();
-        let ptr = region.region.get_ptr::<u8>();
-        unsafe { core::ptr::write_bytes(ptr, 0, region.region.size) };
+        if region.region.size == 0 {
+            continue;
+        }
+
+        unsafe {
+            let ptr = region.region.get_ptr::<u8>();
+            core::ptr::write_bytes(ptr, 0, region.region.size);
+        }
 
         let start_page = Page::for_address(region.region.addr);
         let end_page = Page::for_address((region.region.addr + region.region.size - 1) as usize);
@@ -119,15 +139,35 @@ pub fn unmap(start_region: &Arc<Mutex<ElfRegion>>) {
 }
 
 pub fn load(elf: Region) -> Option<ProcessEntry> {
-    let mut entry = loader::load(elf)?;
+    let Some(mut entry) = loader::load(elf) else {
+        log!(LogType::ERR, "elf_load: loader::load failed");
+        return None;
+    };
+
     let start_region = entry.start_region.clone();
 
     let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
-    let mc = mc.as_mut().unwrap();
+    let Some(mc) = mc.as_mut() else {
+        log!(
+            LogType::ERR,
+            "elf_load: memory controller is not initialized"
+        );
+        return None;
+    };
 
-    let mut ring3_table = mc.clone_kernel_table()?;
+    let Some(mut ring3_table) = mc.clone_kernel_table() else {
+        log!(LogType::ERR, "elf_load: failed to clone kernel page table");
+        return None;
+    };
+
     let Some(prev_table) = mc.switch_table(&ring3_table) else {
-        panic!("Cannot switch to new page table clone on ELF load!\n");
+        log!(
+            LogType::ERR,
+            "elf_load: failed to switch to new ring3 table 0x{:X}",
+            ring3_table.addr
+        );
+
+        return None;
     };
 
     let iter = ElfRegionIterator::from(start_region.clone());
@@ -138,7 +178,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         let size = region.region.size;
 
         let start_page = Page::for_address(addr);
-        let end_page = Page::for_address(addr + size);
+        let end_page = Page::for_address(addr + size - 1);
 
         let flags = region.flags.to_entry_flags();
         ring3_table.map_range(
@@ -151,12 +191,14 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         );
 
         // inspect mapped pages
+        /*
         print!("\n");
 
         for page in Page::range(start_page, end_page) {
             ring3_table.inspect_page(page, &mut mc.temp_mapper);
             print!("\n");
         }
+        */
     }
 
     // load elf regions
@@ -170,6 +212,20 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
         let ph_file_size = region.origin_buffer.size;
         let size = region.region.size;
+
+        if ph_file_size > size {
+            log!(
+                LogType::ERR,
+                "elf_load: refusing copy where file bytes exceed region size, dst: 0x{:X}, file_size: 0x{:X}, region_size: 0x{:X}",
+                region.region.addr,
+                ph_file_size,
+                size
+            );
+
+            unmap_regions_from_active_table(mc, &start_region);
+            mc.switch_table(&prev_table);
+            return None;
+        }
 
         unsafe {
             core::ptr::copy_nonoverlapping(ph_file_src, destination_ptr, ph_file_size);
@@ -185,17 +241,30 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
     }
 
     // allocate stack
-    let stack = mc.stack_allocator.alloc(
+    let Some(stack) = mc.stack_allocator.alloc(
         &mut ring3_table,
         &mut mc.frame_allocator,
         &mut mc.slot_allocator,
         &mut mc.temp_mapper,
-        10,
+        USER_STACK_PAGES,
         EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE,
-    )?;
+    ) else {
+        log!(LogType::ERR, "elf_load: failed to allocate user stack");
+        unmap_regions_from_active_table(mc, &start_region);
+        mc.switch_table(&prev_table);
+        return None;
+    };
 
     // Switch back to root table
-    mc.switch_table(&prev_table);
+    if mc.switch_table(&prev_table).is_none() {
+        log!(
+            LogType::ERR,
+            "elf_load: failed to switch back to previous table 0x{:X}",
+            prev_table.addr
+        );
+
+        return None;
+    }
 
     entry.ring3_page_table = Some(ring3_table);
     entry.stack = Some(stack);

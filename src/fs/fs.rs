@@ -32,52 +32,33 @@ pub trait Directory: DirectoryClone + Send + Sync {
     }
 
     fn find_directory_recursive(&self, path: &str) -> Option<Arc<dyn Directory>> {
-        let (next, rest) = match path.find('/') {
-            Some(pos) => {
-                let (next, rest) = path.split_at(pos);
-                (next, Some(&rest[1..]))
-            }
-            None => (path, None),
-        };
+        let components = normalize_path_components(path);
+        self.find_directory_components(&components)
+    }
 
-        // resolve next
-        let items = self.list_dir();
-        let next = items.0.iter().find(|d| d.name() == next)?;
+    fn find_directory_components(&self, components: &[&str]) -> Option<Arc<dyn Directory>> {
+        let (next, rest) = components.split_first()?;
+        let next = self.find_directory(next)?;
 
-        match rest {
-            Some(rest) => next.find_directory_recursive(rest),
-            None => {
-                // last part of the path
-                Some(next.clone())
-            }
+        if rest.is_empty() {
+            Some(next)
+        } else {
+            next.find_directory_components(rest)
         }
     }
 
     fn find_file_recursive(&self, path: &str) -> Option<Arc<RwLock<dyn File>>> {
-        let (next, rest) = match path.find('/') {
-            Some(pos) => {
-                let (next, rest) = path.split_at(pos);
-                (next, Some(&rest[1..]))
-            }
-            None => (path, None),
-        };
+        let components = normalize_path_components(path);
+        self.find_file_components(&components)
+    }
 
-        // resolve next
-        let items = self.list_dir();
-        match rest {
-            Some(rest) => {
-                let next = items.0.iter().find(|d| d.name() == next)?;
-                next.find_file_recursive(rest)
-            }
-            None => {
-                // last part of the path
-                let file = items.1.iter().find(|f| {
-                    let f_guard = f.read();
-                    f_guard.name() == next
-                })?;
-
-                Some(file.clone())
-            }
+    fn find_file_components(&self, components: &[&str]) -> Option<Arc<RwLock<dyn File>>> {
+        let (next, rest) = components.split_first()?;
+        if rest.is_empty() {
+            self.find_file(next)
+        } else {
+            let next = self.find_directory(next)?;
+            next.find_file_components(rest)
         }
     }
 }
@@ -132,4 +113,23 @@ impl<'a> Clone for Box<dyn 'a + File> {
 
 pub fn combine_path(p1: &str, p2: &str) -> String {
     p1.to_string() + "/" + p2
+}
+
+pub fn normalize_path_components(path: &str) -> Vec<&str> {
+    let mut components = Vec::new();
+
+    for component in path.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => match components.last() {
+                Some(&"..") | None => components.push(component),
+                Some(_) => {
+                    components.pop();
+                }
+            },
+            _ => components.push(component),
+        }
+    }
+
+    components
 }

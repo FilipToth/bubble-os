@@ -28,15 +28,23 @@ pub fn cd(stack: &FullInterruptStackFrame) -> Option<usize> {
             );
 
             log!(crate::io::LogType::SYS, "{}\n{:?}", msg, e);
+
             return Some(0);
         }
     };
 
     let path = path.trim();
+    if path.is_empty() {
+        return Some(0);
+    }
 
-    let cwd = scheduling::get_current_cwd();
-    let new_dir = cwd.find_directory_recursive(path)?;
+    let new_dir = scheduling::find_directory_from_path(path);
+
+    let Some(new_dir) = new_dir else {
+        return Some(0);
+    };
+
     scheduling::change_cwd(new_dir);
 
-    None
+    Some(1)
 }

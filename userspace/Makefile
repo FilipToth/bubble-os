@@ -19,7 +19,7 @@ tempshell:
 	ld -T tempshell/linker.ld -m elf_x86_64 obj/tempshell.o -o bin/tshell.elf
 
 shell:
-	cargo rustc --manifest-path shell/Cargo.toml -Z build-std=core --target shell/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
+	cargo rustc --manifest-path shell/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target shell/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
 	cp shell/target/x86_64-bubble-userspace/release/shell bin/shell.elf
 
 ls:

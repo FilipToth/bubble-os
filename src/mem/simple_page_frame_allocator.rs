@@ -1,9 +1,12 @@
+use alloc::vec::Vec;
+
 use super::{PageFrame, PageFrameAllocator, PAGE_SIZE};
 
 pub struct SimplePageFrameAllocator {
     frame_head: PageFrame,
     // mem_start: PageFrame,
     mem_end: PageFrame,
+    free_frames: Vec<PageFrame>,
 }
 
 impl SimplePageFrameAllocator {
@@ -15,12 +18,17 @@ impl SimplePageFrameAllocator {
             frame_head: start_frame,
             // mem_start: start_frame,
             mem_end: end_frame,
+            free_frames: Vec::new(),
         }
     }
 }
 
 impl PageFrameAllocator for SimplePageFrameAllocator {
     fn falloc(&mut self) -> Option<PageFrame> {
+        if let Some(frame) = self.free_frames.pop() {
+            return Some(frame);
+        }
+
         let end_addr = self.mem_end.start_address();
         let head_addr = self.frame_head.start_address();
 
@@ -33,7 +41,7 @@ impl PageFrameAllocator for SimplePageFrameAllocator {
         Some(next_frame)
     }
 
-    fn free(&mut self, _frame: PageFrame) {
-        todo!()
+    fn free(&mut self, frame: PageFrame) {
+        self.free_frames.push(frame);
     }
 }

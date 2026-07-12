@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use spin::Mutex;
 
-use crate::{mem::Region, scheduling::process::ProcessEntry};
+use crate::{io::LogType, log, mem::Region, scheduling::process::ProcessEntry};
 
 use super::{ElfProgramHeaderFlags, ElfRegion};
 
@@ -38,7 +38,23 @@ struct ElfProgramHeader64 {
     align: u64,
 }
 
-fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Arc<Mutex<ElfRegion>>> {
+fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRegion>>> {
+    let elf_ptr = elf.get_ptr::<u8>();
+    let ph_table_size = (header.ph_num as usize).checked_mul(header.ph_entry_size as usize)?;
+    let ph_table_end = (header.ph_offset as usize).checked_add(ph_table_size)?;
+    if ph_table_end > elf.size {
+        log!(
+            LogType::ERR,
+            "elf_loader: PH table out of file bounds, ph_offset: 0x{:X}, ph_num: {}, ph_entry_size: {}, elf_size: 0x{:X}",
+            header.ph_offset,
+            header.ph_num,
+            header.ph_entry_size,
+            elf.size
+        );
+
+        return None;
+    }
+
     let ph_ptr = unsafe { elf_ptr.add(header.ph_offset as usize) };
     let mut start_region: Option<Arc<Mutex<ElfRegion>>> = None;
     let mut last_region: Option<Arc<Mutex<ElfRegion>>> = None;
@@ -55,6 +71,40 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Arc<Mutex<E
 
         let addr = entry.virt_addr as usize;
         let size = entry.memory_size as usize;
+        if size == 0 {
+            log!(
+                LogType::ERR,
+                "elf_loader: LOAD ph {} has zero memory size",
+                i
+            );
+            return None;
+        }
+
+        if entry.file_size > entry.memory_size {
+            log!(
+                LogType::ERR,
+                "elf_loader: LOAD ph {} has file_size > memory_size, file_size: 0x{:X}, mem_size: 0x{:X}",
+                i,
+                entry.file_size,
+                entry.memory_size
+            );
+
+            return None;
+        }
+
+        let ph_file_end = (entry.offset as usize).checked_add(entry.file_size as usize)?;
+        if ph_file_end > elf.size {
+            log!(
+                LogType::ERR,
+                "elf_loader: LOAD ph {} file range out of bounds, offset: 0x{:X}, file_size: 0x{:X}, elf_size: 0x{:X}",
+                i,
+                entry.offset,
+                entry.file_size,
+                elf.size
+            );
+
+            return None;
+        }
 
         let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
         let ph_file_addr = ph_file_src as usize;
@@ -83,8 +133,17 @@ fn load_ph_headers(header: &ElfHeader64, elf_ptr: *mut u8) -> Option<Arc<Mutex<E
 }
 
 pub fn load(elf: Region) -> Option<ProcessEntry> {
+    if elf.size < core::mem::size_of::<ElfHeader64>() {
+        log!(
+            LogType::ERR,
+            "elf_loader: file too small for ELF header, size: 0x{:X}",
+            elf.size
+        );
+
+        return None;
+    }
+
     let header = unsafe { &*(elf.addr as *const ElfHeader64) };
-    let elf_type = header.elf_type;
 
     // vibe check magic :D
     let magic = ((header.ident[0] as u32) << 24)
@@ -93,18 +152,28 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         | (header.ident[3] as u32);
 
     if magic != 0x7f454c46 {
+        log!(
+            LogType::ERR,
+            "elf_loader: invalid magic 0x{:X}, elf_addr: 0x{:X}, elf_size: 0x{:X}",
+            magic,
+            elf.addr,
+            elf.size
+        );
+
         return None;
     }
 
     // TODO: Do further ELF validation
 
-    let ptr = elf.get_ptr();
-    let start_region = load_ph_headers(header, ptr);
+    let Some(start_region) = load_ph_headers(header, &elf) else {
+        log!(LogType::ERR, "elf_loader: failed to load program headers");
+        return None;
+    };
 
     let entry = header.entry_addr as usize;
     Some(ProcessEntry {
         entry: entry,
-        start_region: start_region.unwrap(),
+        start_region: start_region,
         ring3_page_table: None,
         stack: None,
     })
