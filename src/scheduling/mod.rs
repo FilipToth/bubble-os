@@ -341,6 +341,7 @@ pub fn exit_current() {
             mc.free_stack(&removed.stack);
 
             if let Some(page_table) = &removed.ring3_page_table {
+                page_table.free_user_subtables(&mut mc.slot_allocator, &mut mc.temp_mapper);
                 mc.slot_allocator.free(page_table.addr);
             } else {
                 log!(
@@ -398,6 +399,14 @@ pub fn get_current_file_descriptor(fd: usize) -> Option<FileDescriptor> {
     current_process.get_fd(fd).cloned()
 }
 
+/// Finds a file from either an absolute path or the current process cwd.
+///
+/// ## Arguments
+///
+/// - `path` the file path to resolve
+///
+/// ## Returns
+/// The file if it exists.
 pub fn find_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
     if let Some(path) = path.strip_prefix("~/") {
         with_root_dir!(root, {
@@ -416,6 +425,14 @@ pub fn find_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
     }
 }
 
+/// Finds a directory from either an absolute path or the current process cwd.
+///
+/// ## Arguments
+///
+/// - `path` the directory path to resolve
+///
+/// ## Returns
+/// The directory if it exists.
 pub fn find_directory_from_path(path: &str) -> Option<Arc<dyn Directory>> {
     if path == "/" || path == "~" {
         with_root_dir!(root, {

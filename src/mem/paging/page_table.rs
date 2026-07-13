@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::log;
 use crate::{
     mem::{
@@ -214,6 +216,77 @@ impl PageTable {
         entry.set_to_unused();
 
         Some(frame)
+    }
+
+    /// Frees all user-accessible child page table slots under this page table.
+    ///
+    /// This only walks entries marked as ring 3 accessible, so cloned kernel
+    /// page table branches are ignored.
+    ///
+    /// ## Arguments
+    ///
+    /// - `slot_allocator` the allocator that owns the page table slots
+    /// - `temp_mapper` a reference to the global temporary page mapping manager
+    pub fn free_user_subtables(
+        &self,
+        slot_allocator: &mut PageTableSlotAllocator,
+        temp_mapper: &mut TempMapper,
+    ) {
+        let mut table_frames = Vec::new();
+
+        for p4_index in 0..512 {
+            let p4_entry = self.entries()[p4_index].clone();
+            if !Self::is_user_table_entry(&p4_entry) {
+                continue;
+            }
+
+            let Some(pml3_frame) = p4_entry.get_frame() else {
+                continue;
+            };
+
+            table_frames.push(pml3_frame.clone());
+            let pml3 = PageTable::new(temp_mapper.set(pml3_frame));
+            let pml3_entries = pml3.entries().to_vec();
+
+            for pml3_entry in pml3_entries {
+                if !Self::is_user_table_entry(&pml3_entry) {
+                    continue;
+                }
+
+                let Some(pml2_frame) = pml3_entry.get_frame() else {
+                    continue;
+                };
+
+                table_frames.push(pml2_frame.clone());
+                let pml2 = PageTable::new(temp_mapper.set(pml2_frame));
+                let pml2_entries = pml2.entries().to_vec();
+
+                for pml2_entry in pml2_entries {
+                    if !Self::is_user_table_entry(&pml2_entry) {
+                        continue;
+                    }
+
+                    let Some(pml1_frame) = pml2_entry.get_frame() else {
+                        continue;
+                    };
+
+                    table_frames.push(pml1_frame);
+                }
+            }
+        }
+
+        for frame in table_frames {
+            if let Some(addr) = slot_allocator.addr_for_frame(frame, temp_mapper) {
+                slot_allocator.free(addr);
+            }
+        }
+    }
+
+    fn is_user_table_entry(entry: &PageTableEntry) -> bool {
+        let flags = entry.flags();
+        flags.contains(EntryFlags::PRESENT)
+            && flags.contains(EntryFlags::RING3_ACCESSIBLE)
+            && !flags.contains(EntryFlags::HUGE_PAGE)
     }
 
     /// Checks whether a page has already been mapped.

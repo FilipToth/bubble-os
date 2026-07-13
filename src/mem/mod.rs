@@ -164,6 +164,14 @@ impl MemoryController {
         }
     }
 
+    /// Frees a stack that was allocated through the stack allocator.
+    ///
+    /// The stack memory is zeroed before its mapped pages are unmapped and
+    /// its virtual range is returned to the stack allocator.
+    ///
+    /// ## Arguments
+    ///
+    /// - `stack` the stack range to be freed
     pub fn free_stack(&mut self, stack: &Stack) {
         if stack.top <= stack.bottom {
             return;

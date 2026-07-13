@@ -165,6 +165,14 @@ impl Process {
         }
     }
 
+    /// Checks whether a user pointer range is mapped with the required access.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address of the range
+    /// - `size` the size of the range in bytes
+    /// - `writable` whether the range must be writable
     pub fn validate_user_pointer(
         page_table: &PageTable,
         addr: usize,
@@ -188,6 +196,14 @@ impl Process {
             .is_some()
     }
 
+    /// Checks whether a user pointer range can be accessed by a syscall.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address of the range
+    /// - `size` the size of the range in bytes
+    /// - `writable` whether the range must be writable
     pub fn can_process_pointer(
         page_table: &PageTable,
         addr: usize,
@@ -197,6 +213,16 @@ impl Process {
         Self::validate_user_pointer(page_table, addr, size, writable)
     }
 
+    /// Copies bytes from a validated user memory range into kernel memory.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address to copy from
+    /// - `size` the number of bytes to copy
+    ///
+    /// ## Returns
+    /// A kernel-owned byte buffer if the user range is readable.
     pub fn copy_from_user(page_table: &PageTable, addr: usize, size: usize) -> Option<Vec<u8>> {
         if !Self::validate_user_pointer(page_table, addr, size, false) {
             return None;
@@ -213,6 +239,13 @@ impl Process {
         Some(buffer)
     }
 
+    /// Copies bytes from kernel memory into a validated user memory range.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address to copy into
+    /// - `bytes` the bytes to copy
     pub fn copy_to_user(page_table: &PageTable, addr: usize, bytes: &[u8]) -> Option<()> {
         if !Self::validate_user_pointer(page_table, addr, bytes.len(), true) {
             return None;
@@ -229,6 +262,13 @@ impl Process {
         Some(())
     }
 
+    /// Copies a single value into a validated user memory range.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address to copy into
+    /// - `value` the value to copy
     pub fn copy_value_to_user<T>(page_table: &PageTable, addr: usize, value: &T) -> Option<()> {
         let size = size_of::<T>();
         if size == 0 {
@@ -241,6 +281,13 @@ impl Process {
         Self::copy_to_user(page_table, addr, bytes)
     }
 
+    /// Copies a slice of values into a validated user memory range.
+    ///
+    /// ## Arguments
+    ///
+    /// - `page_table` the process page table to validate against
+    /// - `addr` the start virtual address to copy into
+    /// - `values` the values to copy
     pub fn copy_slice_to_user<T>(page_table: &PageTable, addr: usize, values: &[T]) -> Option<()> {
         let size = size_of::<T>().checked_mul(values.len())?;
 

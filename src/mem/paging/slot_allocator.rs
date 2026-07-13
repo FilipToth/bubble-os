@@ -7,7 +7,7 @@ use crate::{
             temp_mapper::TempMapper,
             Page, PageTable,
         },
-        PageFrameAllocator, PAGE_SIZE, PAGE_TABLE_REGION_START,
+        PageFrame, PageFrameAllocator, PAGE_SIZE, PAGE_TABLE_REGION_START,
     },
     print,
 };
@@ -25,6 +25,8 @@ pub struct PageTableSlotAllocator {
     // true if we've already switched to our page table
     pub init_done: bool,
 
+    pub allocated_page_tables: usize,
+
     free_slots: Vec<usize>,
 }
 
@@ -37,6 +39,7 @@ impl PageTableSlotAllocator {
             last_pml1_slot: 0,
             pml2_addr: 0,
             init_done: false,
+            allocated_page_tables: 0,
             free_slots: Vec::new(),
         }
     }
@@ -51,6 +54,7 @@ impl PageTableSlotAllocator {
                     core::ptr::write_bytes(addr as *mut u8, 0, PAGE_SIZE);
                 }
 
+                self.allocated_page_tables += 1;
                 return Some(addr);
             }
         }
@@ -76,9 +80,15 @@ impl PageTableSlotAllocator {
 
         // TODO: Think about whether we can just return this address...
 
+        self.allocated_page_tables += 1;
         Some(addr)
     }
 
+    /// Returns a page table slot to the allocator for reuse.
+    ///
+    /// ## Arguments
+    ///
+    /// - `addr` the virtual address of the page table slot to free
     pub fn free(&mut self, addr: usize) {
         if !self.init_done {
             return;
@@ -94,6 +104,35 @@ impl PageTableSlotAllocator {
         }
 
         self.free_slots.push(addr);
+        self.allocated_page_tables = self.allocated_page_tables.saturating_sub(1);
+    }
+
+    /// Finds the virtual page table slot that maps to a physical frame.
+    ///
+    /// ## Arguments
+    ///
+    /// - `frame` the physical page frame backing a page table
+    /// - `temp_mapper` a reference to the global temporary page mapping manager
+    ///
+    /// ## Returns
+    /// The virtual address of the page table slot if it is managed by this
+    /// allocator.
+    pub fn addr_for_frame(&self, frame: PageFrame, temp_mapper: &mut TempMapper) -> Option<usize> {
+        let target_addr = frame.start_address();
+        let mut pml4 = self.get_pml4();
+
+        for slot in 0..self.last_pml1_slot {
+            let addr = self.region_start + (slot * PAGE_SIZE);
+            let Some(slot_frame) = pml4.translate_to_phys(addr, temp_mapper) else {
+                continue;
+            };
+
+            if slot_frame.start_address() == target_addr {
+                return Some(addr);
+            }
+        }
+
+        None
     }
 
     pub fn alloc_master_table<A>(&mut self, pf_alloc: &mut A) -> (PageTable, TempMapper)
@@ -108,6 +147,7 @@ impl PageTableSlotAllocator {
 
         self.last_pml1_slot += 1;
         self.first_phys_frame = frame.start_address();
+        self.allocated_page_tables += 1;
 
         // TODO: This is very very very bad code, but just create a temporary
         // temp_mapper that will not get called, because this is a physical-

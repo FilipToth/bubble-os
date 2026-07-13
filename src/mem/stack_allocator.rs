@@ -85,6 +85,11 @@ impl StackAllocator {
         }
     }
 
+    /// Returns a stack virtual address range to the allocator for reuse.
+    ///
+    /// ## Arguments
+    ///
+    /// - `stack` the stack range to free
     pub fn free(&mut self, stack: &Stack) {
         if stack.bottom < PAGE_SIZE || stack.top <= stack.bottom {
             return;

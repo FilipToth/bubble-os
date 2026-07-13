@@ -115,6 +115,17 @@ pub fn combine_path(p1: &str, p2: &str) -> String {
     p1.to_string() + "/" + p2
 }
 
+/// Normalizes a path into components.
+///
+/// Empty components and `.` are discarded, and `..` removes the previous
+/// component when possible.
+///
+/// ## Arguments
+///
+/// - `path` the path to normalize
+///
+/// ## Returns
+/// The normalized path components.
 pub fn normalize_path_components(path: &str) -> Vec<&str> {
     let mut components = Vec::new();
 
