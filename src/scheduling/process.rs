@@ -165,6 +165,24 @@ impl Process {
         }
     }
 
+    pub fn write_fd(&mut self, fd: usize, bytes: &[u8]) -> Option<usize> {
+        let descriptor = self.fd_table.get_mut(fd)?.as_mut()?;
+        match descriptor {
+            FileDescriptor::File(open_file) => {
+                if !open_file.writable {
+                    return None;
+                }
+
+                let file = open_file.file.write();
+                let bytes_written = file.write(open_file.offset, bytes)?;
+                open_file.offset += bytes_written;
+
+                Some(bytes_written)
+            }
+            _ => None,
+        }
+    }
+
     /// Checks whether a user pointer range is mapped with the required access.
     ///
     /// ## Arguments

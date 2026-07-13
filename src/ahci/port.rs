@@ -222,16 +222,13 @@ impl AHCIPort {
         self.send_command(command)
     }
 
-    pub fn write(&mut self, sector: usize, content: &str) -> bool {
-        let length = content.len();
-        let length = core::cmp::max(length, 511);
+    pub fn write_sector(&mut self, sector: usize, buffer: *const u8) -> bool {
+        self.write_sectors(sector, 1, buffer)
+    }
 
-        let layout = Layout::array::<u8>(length).unwrap();
-        let buffer = unsafe { alloc(layout) };
-
-        let bytes = content.as_bytes();
-        unsafe {
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, content.len());
+    pub fn write_sectors(&mut self, sector: usize, sector_count: usize, buffer: *const u8) -> bool {
+        if sector_count == 0 {
+            return false;
         }
 
         let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
@@ -245,11 +242,11 @@ impl AHCIPort {
 
         let command = AHCICommand {
             buffer_addr: buffer_phys,
-            data_byte_count: 512,
+            data_byte_count: (sector_count << 9) as u32,
             cmd: ATA_CMD_WRITE_DMA_EX,
             control: 1,
             lba: sector,
-            count: 1,
+            count: sector_count,
             write: true,
             is_lba_mode: true,
         };

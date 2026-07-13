@@ -498,6 +498,14 @@ pub fn read_current_file_descriptor(fd: usize, size: usize) -> Option<Vec<u8>> {
     current_process.read_fd(fd, size)
 }
 
+pub fn write_current_file_descriptor(fd: usize, bytes: &[u8]) -> Option<usize> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    current_process.write_fd(fd, bytes)
+}
+
 pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);

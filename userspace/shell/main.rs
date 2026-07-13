@@ -68,6 +68,17 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
+        if command.starts_with(b"write ") {
+            let bytes = trim_ascii_spaces(&command[6..]);
+            if ulib::write_existing_file(b"/res/resource.txt", bytes) {
+                ulib::stdout(b"Wrote to res/resource.txt\n");
+            } else {
+                ulib::stdout(b"Failed to write to res/resource.txt\n");
+            }
+
+            continue;
+        }
+
         if !launch(command) {
             ulib::stdout(b"Program or command not found...\n");
         }

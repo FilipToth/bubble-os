@@ -89,6 +89,22 @@ pub fn write(fd: usize, bytes: &[u8]) -> usize {
     unsafe { syscall3(SYS_WRITE, fd, bytes.as_ptr() as usize, bytes.len()) }
 }
 
+pub fn write_file(fd: usize, bytes: &[u8]) -> usize {
+    write(fd, bytes)
+}
+
+pub fn write_existing_file(path: &[u8], bytes: &[u8]) -> bool {
+    let fd = open(path);
+    if fd == 0 {
+        return false;
+    }
+
+    let bytes_written = write_file(fd, bytes);
+    close(fd);
+
+    bytes_written == bytes.len()
+}
+
 pub fn stdout(bytes: &[u8]) -> usize {
     write(STDOUT, bytes)
 }

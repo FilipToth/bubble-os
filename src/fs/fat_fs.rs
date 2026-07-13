@@ -1,4 +1,4 @@
-use core::alloc::Layout;
+use core::{alloc::Layout, cmp::min};
 
 use alloc::{
     alloc::{alloc, dealloc},
@@ -94,6 +94,12 @@ impl File for FATFile {
         let fs = self.fs.upgrade().unwrap();
         let mut fs_guard = fs.lock();
         fs_guard.read_file(&self.entry)
+    }
+
+    fn write(&self, offset: usize, bytes: &[u8]) -> Option<usize> {
+        let fs = self.fs.upgrade().unwrap();
+        let mut fs_guard = fs.lock();
+        fs_guard.write_existing_file(&self.entry, offset, bytes)
     }
 }
 
@@ -250,6 +256,77 @@ impl FATFileSystem {
         Some(region)
     }
 
+    fn write_existing_file(
+        &mut self,
+        file: &DirectoryEntry,
+        offset: usize,
+        bytes: &[u8],
+    ) -> Option<usize> {
+        if file.attributes != 32 {
+            return None;
+        }
+
+        let filesize = file.size as usize;
+        let end = offset.checked_add(bytes.len())?;
+        if end > filesize {
+            return None;
+        }
+
+        if bytes.is_empty() {
+            return Some(0);
+        }
+
+        let cluster_size =
+            (self.bs.bytes_per_sector as usize) * (self.bs.sectors_per_cluster as usize);
+        let mut cluster = file.get_cluster();
+        if cluster == 0 {
+            return None;
+        }
+
+        let mut cluster_offset = offset;
+        while cluster_offset >= cluster_size {
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset -= cluster_size;
+        }
+
+        let mut bytes_written = 0;
+        while bytes_written < bytes.len() {
+            let region = self.read_cluster(cluster)?;
+            let cluster_bytes = region.as_slice_mut();
+            let writable_bytes = min(bytes.len() - bytes_written, cluster_size - cluster_offset);
+
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    bytes.as_ptr().add(bytes_written),
+                    cluster_bytes.as_mut_ptr().add(cluster_offset),
+                    writable_bytes,
+                );
+            }
+
+            let status = self.write_cluster(cluster, region.get_ptr::<u8>());
+            let region_layout = region.construct_layout();
+            unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
+
+            if !status {
+                return if bytes_written == 0 {
+                    None
+                } else {
+                    Some(bytes_written)
+                };
+            }
+
+            bytes_written += writable_bytes;
+            if bytes_written == bytes.len() {
+                break;
+            }
+
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset = 0;
+        }
+
+        Some(bytes_written)
+    }
+
     fn read_directory_internal(
         &mut self,
         dir_cluster: usize,
@@ -290,6 +367,13 @@ impl FATFileSystem {
             let region = Region::from(buffer, buffer_size);
             Some(region)
         }
+    }
+
+    fn write_cluster(&mut self, cluster: usize, buffer: *const u8) -> bool {
+        let sector = self.get_sector(cluster);
+        let num_sectors = self.bs.sectors_per_cluster as usize;
+
+        self.port.write_sectors(sector, num_sectors, buffer)
     }
 }
 
@@ -362,7 +446,7 @@ fn read_fat(
         buffer as usize
     );
 
-    let status = port.read(fat_start, 1, buffer);
+    let status = port.read(fat_start, sectors_per_fat, buffer);
     if !status {
         log!(crate::io::LogType::FS, "Failed to read FAT");
         None

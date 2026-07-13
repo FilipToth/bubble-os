@@ -32,5 +32,5 @@ pub fn open(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    scheduling::curr_process_open_file(path, true, false)
+    scheduling::curr_process_open_file(path, true, true)
 }

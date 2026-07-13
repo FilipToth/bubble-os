@@ -88,6 +88,7 @@ pub trait File: FileClone + Send + Sync {
     fn name(&self) -> String;
     fn size(&self) -> usize;
     fn read(&self) -> Option<Region>;
+    fn write(&self, offset: usize, bytes: &[u8]) -> Option<usize>;
 }
 
 pub trait FileClone {

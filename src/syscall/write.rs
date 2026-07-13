@@ -22,25 +22,27 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
         return Some(0);
     };
 
-    let string = match core::str::from_utf8(&buffer) {
-        Ok(s) => s,
-        Err(e) => {
-            let msg = format!(
-                "Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n",
-                file_descriptor, buffer_addr, buffer_size
-            );
-
-            log!(crate::io::LogType::ERR, "{}\n{:?}", msg, e);
-            return Some(0);
-        }
-    };
-
     match scheduling::get_current_file_descriptor(file_descriptor) {
         Some(FileDescriptor::Stdout) | Some(FileDescriptor::Stderr) => {
+            let string = match core::str::from_utf8(&buffer) {
+                Ok(s) => s,
+                Err(e) => {
+                    let msg = format!(
+                        "Invalid string for write syscall, rdi: 0x{:X}, rsi: 0x{:X}, rdx: 0x{:X}\n",
+                        file_descriptor, buffer_addr, buffer_size
+                    );
+
+                    log!(crate::io::LogType::ERR, "{}\n{:?}", msg, e);
+                    return Some(0);
+                }
+            };
+
             print!("{}", string);
             Some(buffer.len())
         }
-        Some(FileDescriptor::File(_)) => Some(0),
+        Some(FileDescriptor::File(_)) => {
+            scheduling::write_current_file_descriptor(file_descriptor, &buffer)
+        }
         _ => Some(0),
     }
 }
