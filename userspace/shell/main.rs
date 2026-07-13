@@ -188,6 +188,15 @@ fn read_command(buffer: &mut [u8]) -> usize {
             return len;
         }
 
+        if input == b'\x08' || input == b'\x7F' {
+            if len > 0 {
+                len -= 1;
+                ulib::stdout(b"\x08 \x08");
+            }
+
+            continue;
+        }
+
         if len >= buffer.len() {
             continue;
         }
