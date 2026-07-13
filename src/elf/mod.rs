@@ -152,6 +152,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
             LogType::ERR,
             "elf_load: memory controller is not initialized"
         );
+
         return None;
     };
 

@@ -1,4 +1,4 @@
-use x86_64::structures::paging::page;
+use alloc::vec::Vec;
 
 use crate::{
     mem::{
@@ -24,6 +24,8 @@ pub struct PageTableSlotAllocator {
     // false if we're operating in CPU identity paging,
     // true if we've already switched to our page table
     pub init_done: bool,
+
+    free_slots: Vec<usize>,
 }
 
 impl PageTableSlotAllocator {
@@ -35,6 +37,7 @@ impl PageTableSlotAllocator {
             last_pml1_slot: 0,
             pml2_addr: 0,
             init_done: false,
+            free_slots: Vec::new(),
         }
     }
 
@@ -42,6 +45,16 @@ impl PageTableSlotAllocator {
     where
         A: PageFrameAllocator,
     {
+        if self.init_done {
+            if let Some(addr) = self.free_slots.pop() {
+                unsafe {
+                    core::ptr::write_bytes(addr as *mut u8, 0, PAGE_SIZE);
+                }
+
+                return Some(addr);
+            }
+        }
+
         let offset = if !self.init_done {
             // we allocated page frames linearly for the region
             // these are physical addresses
@@ -64,6 +77,23 @@ impl PageTableSlotAllocator {
         // TODO: Think about whether we can just return this address...
 
         Some(addr)
+    }
+
+    pub fn free(&mut self, addr: usize) {
+        if !self.init_done {
+            return;
+        }
+
+        if addr < self.region_start || addr % PAGE_SIZE != 0 {
+            return;
+        }
+
+        let region_end = self.region_start + (self.last_pml1_slot * PAGE_SIZE);
+        if addr >= region_end || self.free_slots.contains(&addr) {
+            return;
+        }
+
+        self.free_slots.push(addr);
     }
 
     pub fn alloc_master_table<A>(&mut self, pf_alloc: &mut A) -> (PageTable, TempMapper)

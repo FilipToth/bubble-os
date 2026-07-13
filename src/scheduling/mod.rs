@@ -339,6 +339,16 @@ pub fn exit_current() {
         let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
         if let Some(mc) = mc.as_mut() {
             mc.free_stack(&removed.stack);
+
+            if let Some(page_table) = &removed.ring3_page_table {
+                mc.slot_allocator.free(page_table.addr);
+            } else {
+                log!(
+                    LogType::ERR,
+                    "exit_current: pid {} has no ring3 page table to free",
+                    removed.pid
+                );
+            }
         } else {
             log!(
                 LogType::ERR,
