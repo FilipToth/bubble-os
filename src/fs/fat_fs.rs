@@ -21,6 +21,28 @@ use super::{
     fs::{Directory, DirectoryItems, File},
 };
 
+const FAT_CLUSTER_FREE: u32 = 0x00000000;
+const FAT_CLUSTER_EOF: u32 = 0x0FFFFFFF;
+
+/// Identifies where a directory entry is stored on disk.
+#[derive(Clone, Copy)]
+pub struct DirectoryEntryLocation {
+    /// The directory cluster containing the entry.
+    pub cluster: usize,
+
+    /// The index of the entry within the directory cluster.
+    pub index: usize,
+
+    /// The byte offset of the entry within the directory cluster.
+    pub offset: usize,
+}
+
+#[derive(Clone)]
+struct LocatedDirectoryEntry {
+    entry: DirectoryEntry,
+    location: DirectoryEntryLocation,
+}
+
 #[derive(Clone)]
 pub struct FATDirectory {
     entry: DirectoryEntry,
@@ -56,7 +78,7 @@ impl Directory for FATDirectory {
         let files: Vec<Arc<RwLock<dyn File>>> = files
             .iter()
             .map(|f| {
-                let file = FATFile::new(f.clone(), self.fs.clone());
+                let file = FATFile::new(f.entry.clone(), f.location, self.fs.clone());
                 Arc::new(RwLock::new(file)) as Arc<RwLock<dyn File>>
             })
             .collect();
@@ -77,6 +99,7 @@ impl FATDirectory {
 #[derive(Clone)]
 pub struct FATFile {
     entry: DirectoryEntry,
+    location: DirectoryEntryLocation,
     fs: Weak<Mutex<FATFileSystem>>,
 }
 
@@ -99,14 +122,29 @@ impl File for FATFile {
     fn write(&self, offset: usize, bytes: &[u8]) -> Option<usize> {
         let fs = self.fs.upgrade().unwrap();
         let mut fs_guard = fs.lock();
-        fs_guard.write_existing_file(&self.entry, offset, bytes)
+        let bytes_written = fs_guard.write_existing_file(&self.entry, offset, bytes)?;
+        fs_guard.persist_directory_entry(self.location, &self.entry)?;
+
+        Some(bytes_written)
+    }
+
+    fn truncate(&mut self, size: usize) -> Option<()> {
+        let fs = self.fs.upgrade().unwrap();
+        let mut fs_guard = fs.lock();
+
+        fs_guard.truncate_existing_file(&mut self.entry, self.location, size)
     }
 }
 
 impl FATFile {
-    pub fn new(entry: DirectoryEntry, fs: Weak<Mutex<FATFileSystem>>) -> Self {
+    pub fn new(
+        entry: DirectoryEntry,
+        location: DirectoryEntryLocation,
+        fs: Weak<Mutex<FATFileSystem>>,
+    ) -> Self {
         Self {
             entry: entry,
+            location: location,
             fs: fs,
         }
     }
@@ -166,13 +204,13 @@ impl FATFileSystem {
     fn list_directory(
         &mut self,
         dir: &DirectoryEntry,
-    ) -> (Vec<DirectoryEntry>, Vec<DirectoryEntry>) {
+    ) -> (Vec<LocatedDirectoryEntry>, Vec<DirectoryEntry>) {
         let mut cluster = dir.get_cluster();
         if cluster == 0 {
             cluster = self.root().get_cluster()
         }
 
-        let mut files: Vec<DirectoryEntry> = Vec::new();
+        let mut files: Vec<LocatedDirectoryEntry> = Vec::new();
         let mut subdirs: Vec<DirectoryEntry> = Vec::new();
 
         loop {
@@ -180,7 +218,7 @@ impl FATFileSystem {
                 Some((dir, num_entries)) => {
                     // copy directory entries
                     let dir_arr = unsafe { core::slice::from_raw_parts_mut(dir, num_entries) };
-                    for entry in dir_arr {
+                    for (index, entry) in dir_arr.iter().enumerate() {
                         if entry.attributes == 0 {
                             continue;
                         }
@@ -189,7 +227,14 @@ impl FATFileSystem {
                             subdirs.push(entry.clone());
                         } else {
                             // file
-                            files.push(entry.clone());
+                            files.push(LocatedDirectoryEntry {
+                                entry: entry.clone(),
+                                location: DirectoryEntryLocation {
+                                    cluster: cluster,
+                                    index: index,
+                                    offset: index * core::mem::size_of::<DirectoryEntry>(),
+                                },
+                            });
                         }
                     }
 
@@ -327,6 +372,120 @@ impl FATFileSystem {
         Some(bytes_written)
     }
 
+    fn truncate_existing_file(
+        &mut self,
+        file: &mut DirectoryEntry,
+        location: DirectoryEntryLocation,
+        new_size: usize,
+    ) -> Option<()> {
+        if file.attributes != 32 {
+            return None;
+        }
+
+        let old_size = file.size as usize;
+        if new_size > old_size {
+            return None;
+        }
+
+        if new_size == old_size {
+            return Some(());
+        }
+
+        let first_cluster = file.get_cluster();
+        if new_size == 0 {
+            if first_cluster != 0 {
+                self.fat.free_chain(first_cluster)?;
+                self.persist_fat()?;
+            }
+
+            file.first_cluster_high = 0;
+            file.first_cluster_low = 0;
+            file.size = 0;
+
+            return self.persist_directory_entry(location, file);
+        }
+
+        if first_cluster == 0 {
+            return None;
+        }
+
+        let cluster_size = self.cluster_size();
+        let clusters_to_keep = (new_size + cluster_size - 1) / cluster_size;
+        let mut last_kept_cluster = first_cluster;
+
+        for _ in 1..clusters_to_keep {
+            last_kept_cluster = self.fat.next_cluster(last_kept_cluster)?;
+        }
+
+        let first_freed_cluster = self.fat.next_cluster(last_kept_cluster);
+        self.fat.set(last_kept_cluster, FAT_CLUSTER_EOF)?;
+
+        if let Some(first_freed_cluster) = first_freed_cluster {
+            self.fat.free_chain(first_freed_cluster)?;
+        }
+
+        self.persist_fat()?;
+
+        file.size = new_size as u32;
+        self.persist_directory_entry(location, file)
+    }
+
+    fn persist_directory_entry(
+        &mut self,
+        location: DirectoryEntryLocation,
+        entry: &DirectoryEntry,
+    ) -> Option<()> {
+        let region = self.read_cluster(location.cluster)?;
+        let entry_size = core::mem::size_of::<DirectoryEntry>();
+        let expected_offset = location.index.checked_mul(entry_size)?;
+        if expected_offset != location.offset {
+            let region_layout = region.construct_layout();
+            unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
+
+            return None;
+        }
+
+        let entry_end = location.offset.checked_add(entry_size)?;
+
+        if entry_end > region.size {
+            let region_layout = region.construct_layout();
+            unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
+
+            return None;
+        }
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                entry as *const DirectoryEntry as *const u8,
+                region.get_ptr::<u8>().add(location.offset),
+                entry_size,
+            );
+        }
+
+        let status = self.write_cluster(location.cluster, region.get_ptr::<u8>());
+        let region_layout = region.construct_layout();
+        unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
+
+        status.then_some(())
+    }
+
+    fn persist_fat(&mut self) -> Option<()> {
+        let sectors_per_fat = self.sectors_per_fat();
+
+        for table_index in 0..self.bs.table_count as usize {
+            let fat_start = self.fat_start_sector(table_index);
+            let status = self
+                .port
+                .write_sectors(fat_start, sectors_per_fat, self.fat.as_ptr());
+
+            if !status {
+                return None;
+            }
+        }
+
+        Some(())
+    }
+
     fn read_directory_internal(
         &mut self,
         dir_cluster: usize,
@@ -342,6 +501,22 @@ impl FATFileSystem {
             + (self.bs.table_count as usize * self.bs_32.table_size as usize);
 
         first_data_sector + (cluster - 2) * self.bs.sectors_per_cluster as usize
+    }
+
+    fn cluster_size(&self) -> usize {
+        (self.bs.bytes_per_sector as usize) * (self.bs.sectors_per_cluster as usize)
+    }
+
+    fn sectors_per_fat(&self) -> usize {
+        if self.bs.table_size_16 != 0 {
+            self.bs.table_size_16 as usize
+        } else {
+            self.bs_32.table_size as usize
+        }
+    }
+
+    fn fat_start_sector(&self, table_index: usize) -> usize {
+        self.bs.reserved_sector_count as usize + (table_index * self.sectors_per_fat())
     }
 
     fn read_cluster(&mut self, cluster: usize) -> Option<Region> {
@@ -474,6 +649,10 @@ impl FatBuffer {
         }
     }
 
+    pub fn as_ptr(&self) -> *const u8 {
+        self.fat as *const u8
+    }
+
     pub fn exists(&self, cluster: usize) -> bool {
         match self.next_cluster(cluster) {
             Some(n) => n != 0,
@@ -490,6 +669,34 @@ impl FatBuffer {
                 None
             } else {
                 Some(next as usize)
+            }
+        }
+    }
+
+    pub fn set(&mut self, cluster: usize, value: u32) -> Option<()> {
+        if cluster >= self.entries {
+            return None;
+        }
+
+        unsafe {
+            *self.fat.add(cluster) = value;
+        }
+
+        Some(())
+    }
+
+    pub fn free_chain(&mut self, mut cluster: usize) -> Option<()> {
+        loop {
+            if cluster >= self.entries {
+                return None;
+            }
+
+            let next = self.next_cluster(cluster);
+            self.set(cluster, FAT_CLUSTER_FREE)?;
+
+            match next {
+                Some(next) => cluster = next,
+                None => return Some(()),
             }
         }
     }

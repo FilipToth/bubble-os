@@ -16,6 +16,7 @@ const SYS_READ_DIR: usize = 7;
 const SYS_CD: usize = 8;
 const SYS_OPEN: usize = 9;
 const SYS_CLOSE: usize = 10;
+const SYS_TRUNCATE: usize = 11;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -100,9 +101,10 @@ pub fn write_existing_file(path: &[u8], bytes: &[u8]) -> bool {
     }
 
     let bytes_written = write_file(fd, bytes);
+    let truncated = truncate(fd, bytes_written);
     close(fd);
 
-    bytes_written == bytes.len()
+    bytes_written == bytes.len() && truncated
 }
 
 pub fn stdout(bytes: &[u8]) -> usize {
@@ -151,6 +153,10 @@ pub fn open(path: &[u8]) -> usize {
 
 pub fn close(fd: usize) -> bool {
     unsafe { syscall1(SYS_CLOSE, fd) != 0 }
+}
+
+pub fn truncate(fd: usize, size: usize) -> bool {
+    unsafe { syscall2(SYS_TRUNCATE, fd, size) != 0 }
 }
 
 pub fn exit() -> ! {

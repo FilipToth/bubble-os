@@ -183,6 +183,27 @@ impl Process {
         }
     }
 
+    pub fn truncate_fd(&mut self, fd: usize, size: usize) -> Option<()> {
+        let descriptor = self.fd_table.get_mut(fd)?.as_mut()?;
+        match descriptor {
+            FileDescriptor::File(open_file) => {
+                if !open_file.writable {
+                    return None;
+                }
+
+                let mut file = open_file.file.write();
+                file.truncate(size)?;
+
+                if open_file.offset > size {
+                    open_file.offset = size;
+                }
+
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
     /// Checks whether a user pointer range is mapped with the required access.
     ///
     /// ## Arguments

@@ -506,6 +506,14 @@ pub fn write_current_file_descriptor(fd: usize, bytes: &[u8]) -> Option<usize> {
     current_process.write_fd(fd, bytes)
 }
 
+pub fn truncate_current_file_descriptor(fd: usize, size: usize) -> Option<()> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    current_process.truncate_fd(fd, size)
+}
+
 pub fn change_cwd(cwd: Arc<dyn Directory + Send + Sync>) {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
