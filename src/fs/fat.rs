@@ -64,6 +64,16 @@ impl DirectoryEntry {
     pub fn get_cluster(&self) -> usize {
         (((self.first_cluster_high as u32) << 16) | self.first_cluster_low as u32) as usize
     }
+
+    /// Updates the first cluster fields for this directory entry.
+    ///
+    /// ## Arguments
+    ///
+    /// - `cluster` the first cluster in the file's cluster chain
+    pub fn set_cluster(&mut self, cluster: usize) {
+        self.first_cluster_high = ((cluster >> 16) & 0xFFFF) as u16;
+        self.first_cluster_low = (cluster & 0xFFFF) as u16;
+    }
 }
 
 pub fn get_fat_filename(filename: &str) -> Option<[u8; 11]> {

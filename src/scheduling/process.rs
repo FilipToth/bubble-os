@@ -173,7 +173,12 @@ impl Process {
                     return None;
                 }
 
-                let file = open_file.file.write();
+                let mut file = open_file.file.write();
+                let write_end = open_file.offset.checked_add(bytes.len())?;
+                if write_end > file.size() {
+                    file.truncate(write_end)?;
+                }
+
                 let bytes_written = file.write(open_file.offset, bytes)?;
                 open_file.offset += bytes_written;
 

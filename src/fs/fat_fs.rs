@@ -383,7 +383,7 @@ impl FATFileSystem {
         }
 
         let old_size = file.size as usize;
-        if new_size > old_size {
+        if new_size > u32::MAX as usize {
             return None;
         }
 
@@ -391,6 +391,19 @@ impl FATFileSystem {
             return Some(());
         }
 
+        if new_size < old_size {
+            return self.shrink_existing_file(file, location, new_size);
+        }
+
+        self.grow_existing_file(file, location, old_size, new_size)
+    }
+
+    fn shrink_existing_file(
+        &mut self,
+        file: &mut DirectoryEntry,
+        location: DirectoryEntryLocation,
+        new_size: usize,
+    ) -> Option<()> {
         let first_cluster = file.get_cluster();
         if new_size == 0 {
             if first_cluster != 0 {
@@ -398,8 +411,7 @@ impl FATFileSystem {
                 self.persist_fat()?;
             }
 
-            file.first_cluster_high = 0;
-            file.first_cluster_low = 0;
+            file.set_cluster(0);
             file.size = 0;
 
             return self.persist_directory_entry(location, file);
@@ -424,6 +436,36 @@ impl FATFileSystem {
             self.fat.free_chain(first_freed_cluster)?;
         }
 
+        self.persist_fat()?;
+
+        file.size = new_size as u32;
+        self.persist_directory_entry(location, file)
+    }
+
+    fn grow_existing_file(
+        &mut self,
+        file: &mut DirectoryEntry,
+        location: DirectoryEntryLocation,
+        old_size: usize,
+        new_size: usize,
+    ) -> Option<()> {
+        let old_cluster_count = self.clusters_for_size(old_size);
+        let new_cluster_count = self.clusters_for_size(new_size);
+
+        if new_cluster_count > old_cluster_count {
+            let additional_clusters = new_cluster_count - old_cluster_count;
+            let new_chain_start = self.fat.allocate_chain(additional_clusters)?;
+
+            if old_cluster_count == 0 {
+                file.set_cluster(new_chain_start);
+            } else {
+                let last_old_cluster =
+                    self.cluster_at(file.get_cluster(), old_cluster_count - 1)?;
+                self.fat.set(last_old_cluster, new_chain_start as u32)?;
+            }
+        }
+
+        self.zero_file_range(file.get_cluster(), old_size, new_size - old_size)?;
         self.persist_fat()?;
 
         file.size = new_size as u32;
@@ -505,6 +547,66 @@ impl FATFileSystem {
 
     fn cluster_size(&self) -> usize {
         (self.bs.bytes_per_sector as usize) * (self.bs.sectors_per_cluster as usize)
+    }
+
+    fn clusters_for_size(&self, size: usize) -> usize {
+        if size == 0 {
+            return 0;
+        }
+
+        let cluster_size = self.cluster_size();
+        (size + cluster_size - 1) / cluster_size
+    }
+
+    fn cluster_at(&self, first_cluster: usize, index: usize) -> Option<usize> {
+        let mut cluster = first_cluster;
+        for _ in 0..index {
+            cluster = self.fat.next_cluster(cluster)?;
+        }
+
+        Some(cluster)
+    }
+
+    fn zero_file_range(&mut self, first_cluster: usize, offset: usize, size: usize) -> Option<()> {
+        if size == 0 {
+            return Some(());
+        }
+
+        let cluster_size = self.cluster_size();
+        let mut cluster = first_cluster;
+        let mut cluster_offset = offset;
+        while cluster_offset >= cluster_size {
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset -= cluster_size;
+        }
+
+        let mut bytes_zeroed = 0;
+        while bytes_zeroed < size {
+            let region = self.read_cluster(cluster)?;
+            let zero_size = min(size - bytes_zeroed, cluster_size - cluster_offset);
+
+            unsafe {
+                core::ptr::write_bytes(region.get_ptr::<u8>().add(cluster_offset), 0, zero_size);
+            }
+
+            let status = self.write_cluster(cluster, region.get_ptr::<u8>());
+            let region_layout = region.construct_layout();
+            unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
+
+            if !status {
+                return None;
+            }
+
+            bytes_zeroed += zero_size;
+            if bytes_zeroed == size {
+                break;
+            }
+
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset = 0;
+        }
+
+        Some(())
     }
 
     fn sectors_per_fat(&self) -> usize {
@@ -685,6 +787,30 @@ impl FatBuffer {
         Some(())
     }
 
+    pub fn allocate_chain(&mut self, count: usize) -> Option<usize> {
+        if count == 0 {
+            return None;
+        }
+
+        let mut first_cluster = 0;
+        let mut prev_cluster: Option<usize> = None;
+
+        for _ in 0..count {
+            let cluster = self.find_free_cluster()?;
+            self.set(cluster, FAT_CLUSTER_EOF)?;
+
+            if let Some(prev_cluster) = prev_cluster {
+                self.set(prev_cluster, cluster as u32)?;
+            } else {
+                first_cluster = cluster;
+            }
+
+            prev_cluster = Some(cluster);
+        }
+
+        Some(first_cluster)
+    }
+
     pub fn free_chain(&mut self, mut cluster: usize) -> Option<()> {
         loop {
             if cluster >= self.entries {
@@ -699,5 +825,16 @@ impl FatBuffer {
                 None => return Some(()),
             }
         }
+    }
+
+    fn find_free_cluster(&self) -> Option<usize> {
+        for cluster in 2..self.entries {
+            let entry = unsafe { *self.fat.add(cluster) };
+            if entry == FAT_CLUSTER_FREE {
+                return Some(cluster);
+            }
+        }
+
+        None
     }
 }

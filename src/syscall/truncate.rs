@@ -1,4 +1,4 @@
-// syscall 11 - shrink an open file descriptor to a new size
+// syscall 11 - resize an open file descriptor to a new size
 
 use crate::{arch::x86_64::registers::FullInterruptStackFrame, scheduling};
 
