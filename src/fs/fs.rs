@@ -14,6 +14,17 @@ pub trait Directory: DirectoryClone + Send + Sync {
     fn name(&self) -> String;
     fn list_dir(&self) -> DirectoryItems;
 
+    /// Creates an empty regular file directly inside this directory.
+    ///
+    /// ## Arguments
+    ///
+    /// - `name` the filename to create
+    ///
+    /// ## Returns
+    /// The new file, or `None` when the name is invalid, already exists, or
+    /// cannot be persisted.
+    fn create_file(&self, name: &str) -> Option<Arc<RwLock<dyn File>>>;
+
     fn find_directory(&self, name: &str) -> Option<Arc<dyn Directory>> {
         // TODO: Use a method to only list subdirectories, so we save on performance
         let items = self.list_dir();

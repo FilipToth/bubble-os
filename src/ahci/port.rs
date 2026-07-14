@@ -28,6 +28,7 @@ const ATA_CMD_WRITE_DMA_EX: u8 = 0x35;
 const ATA_CMD_IDENTIFY: u8 = 0xEC;
 
 const HBA_PXIS_TFES: u32 = 1 << 30;
+const HBA_PRDT_MAX_BYTE_COUNT: usize = 0x0040_0000;
 
 pub struct AHCICommand {
     buffer_addr: usize,
@@ -365,19 +366,42 @@ impl AHCIPort {
                 return None;
             }
 
-            let buffer_frame = controller.translate_to_physical(virt_addr)?;
-            let page_offset = virt_addr & (PAGE_SIZE - 1);
-            let chunk_size = core::cmp::min(bytes_remaining, PAGE_SIZE - page_offset);
-            let buffer_phys = buffer_frame.start_address() + page_offset;
+            let first_frame = controller.translate_to_physical(virt_addr)?;
+            let first_page_offset = virt_addr & (PAGE_SIZE - 1);
+            let buffer_phys = first_frame.start_address() + first_page_offset;
+            let mut entry_size = 0;
+
+            loop {
+                let frame = controller.translate_to_physical(virt_addr)?;
+                let page_offset = virt_addr & (PAGE_SIZE - 1);
+                let physical_addr = frame.start_address() + page_offset;
+
+                if entry_size > 0 && physical_addr != buffer_phys + entry_size {
+                    break;
+                }
+
+                let page_bytes = PAGE_SIZE - page_offset;
+                let remaining_entry_space = HBA_PRDT_MAX_BYTE_COUNT - entry_size;
+                let chunk_size = core::cmp::min(
+                    bytes_remaining,
+                    core::cmp::min(page_bytes, remaining_entry_space),
+                );
+
+                entry_size += chunk_size;
+                virt_addr += chunk_size;
+                bytes_remaining -= chunk_size;
+
+                if bytes_remaining == 0 || entry_size == HBA_PRDT_MAX_BYTE_COUNT {
+                    break;
+                }
+            }
+
             let entry = &mut cmd_table.prdt_entry[prdt_index];
 
             entry.data_base_address = buffer_phys as u32;
             entry.data_base_address_upper = (buffer_phys >> 32) as u32;
-            entry.set_data_byte_count((chunk_size - 1) as u32);
-            entry.set_interrupt_on_completion(chunk_size == bytes_remaining);
-
-            virt_addr += chunk_size;
-            bytes_remaining -= chunk_size;
+            entry.set_data_byte_count((entry_size - 1) as u32);
+            entry.set_interrupt_on_completion(bytes_remaining == 0);
             prdt_index += 1;
         }
 

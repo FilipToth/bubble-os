@@ -79,6 +79,19 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
+        if command.starts_with(b"touch ") {
+            let path = trim_ascii_spaces(&command[6..]);
+            let fd = ulib::create(path);
+            if fd != 0 {
+                ulib::close(fd);
+                ulib::stdout(b"Created file\n");
+            } else {
+                ulib::stdout(b"Could not create file\n");
+            }
+
+            continue;
+        }
+
         if !launch(command) {
             ulib::stdout(b"Program or command not found...\n");
         }

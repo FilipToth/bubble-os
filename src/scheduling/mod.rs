@@ -480,6 +480,61 @@ pub fn curr_process_open_file(path: &str, readable: bool, writable: bool) -> Opt
     Some(current_process.open_file(file, readable, writable))
 }
 
+/// Creates a new regular file and opens it for the current process.
+///
+/// ## Arguments
+///
+/// - `path` the absolute or cwd-relative path of the new file
+/// - `readable` whether the descriptor should allow reads
+/// - `writable` whether the descriptor should allow writes
+///
+/// ## Returns
+/// The new file descriptor, or `None` when the path is invalid, already exists,
+/// or its parent directory cannot be found.
+pub fn curr_process_create_file(path: &str, readable: bool, writable: bool) -> Option<usize> {
+    let file = create_file_from_path(path)?;
+
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    Some(current_process.open_file(file, readable, writable))
+}
+
+fn create_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
+    if path.is_empty() || path.ends_with('/') {
+        return None;
+    }
+
+    let (base_dir, path) = if let Some(path) = path.strip_prefix("~/") {
+        with_root_dir!(root, {
+            let root: Arc<dyn Directory> = root;
+            (root, path)
+        })
+    } else if let Some(path) = path.strip_prefix('/') {
+        with_root_dir!(root, {
+            let root: Arc<dyn Directory> = root;
+            (root, path)
+        })
+    } else {
+        (get_current_cwd(), path)
+    };
+
+    let components = normalize_path_components(path);
+    let (filename, parent_components) = components.split_last()?;
+    if *filename == ".." {
+        return None;
+    }
+
+    let parent = if parent_components.is_empty() {
+        base_dir
+    } else {
+        base_dir.find_directory_components(parent_components)?
+    };
+
+    parent.create_file(filename)
+}
+
 pub fn close_current_file_descriptor(fd: usize) -> bool {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);

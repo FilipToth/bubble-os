@@ -17,6 +17,7 @@ const SYS_CD: usize = 8;
 const SYS_OPEN: usize = 9;
 const SYS_CLOSE: usize = 10;
 const SYS_TRUNCATE: usize = 11;
+const SYS_CREATE: usize = 12;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -149,6 +150,10 @@ pub fn cd(path: &[u8]) -> bool {
 
 pub fn open(path: &[u8]) -> usize {
     unsafe { syscall2(SYS_OPEN, path.as_ptr() as usize, path.len()) }
+}
+
+pub fn create(path: &[u8]) -> usize {
+    unsafe { syscall2(SYS_CREATE, path.as_ptr() as usize, path.len()) }
 }
 
 pub fn close(fd: usize) -> bool {

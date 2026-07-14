@@ -104,7 +104,17 @@ pub fn get_fat_filename(filename: &str) -> Option<[u8; 11]> {
     let name = split.next()?.to_uppercase();
     let ext = split.next().unwrap_or("").to_uppercase();
 
-    if name.len() > 8 || ext.len() > 3 {
+    if name.is_empty()
+        || name.len() > 8
+        || ext.len() > 3
+        || filename.bytes().filter(|byte| *byte == b'.').count() > 1
+        || !name.is_ascii()
+        || !ext.is_ascii()
+        || name
+            .bytes()
+            .chain(ext.bytes())
+            .any(is_invalid_short_name_byte)
+    {
         return None;
     }
 
@@ -118,6 +128,27 @@ pub fn get_fat_filename(filename: &str) -> Option<[u8; 11]> {
     }
 
     Some(filename)
+}
+
+fn is_invalid_short_name_byte(byte: u8) -> bool {
+    byte <= b' '
+        || matches!(
+            byte,
+            b'"' | b'*'
+                | b'+'
+                | b','
+                | b'/'
+                | b':'
+                | b';'
+                | b'<'
+                | b'='
+                | b'>'
+                | b'?'
+                | b'['
+                | b'\\'
+                | b']'
+                | b'|'
+        )
 }
 
 pub fn get_filename_from_fat(filename: &[u8; 11]) -> String {
