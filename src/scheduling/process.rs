@@ -1,6 +1,6 @@
 use core::{cmp::min, mem::size_of, ptr};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{alloc::dealloc, sync::Arc, vec::Vec};
 use spin::{Mutex, RwLock};
 
 use crate::{
@@ -145,6 +145,7 @@ impl Process {
                 let file_bytes = file_region.as_slice();
 
                 if open_file.offset >= file_bytes.len() {
+                    Self::free_file_region(&file_region);
                     return Some(Vec::new());
                 }
 
@@ -158,11 +159,22 @@ impl Process {
 
                 let mut buffer = Vec::with_capacity(bytes.len());
                 buffer.extend_from_slice(bytes);
+                Self::free_file_region(&file_region);
 
                 Some(buffer)
             }
             _ => None,
         }
+    }
+
+    fn free_file_region(region: &crate::mem::Region) {
+        if region.size == 0 {
+            return;
+        }
+
+        let ptr = region.get_ptr::<u8>();
+        let layout = region.construct_layout();
+        unsafe { dealloc(ptr, layout) };
     }
 
     pub fn write_fd(&mut self, fd: usize, bytes: &[u8]) -> Option<usize> {

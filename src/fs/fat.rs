@@ -53,12 +53,35 @@ pub struct DirectoryEntry {
 }
 
 impl DirectoryEntry {
+    pub fn is_end_marker(&self) -> bool {
+        self.name[0] == 0x00
+    }
+
+    pub fn is_deleted(&self) -> bool {
+        self.name[0] == 0xE5
+    }
+
     pub fn is_directory(&self) -> bool {
-        !self.is_long_filename() && self.attributes & 0x10 != 0
+        self.is_normal_entry() && self.attributes & 0x10 != 0
     }
 
     pub fn is_long_filename(&self) -> bool {
-        self.attributes & 0x0F != 0
+        self.attributes & 0x3F == 0x0F
+    }
+
+    pub fn is_volume_label(&self) -> bool {
+        self.attributes & 0x08 != 0
+    }
+
+    pub fn is_regular_file(&self) -> bool {
+        self.is_normal_entry() && !self.is_directory()
+    }
+
+    fn is_normal_entry(&self) -> bool {
+        !self.is_end_marker()
+            && !self.is_deleted()
+            && !self.is_long_filename()
+            && !self.is_volume_label()
     }
 
     pub fn get_cluster(&self) -> usize {

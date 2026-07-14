@@ -1,5 +1,7 @@
 use core::cell::UnsafeCell;
 
+pub const HBA_PRDT_ENTRY_COUNT: usize = 128;
+
 #[repr(C)]
 pub struct HBAMemory {
     // host capability
@@ -211,7 +213,7 @@ pub struct HBACommandTable {
     pub command_fis: UnsafeCell<[u8; 64]>,
     pub atapi_command: [u8; 16],
     rsv: [u8; 48],
-    pub prdt_entry: [HBAPrdtEntry; 1],
+    pub prdt_entry: [HBAPrdtEntry; HBA_PRDT_ENTRY_COUNT],
 }
 
 #[repr(C)]

@@ -1,6 +1,6 @@
 use core::alloc::Layout;
 
-use alloc::alloc::alloc;
+use alloc::alloc::{alloc, dealloc};
 
 use crate::log;
 use crate::mem::{
@@ -9,7 +9,7 @@ use crate::mem::{
 
 use super::{
     fis::{FisRegH2D, FisType},
-    hba::{HBACommandHeader, HBACommandTable, HBAPort},
+    hba::{HBACommandHeader, HBACommandTable, HBAPort, HBA_PRDT_ENTRY_COUNT},
 };
 
 // Start bit
@@ -109,7 +109,6 @@ impl AHCIPort {
         for i in 0..32 {
             let cmd_table_base_frame = controller.frame_allocator.falloc().unwrap();
             let cmd_table_base_addr = cmd_table_base_frame.start_address();
-            let base_addr = cmd_table_base_addr + (i << 8);
 
             controller.identity_map(
                 cmd_table_base_frame.clone(),
@@ -121,11 +120,10 @@ impl AHCIPort {
                 let cmd = &mut *cmd_header.add(i);
                 core::ptr::write_bytes(cmd_table_base_addr as *mut u8, 0, PAGE_SIZE);
 
-                // 8 entries per command table
-                cmd.prdtl = 8;
+                cmd.prdtl = HBA_PRDT_ENTRY_COUNT as u16;
 
-                cmd.ctba = base_addr as u32;
-                cmd.ctbau = (base_addr >> 32) as u32;
+                cmd.ctba = cmd_table_base_addr as u32;
+                cmd.ctbau = (cmd_table_base_addr >> 32) as u32;
             }
         }
 
@@ -164,17 +162,8 @@ impl AHCIPort {
             core::ptr::write_bytes(buffer, 0, 512);
         }
 
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let buffer_addr = buffer as usize;
-        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
-
-        let buffer_offset = buffer_addr & 0xFFF;
-        let buffer_phys = buffer_frame.start_address() + buffer_offset;
-
         let command = AHCICommand {
-            buffer_addr: buffer_phys,
+            buffer_addr: buffer as usize,
             data_byte_count: 512,
             cmd: ATA_CMD_IDENTIFY,
             control: 0,
@@ -185,31 +174,25 @@ impl AHCIPort {
         };
 
         if !self.send_command(command) {
+            unsafe { dealloc(buffer, layout) };
             return false;
         }
 
-        let buffer = unsafe { &mut *(buffer as *mut [u16; 256]) };
-        let buffer = buffer.map(u16::to_be_bytes).concat();
+        let identify_words = unsafe { &mut *(buffer as *mut [u16; 256]) };
+        let identify_bytes = identify_words.map(u16::to_be_bytes).concat();
 
-        let block_count = u32::from_be_bytes(buffer[120..124].try_into().unwrap()).rotate_left(16);
+        let block_count =
+            u32::from_be_bytes(identify_bytes[120..124].try_into().unwrap()).rotate_left(16);
         self.block_count = block_count;
+        unsafe { dealloc(buffer, layout) };
 
         // success
         true
     }
 
     pub fn read(&mut self, sector: usize, sector_count: usize, buffer: *mut u8) -> bool {
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let buffer_addr = buffer as usize;
-        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
-
-        let buffer_offset = buffer_addr & 0xFFF;
-        let buffer_phys = buffer_frame.start_address() + buffer_offset;
-
         let command = AHCICommand {
-            buffer_addr: buffer_phys,
+            buffer_addr: buffer as usize,
             data_byte_count: (sector_count << 9) as u32,
             cmd: ATA_CMD_READ_DMA_EX,
             control: 1,
@@ -231,17 +214,8 @@ impl AHCIPort {
             return false;
         }
 
-        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
-        let controller = controller.as_mut().unwrap();
-
-        let buffer_addr = buffer as usize;
-        let buffer_frame = controller.translate_to_physical(buffer_addr).unwrap();
-
-        let buffer_offset = buffer_addr & 0xFFF;
-        let buffer_phys = buffer_frame.start_address() + buffer_offset;
-
         let command = AHCICommand {
-            buffer_addr: buffer_phys,
+            buffer_addr: buffer as usize,
             data_byte_count: (sector_count << 9) as u32,
             cmd: ATA_CMD_WRITE_DMA_EX,
             control: 1,
@@ -268,14 +242,42 @@ impl AHCIPort {
             return false;
         }
 
-        let cmd_header = unsafe { &mut *(port.clb as *mut HBACommandHeader) };
+        let slot = match self.get_free_slot() {
+            Some(s) => s,
+            None => {
+                // reset the port
+                port.cmd &= !HBA_PXCMD_ST;
+                port.cmd &= !HBA_PXCMD_FRE;
+
+                // wait until reset
+                while (port.cmd & (HBA_PXCMD_CR | HBA_PXCMD_FR)) != 0 {
+                    core::hint::spin_loop();
+                }
+
+                port.ci = 0;
+                port.sact = 0;
+
+                port.cmd |= HBA_PXCMD_FRE;
+                port.cmd |= HBA_PXCMD_ST;
+
+                let Some(slot) = self.get_free_slot() else {
+                    return false;
+                };
+
+                slot
+            }
+        };
+
+        let cmd_header_addr = port.clb as usize + ((port.clbu as usize) << 32);
+        let cmd_header =
+            unsafe { &mut *((cmd_header_addr as *mut HBACommandHeader).add(slot as usize)) };
 
         let cfis_len = core::mem::size_of::<FisRegH2D>() / core::mem::size_of::<u32>();
         cmd_header.set_cfl(cfis_len as u8);
         cmd_header.set_write_bit(cmd.write);
-        cmd_header.prdtl = 1;
 
-        let cmd_table = unsafe { &mut *(cmd_header.ctba as *mut HBACommandTable) };
+        let cmd_table_addr = cmd_header.ctba as usize + ((cmd_header.ctbau as usize) << 32);
+        let cmd_table = unsafe { &mut *(cmd_table_addr as *mut HBACommandTable) };
         let cmd_table_size = core::mem::size_of::<HBACommandTable>();
 
         unsafe {
@@ -286,10 +288,13 @@ impl AHCIPort {
             );
         }
 
-        cmd_table.prdt_entry[0].data_base_address = cmd.buffer_addr as u32;
-        cmd_table.prdt_entry[0].data_base_address_upper = (cmd.buffer_addr >> 32) as u32;
-        cmd_table.prdt_entry[0].set_data_byte_count((cmd.data_byte_count - 1) as u32);
-        cmd_table.prdt_entry[0].set_interrupt_on_completion(true);
+        let Some(prdt_count) =
+            Self::fill_prdt_entries(cmd_table, cmd.buffer_addr, cmd.data_byte_count as usize)
+        else {
+            return false;
+        };
+
+        cmd_header.prdtl = prdt_count as u16;
 
         let fis_cmd = unsafe { &mut *cmd_table.command_fis.get().cast::<FisRegH2D>() };
 
@@ -315,28 +320,6 @@ impl AHCIPort {
         // needs control bit for FIS commands
         fis_cmd.set_control_bit(true);
 
-        let slot = match self.get_free_slot() {
-            Some(s) => s,
-            None => {
-                // reset the port
-                port.cmd &= !HBA_PXCMD_ST;
-                port.cmd &= !HBA_PXCMD_FRE;
-
-                // wait until reset
-                while (port.cmd & (HBA_PXCMD_CR | HBA_PXCMD_FR)) != 0 {
-                    core::hint::spin_loop();
-                }
-
-                port.ci = 0;
-                port.sact = 0;
-
-                port.cmd |= HBA_PXCMD_FRE;
-                port.cmd |= HBA_PXCMD_ST;
-
-                self.get_free_slot().unwrap()
-            }
-        };
-
         // reset byte count transferred
         cmd_header.prdbc = 0;
 
@@ -359,6 +342,46 @@ impl AHCIPort {
         }
 
         true
+    }
+
+    fn fill_prdt_entries(
+        cmd_table: &mut HBACommandTable,
+        buffer_addr: usize,
+        data_byte_count: usize,
+    ) -> Option<usize> {
+        if data_byte_count == 0 {
+            return None;
+        }
+
+        let mut controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let controller = controller.as_mut()?;
+
+        let mut virt_addr = buffer_addr;
+        let mut bytes_remaining = data_byte_count;
+        let mut prdt_index = 0;
+
+        while bytes_remaining > 0 {
+            if prdt_index >= HBA_PRDT_ENTRY_COUNT {
+                return None;
+            }
+
+            let buffer_frame = controller.translate_to_physical(virt_addr)?;
+            let page_offset = virt_addr & (PAGE_SIZE - 1);
+            let chunk_size = core::cmp::min(bytes_remaining, PAGE_SIZE - page_offset);
+            let buffer_phys = buffer_frame.start_address() + page_offset;
+            let entry = &mut cmd_table.prdt_entry[prdt_index];
+
+            entry.data_base_address = buffer_phys as u32;
+            entry.data_base_address_upper = (buffer_phys >> 32) as u32;
+            entry.set_data_byte_count((chunk_size - 1) as u32);
+            entry.set_interrupt_on_completion(chunk_size == bytes_remaining);
+
+            virt_addr += chunk_size;
+            bytes_remaining -= chunk_size;
+            prdt_index += 1;
+        }
+
+        Some(prdt_index)
     }
 
     fn get_port_ssts(&mut self) -> PortStatus {

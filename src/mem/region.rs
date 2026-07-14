@@ -26,17 +26,23 @@ impl Region {
     }
 
     pub fn to_string(&self) -> Cow<'_, str> {
-        let ptr = self.get_ptr::<u8>();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, self.size) };
-        String::from_utf8_lossy(slice)
+        String::from_utf8_lossy(self.as_slice())
     }
 
     pub fn as_slice(&self) -> &[u8] {
+        if self.size == 0 {
+            return &[];
+        }
+
         let ptr = self.get_ptr::<u8>();
         unsafe { core::slice::from_raw_parts(ptr, self.size) }
     }
 
     pub fn as_slice_mut(&self) -> &mut [u8] {
+        if self.size == 0 {
+            return &mut [];
+        }
+
         let ptr = self.get_ptr::<u8>();
         unsafe { core::slice::from_raw_parts_mut(ptr, self.size) }
     }
