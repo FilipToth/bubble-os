@@ -1,6 +1,6 @@
-.PHONY: all sample sample2 tempshell shell ls cat prepare
+.PHONY: all sample sample2 tempshell shell edit ls cat prepare
 
-all: prepare sample sample2 shell ls cat
+all: prepare sample sample2 shell edit ls cat
 
 prepare:
 	mkdir -p bin
@@ -21,6 +21,10 @@ tempshell:
 shell:
 	cargo rustc --manifest-path shell/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target shell/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
 	cp shell/target/x86_64-bubble-userspace/release/shell bin/shell.elf
+
+edit:
+	cargo rustc --manifest-path edit/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target edit/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
+	cp edit/target/x86_64-bubble-userspace/release/edit bin/edit.elf
 
 ls:
 	nasm -f elf64 ls/ls.s -o obj/ls.o
