@@ -25,6 +25,39 @@ pub trait Directory: DirectoryClone + Send + Sync {
     /// cannot be persisted.
     fn create_file(&self, name: &str) -> Option<Arc<RwLock<dyn File>>>;
 
+    /// Creates an empty directory directly inside this directory.
+    ///
+    /// ## Arguments
+    ///
+    /// - `name` the directory name to create
+    ///
+    /// ## Returns
+    /// `Some(())` when the directory was created, or `None` when the name is
+    /// invalid, already exists, or cannot be persisted.
+    fn create_directory(&self, name: &str) -> Option<()>;
+
+    /// Removes a regular file directly inside this directory.
+    ///
+    /// ## Arguments
+    ///
+    /// - `name` the file name to remove
+    ///
+    /// ## Returns
+    /// `Some(())` when the file was removed, or `None` when it does not exist
+    /// or is not a regular file.
+    fn unlink_file(&self, name: &str) -> Option<()>;
+
+    /// Removes an empty directory directly inside this directory.
+    ///
+    /// ## Arguments
+    ///
+    /// - `name` the directory name to remove
+    ///
+    /// ## Returns
+    /// `Some(())` when the directory was removed, or `None` when it does not
+    /// exist, is not a directory, or is not empty.
+    fn remove_directory(&self, name: &str) -> Option<()>;
+
     fn find_directory(&self, name: &str) -> Option<Arc<dyn Directory>> {
         // TODO: Use a method to only list subdirectories, so we save on performance
         let items = self.list_dir();

@@ -97,6 +97,24 @@ impl Directory for FATDirectory {
             self.fs.clone(),
         ))))
     }
+
+    fn create_directory(&self, name: &str) -> Option<()> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+        fs_guard.create_directory(&self.entry, name)
+    }
+
+    fn unlink_file(&self, name: &str) -> Option<()> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+        fs_guard.unlink_file(&self.entry, name)
+    }
+
+    fn remove_directory(&self, name: &str) -> Option<()> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+        fs_guard.remove_directory(&self.entry, name)
+    }
 }
 
 impl FATDirectory {
@@ -315,15 +333,103 @@ impl FATFileSystem {
         })
     }
 
+    fn create_directory(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
+        let name = get_fat_filename(name)?;
+        let location = self.find_free_directory_entry(parent, &name)?;
+        let cluster = self.fat.allocate_chain(1)?;
+        let parent_cluster = self.directory_cluster(parent);
+
+        if !self.initialize_directory_cluster(cluster, parent_cluster) {
+            let _ = self.fat.free_chain(cluster);
+            return None;
+        }
+
+        if self.persist_fat().is_none() {
+            self.rollback_allocated_chain(cluster);
+            return None;
+        }
+
+        let entry = Self::directory_entry(name, cluster);
+        if self.persist_directory_entry(location, &entry).is_none() {
+            self.rollback_allocated_chain(cluster);
+            return None;
+        }
+
+        Some(())
+    }
+
+    fn unlink_file(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
+        let name = get_fat_filename(name)?;
+        let file = self.find_directory_entry(parent, &name)?;
+        if !file.entry.is_regular_file() {
+            return None;
+        }
+
+        self.delete_directory_entry(file)
+    }
+
+    fn remove_directory(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
+        let name = get_fat_filename(name)?;
+        let directory = self.find_directory_entry(parent, &name)?;
+        if !directory.entry.is_directory() || directory.entry.get_cluster() == 0 {
+            return None;
+        }
+
+        if !self.directory_is_empty(&directory.entry)? {
+            return None;
+        }
+
+        self.delete_directory_entry(directory)
+    }
+
+    fn find_directory_entry(
+        &mut self,
+        dir: &DirectoryEntry,
+        filename: &[u8; 11],
+    ) -> Option<LocatedDirectoryEntry> {
+        let mut cluster = self.directory_cluster(dir);
+        let entry_size = core::mem::size_of::<DirectoryEntry>();
+
+        loop {
+            let region = self.read_directory_internal(cluster)?;
+            let num_entries = region.size / entry_size;
+            let entries = unsafe {
+                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
+            };
+
+            for (index, entry) in entries.iter().enumerate() {
+                if entry.is_end_marker() {
+                    Self::deallocate_region(&region);
+                    return None;
+                }
+
+                let entry_name = entry.name;
+                if !entry.is_deleted() && !entry.is_long_filename() && entry_name == *filename {
+                    let located = LocatedDirectoryEntry {
+                        entry: entry.clone(),
+                        location: DirectoryEntryLocation {
+                            cluster: cluster,
+                            index: index,
+                            offset: index * entry_size,
+                        },
+                    };
+
+                    Self::deallocate_region(&region);
+                    return Some(located);
+                }
+            }
+
+            Self::deallocate_region(&region);
+            cluster = self.fat.next_cluster(cluster)?;
+        }
+    }
+
     fn find_free_directory_entry(
         &mut self,
         dir: &DirectoryEntry,
         filename: &[u8; 11],
     ) -> Option<DirectoryEntryLocation> {
-        let mut cluster = dir.get_cluster();
-        if cluster == 0 {
-            cluster = self.root().get_cluster();
-        }
+        let mut cluster = self.directory_cluster(dir);
 
         let entry_size = core::mem::size_of::<DirectoryEntry>();
         let mut first_free_entry = None;
@@ -396,6 +502,141 @@ impl FATFileSystem {
             index: 0,
             offset: 0,
         })
+    }
+
+    fn initialize_directory_cluster(&mut self, cluster: usize, parent_cluster: usize) -> bool {
+        let size = self.cluster_size();
+        let layout = match Layout::array::<u8>(size) {
+            Ok(layout) => layout,
+            Err(_) => return false,
+        };
+        let buffer = unsafe { alloc(layout) };
+
+        if buffer.is_null() {
+            return false;
+        }
+
+        unsafe { core::ptr::write_bytes(buffer, 0, size) };
+
+        let dot = Self::directory_entry(Self::dot_name(false), cluster);
+        let dot_dot = Self::directory_entry(Self::dot_name(true), parent_cluster);
+        let entry_size = core::mem::size_of::<DirectoryEntry>();
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                &dot as *const DirectoryEntry as *const u8,
+                buffer,
+                entry_size,
+            );
+            core::ptr::copy_nonoverlapping(
+                &dot_dot as *const DirectoryEntry as *const u8,
+                buffer.add(entry_size),
+                entry_size,
+            );
+        }
+
+        let status = self.write_cluster(cluster, buffer);
+        unsafe { dealloc(buffer, layout) };
+
+        status
+    }
+
+    fn directory_is_empty(&mut self, dir: &DirectoryEntry) -> Option<bool> {
+        let mut cluster = self.directory_cluster(dir);
+        let entry_size = core::mem::size_of::<DirectoryEntry>();
+
+        loop {
+            let region = self.read_directory_internal(cluster)?;
+            let num_entries = region.size / entry_size;
+            let entries = unsafe {
+                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
+            };
+
+            for entry in entries {
+                if entry.is_end_marker() {
+                    Self::deallocate_region(&region);
+                    return Some(true);
+                }
+
+                let name = entry.name;
+                if !entry.is_deleted() && !Self::is_dot_name(&name) {
+                    Self::deallocate_region(&region);
+                    return Some(false);
+                }
+            }
+
+            Self::deallocate_region(&region);
+            match self.fat.next_cluster(cluster) {
+                Some(next_cluster) => cluster = next_cluster,
+                None => return Some(true),
+            }
+        }
+    }
+
+    fn delete_directory_entry(&mut self, located: LocatedDirectoryEntry) -> Option<()> {
+        let first_cluster = located.entry.get_cluster();
+        let mut deleted_entry = located.entry;
+        deleted_entry.mark_deleted();
+        self.persist_directory_entry(located.location, &deleted_entry)?;
+
+        if first_cluster == 0 {
+            return Some(());
+        }
+
+        self.fat.free_chain(first_cluster)?;
+        if self.persist_fat().is_none() {
+            return Some(());
+        }
+
+        Some(())
+    }
+
+    fn rollback_allocated_chain(&mut self, cluster: usize) {
+        let _ = self.fat.free_chain(cluster);
+        let _ = self.persist_fat();
+    }
+
+    fn directory_cluster(&self, dir: &DirectoryEntry) -> usize {
+        let cluster = dir.get_cluster();
+        if cluster == 0 {
+            self.root().get_cluster()
+        } else {
+            cluster
+        }
+    }
+
+    fn directory_entry(name: [u8; 11], cluster: usize) -> DirectoryEntry {
+        let mut entry = DirectoryEntry {
+            name: name,
+            attributes: 0x10,
+            reserved: 0,
+            creation_time_centiseconds: 0,
+            creation_time: 0,
+            creation_date: 0,
+            last_accessed_date: 0,
+            first_cluster_high: 0,
+            modified_time: 0,
+            modified_date: 0,
+            first_cluster_low: 0,
+            size: 0,
+        };
+
+        entry.set_cluster(cluster);
+        entry
+    }
+
+    fn dot_name(parent: bool) -> [u8; 11] {
+        let mut name = [b' '; 11];
+        name[0] = b'.';
+        if parent {
+            name[1] = b'.';
+        }
+
+        name
+    }
+
+    fn is_dot_name(name: &[u8; 11]) -> bool {
+        *name == Self::dot_name(false) || *name == Self::dot_name(true)
     }
 
     fn read_file(&mut self, file: &DirectoryEntry) -> Option<Region> {

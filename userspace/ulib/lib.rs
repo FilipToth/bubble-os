@@ -18,6 +18,9 @@ const SYS_OPEN: usize = 9;
 const SYS_CLOSE: usize = 10;
 const SYS_TRUNCATE: usize = 11;
 const SYS_CREATE: usize = 12;
+const SYS_MKDIR: usize = 13;
+const SYS_UNLINK: usize = 14;
+const SYS_RMDIR: usize = 15;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -154,6 +157,18 @@ pub fn open(path: &[u8]) -> usize {
 
 pub fn create(path: &[u8]) -> usize {
     unsafe { syscall2(SYS_CREATE, path.as_ptr() as usize, path.len()) }
+}
+
+pub fn mkdir(path: &[u8]) -> bool {
+    unsafe { syscall2(SYS_MKDIR, path.as_ptr() as usize, path.len()) != 0 }
+}
+
+pub fn unlink(path: &[u8]) -> bool {
+    unsafe { syscall2(SYS_UNLINK, path.as_ptr() as usize, path.len()) != 0 }
+}
+
+pub fn rmdir(path: &[u8]) -> bool {
+    unsafe { syscall2(SYS_RMDIR, path.as_ptr() as usize, path.len()) != 0 }
 }
 
 pub fn close(fd: usize) -> bool {

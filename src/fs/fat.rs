@@ -61,6 +61,11 @@ impl DirectoryEntry {
         self.name[0] == 0xE5
     }
 
+    /// Marks this directory entry as deleted.
+    pub fn mark_deleted(&mut self) {
+        self.name[0] = 0xE5;
+    }
+
     pub fn is_directory(&self) -> bool {
         self.is_normal_entry() && self.attributes & 0x10 != 0
     }

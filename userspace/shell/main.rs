@@ -92,6 +92,39 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
+        if command.starts_with(b"mkdir ") {
+            let path = trim_ascii_spaces(&command[6..]);
+            if ulib::mkdir(path) {
+                ulib::stdout(b"Created directory\n");
+            } else {
+                ulib::stdout(b"Could not create directory\n");
+            }
+
+            continue;
+        }
+
+        if command.starts_with(b"unlink ") {
+            let path = trim_ascii_spaces(&command[7..]);
+            if ulib::unlink(path) {
+                ulib::stdout(b"Removed file\n");
+            } else {
+                ulib::stdout(b"Could not remove file\n");
+            }
+
+            continue;
+        }
+
+        if command.starts_with(b"rmdir ") {
+            let path = trim_ascii_spaces(&command[6..]);
+            if ulib::rmdir(path) {
+                ulib::stdout(b"Removed directory\n");
+            } else {
+                ulib::stdout(b"Could not remove directory\n");
+            }
+
+            continue;
+        }
+
         if !launch(command) {
             ulib::stdout(b"Program or command not found...\n");
         }

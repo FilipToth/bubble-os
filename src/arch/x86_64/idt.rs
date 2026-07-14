@@ -94,6 +94,9 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         10 => syscall::close(stack),
         11 => syscall::truncate(stack),
         12 => syscall::create(stack),
+        13 => syscall::mkdir(stack),
+        14 => syscall::unlink(stack),
+        15 => syscall::rmdir(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

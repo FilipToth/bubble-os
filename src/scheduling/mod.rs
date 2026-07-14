@@ -501,7 +501,60 @@ pub fn curr_process_create_file(path: &str, readable: bool, writable: bool) -> O
     Some(current_process.open_file(file, readable, writable))
 }
 
+/// Creates a directory for the current process.
+///
+/// ## Arguments
+///
+/// - `path` the absolute or cwd-relative path of the new directory
+///
+/// ## Returns
+/// Whether the directory was created.
+pub fn curr_process_create_directory(path: &str) -> bool {
+    let Some((parent, name)) = resolve_parent_directory_and_name(path) else {
+        return false;
+    };
+
+    parent.create_directory(name).is_some()
+}
+
+/// Removes a regular file for the current process.
+///
+/// ## Arguments
+///
+/// - `path` the absolute or cwd-relative path of the file to remove
+///
+/// ## Returns
+/// Whether the file was removed.
+pub fn curr_process_unlink_file(path: &str) -> bool {
+    let Some((parent, name)) = resolve_parent_directory_and_name(path) else {
+        return false;
+    };
+
+    parent.unlink_file(name).is_some()
+}
+
+/// Removes an empty directory for the current process.
+///
+/// ## Arguments
+///
+/// - `path` the absolute or cwd-relative path of the directory to remove
+///
+/// ## Returns
+/// Whether the directory was removed.
+pub fn curr_process_remove_directory(path: &str) -> bool {
+    let Some((parent, name)) = resolve_parent_directory_and_name(path) else {
+        return false;
+    };
+
+    parent.remove_directory(name).is_some()
+}
+
 fn create_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
+    let (parent, name) = resolve_parent_directory_and_name(path)?;
+    parent.create_file(name)
+}
+
+fn resolve_parent_directory_and_name(path: &str) -> Option<(Arc<dyn Directory>, &str)> {
     if path.is_empty() || path.ends_with('/') {
         return None;
     }
@@ -532,7 +585,7 @@ fn create_file_from_path(path: &str) -> Option<Arc<RwLock<dyn File>>> {
         base_dir.find_directory_components(parent_components)?
     };
 
-    parent.create_file(filename)
+    Some((parent, filename))
 }
 
 pub fn close_current_file_descriptor(fd: usize) -> bool {
