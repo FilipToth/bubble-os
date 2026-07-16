@@ -515,6 +515,17 @@ impl PageTable {
         let entry = &mut entries[index];
 
         if !entry.is_unused() {
+            // ring 3 accesses require the RING3_ACCESSIBLE flag on every
+            // level of the table walk, so an existing intermediate entry
+            // must be upgraded when a user page is mapped beneath it. the
+            // leaf entries remain authoritative for per-page protection.
+            let existing_flags = entry.flags();
+            if !existing_flags.contains(flags) && !existing_flags.contains(EntryFlags::HUGE_PAGE) {
+                if let Some(frame) = entry.get_frame() {
+                    entry.set(frame, existing_flags | flags);
+                }
+            }
+
             if return_physical {
                 // return a page table referencing the
                 // physical address defined in the entry

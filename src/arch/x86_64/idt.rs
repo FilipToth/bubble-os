@@ -9,7 +9,7 @@ use x86_64::{
 use crate::log;
 use crate::{
     arch::x86_64::{
-        gdt::{PIT_STACK_INDEX, SYSCALL_STACK_INDEX},
+        gdt::{DOUBLE_FAULT_STACK_INDEX, PIT_STACK_INDEX, SYSCALL_STACK_INDEX},
         timer_isr::timer_trampoline,
     },
     interrupt_trampoline,
@@ -158,7 +158,9 @@ pub unsafe fn register_interrupt(vector: usize, handler_addr: usize, is_ring3: b
 
 pub unsafe fn init_idt() {
     IDT.breakpoint.set_handler_fn(breakpoint_isr);
-    IDT.double_fault.set_handler_fn(double_fault_isr);
+    IDT.double_fault
+        .set_handler_fn(double_fault_isr)
+        .set_stack_index(DOUBLE_FAULT_STACK_INDEX as u16);
     IDT.general_protection_fault.set_handler_fn(gpf_isr);
     IDT.page_fault.set_handler_fn(page_fault_isr);
 

@@ -53,6 +53,7 @@ impl Process {
     pub fn from(entry: ProcessEntry, pid: usize, cwd: Arc<dyn Directory>) -> Option<Process> {
         let mut context = FullInterruptStackFrame::empty();
         context.rip = entry.entry;
+        context.rsp = entry.initial_rsp;
 
         let Some(stack) = entry.stack else {
             log!(
@@ -373,4 +374,8 @@ pub struct ProcessEntry {
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub ring3_page_table: Option<PageTable>,
     pub stack: Option<Stack>,
+
+    /// The initial user stack pointer, pointing at the argument
+    /// frame below the stack top.
+    pub initial_rsp: usize,
 }

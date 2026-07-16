@@ -3,7 +3,7 @@ use crate::{
     log,
     mem::{
         paging::{entry::EntryFlags, Page},
-        MemoryController, Region, GLOBAL_MEMORY_CONTROLLER,
+        MemoryController, Region, Stack, GLOBAL_MEMORY_CONTROLLER,
     },
     scheduling::process::ProcessEntry,
 };
@@ -138,7 +138,16 @@ fn unmap_regions_from_active_table(
     }
 }
 
-pub fn load(elf: Region) -> Option<ProcessEntry> {
+/// Loads an ELF binary into a fresh process address space.
+///
+/// ## Arguments
+///
+/// - `elf` the raw ELF file contents
+/// - `argv` the process arguments, starting with the program name
+///
+/// ## Returns
+/// A process entry ready to be deployed.
+pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
     let Some(mut entry) = loader::load(elf) else {
         log!(LogType::ERR, "elf_load: loader::load failed");
         return None;
@@ -256,6 +265,16 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         return None;
     };
 
+    // write the argument frame while the process page table
+    // is still active
+    let Some(initial_rsp) = write_args_frame(&stack, argv) else {
+        log!(LogType::ERR, "elf_load: failed to write argument frame");
+        mc.free_stack(&stack);
+        unmap_regions_from_active_table(mc, &start_region);
+        mc.switch_table(&prev_table);
+        return None;
+    };
+
     // Switch back to root table
     if mc.switch_table(&prev_table).is_none() {
         log!(
@@ -269,6 +288,64 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
     entry.ring3_page_table = Some(ring3_table);
     entry.stack = Some(stack);
+    entry.initial_rsp = initial_rsp;
 
     Some(entry)
+}
+
+/// Writes a System V style argument frame onto a fresh user stack.
+///
+/// The argument strings are copied NUL-terminated to the very top of the
+/// stack, and below them sits the pointer frame the process starts with:
+///
+/// ```text
+/// rsp -> [argc][argv[0]]..[argv[argc - 1]][NULL][NULL] .. [strings]
+/// ```
+///
+/// The final `NULL` terminates the (empty) environment list. The initial
+/// stack pointer is 16-byte aligned and points at `argc`, matching what a
+/// standard libc `_start` expects.
+///
+/// Must be called while the process page table is active.
+///
+/// ## Arguments
+///
+/// - `stack` the user stack to write into
+/// - `argv` the process arguments, starting with the program name
+///
+/// ## Returns
+/// The initial user stack pointer, or `None` when the frame does not fit
+/// into the stack.
+fn write_args_frame(stack: &Stack, argv: &[&str]) -> Option<usize> {
+    let string_bytes: usize = argv.iter().map(|arg| arg.len() + 1).sum();
+    let strings_base = stack.top.checked_sub(string_bytes)?;
+
+    // argc + argv pointers + argv NULL terminator + envp NULL terminator
+    let frame_words = argv.len().checked_add(3)?;
+    let frame_size = frame_words.checked_mul(core::mem::size_of::<usize>())?;
+    let frame_base = strings_base.checked_sub(frame_size)? & !0xF;
+
+    if frame_base < stack.bottom {
+        return None;
+    }
+
+    let frame = frame_base as *mut usize;
+    let mut string_addr = strings_base;
+
+    unsafe {
+        *frame = argv.len();
+
+        for (index, arg) in argv.iter().enumerate() {
+            *frame.add(1 + index) = string_addr;
+
+            core::ptr::copy_nonoverlapping(arg.as_ptr(), string_addr as *mut u8, arg.len());
+            *((string_addr + arg.len()) as *mut u8) = 0;
+            string_addr += arg.len() + 1;
+        }
+
+        *frame.add(1 + argv.len()) = 0;
+        *frame.add(2 + argv.len()) = 0;
+    }
+
+    Some(frame_base)
 }

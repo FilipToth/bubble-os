@@ -1,15 +1,23 @@
 // syscall 4 - execute an ELF binary from a path
 
-use alloc::format;
+use alloc::{format, vec::Vec};
 
 use crate::{
     arch::x86_64::registers::FullInterruptStackFrame, elf, io::LogType, log, scheduling,
     scheduling::process::Process,
 };
 
+/// Maximum byte length of the argument string.
+const ARGS_MAX_BYTES: usize = 4096;
+
+/// Maximum number of process arguments, including the program name.
+const ARGS_MAX_COUNT: usize = 64;
+
 pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
+    let args_addr = stack.rdx;
+    let args_size = stack.r10;
 
     let Some(page_table) = scheduling::get_current_process_page_table() else {
         log!(
@@ -51,6 +59,61 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         return Some(0);
     }
 
+    if args_size > ARGS_MAX_BYTES {
+        log!(
+            LogType::ERR,
+            "execute: argument string too long, rdx: 0x{:X}, r10: 0x{:X}",
+            args_addr,
+            args_size
+        );
+
+        return Some(0);
+    }
+
+    let args_buffer = if args_size == 0 {
+        Vec::new()
+    } else {
+        let Some(buffer) = Process::copy_from_user(&page_table, args_addr, args_size) else {
+            log!(
+                LogType::ERR,
+                "execute: failed to copy arguments from user pointer, rdx: 0x{:X}, r10: 0x{:X}",
+                args_addr,
+                args_size
+            );
+
+            return Some(0);
+        };
+
+        buffer
+    };
+
+    let Ok(args) = core::str::from_utf8(&args_buffer) else {
+        log!(
+            LogType::ERR,
+            "execute: invalid argument string, rdx: 0x{:X}, r10: 0x{:X}",
+            args_addr,
+            args_size
+        );
+
+        return Some(0);
+    };
+
+    // the program name is argv[0], the argument string
+    // provides the rest
+    let mut argv: Vec<&str> = Vec::new();
+    argv.push(path);
+    argv.extend(args.split_ascii_whitespace());
+
+    if argv.len() > ARGS_MAX_COUNT {
+        log!(
+            LogType::ERR,
+            "execute: too many arguments, count: {}",
+            argv.len()
+        );
+
+        return Some(0);
+    }
+
     let file = scheduling::find_file_from_path(path);
 
     let Some(file) = file else {
@@ -69,7 +132,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         region
     };
 
-    let Some(elf_entry) = elf::load(region) else {
+    let Some(elf_entry) = elf::load(region, &argv) else {
         log!(
             LogType::ERR,
             "execute: elf::load failed for path {:?}",

@@ -159,7 +159,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
 
     log!(LogType::OK, "Read Shell ELF binary");
 
-    let shell_entry = elf::load(shell_binary).unwrap();
+    let shell_entry = elf::load(shell_binary, &["shell"]).unwrap();
 
     x86_64::instructions::interrupts::enable();
     scheduling::deploy(shell_entry, false);

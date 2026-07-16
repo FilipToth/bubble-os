@@ -7,20 +7,16 @@ const FILE_CAPACITY: usize = 4 * 1024;
 const PATH_CAPACITY: usize = 256;
 const VIEW_ROWS: usize = 16;
 
+// runs on the kernel-provided stack, with the System V
+// argument frame at the initial stack pointer
 global_asm!(
     r#"
-    .section .bss
-    .align 16
-
-stack_bottom:
-    .skip 4096
-
-stack_top:
     .section .text
     .global _start
 
 _start:
-    lea rsp, [rip + stack_top]
+    mov rdi, [rsp]
+    lea rsi, [rsp + 8]
     call rust_main
 
     mov rax, 1
@@ -49,17 +45,25 @@ struct Editor {
 }
 
 #[no_mangle]
-extern "C" fn rust_main() -> ! {
-    let mut path = [0u8; PATH_CAPACITY];
+extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
+    let mut path_buffer = [0u8; PATH_CAPACITY];
 
-    ulib::stdout(b"edit - simple text editor\nFile: ");
-    let path_len = read_line(&mut path);
-    if path_len == 0 {
-        ulib::stdout(b"\nNo file selected.\n");
-        ulib::exit();
-    }
+    // take the file from argv[1], falling back to a prompt
+    let args = ulib::Args::new(argc, argv);
+    let path: &[u8] = match args.get(1) {
+        Some(arg) => arg,
+        None => {
+            ulib::stdout(b"edit - simple text editor\nFile: ");
+            let path_len = read_line(&mut path_buffer);
+            if path_len == 0 {
+                ulib::stdout(b"\nNo file selected.\n");
+                ulib::exit();
+            }
 
-    let path = &path[..path_len];
+            &path_buffer[..path_len]
+        }
+    };
+
     let fd = match open_or_create(path) {
         Some(fd) => fd,
         None => {

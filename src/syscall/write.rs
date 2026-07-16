@@ -41,7 +41,9 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
             Some(buffer.len())
         }
         Some(FileDescriptor::File(_)) => {
-            scheduling::write_current_file_descriptor(file_descriptor, &buffer)
+            // map a failed write to 0 bytes written, otherwise the
+            // dispatcher would leave the syscall number in rax
+            scheduling::write_current_file_descriptor(file_descriptor, &buffer).or(Some(0))
         }
         _ => Some(0),
     }

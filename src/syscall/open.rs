@@ -32,5 +32,7 @@ pub fn open(stack: &FullInterruptStackFrame) -> Option<usize> {
         }
     };
 
-    scheduling::curr_process_open_file(path, true, true)
+    // map a missing file to fd 0, otherwise the dispatcher would leave
+    // the syscall number in rax and userspace would see a phantom fd
+    scheduling::curr_process_open_file(path, true, true).or(Some(0))
 }

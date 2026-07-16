@@ -113,7 +113,7 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
         let flags = ElfProgramHeaderFlags::from_bits_retain(entry.flags);
 
         // construct ELF region structure
-        let mem_region = Region::new(addr, size - 1);
+        let mem_region = Region::new(addr, size);
         let elf_region = ElfRegion::new(mem_region, None, ph_file_region, flags);
         let elf_region = Arc::new(Mutex::new(elf_region));
 
@@ -176,5 +176,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         start_region: start_region,
         ring3_page_table: None,
         stack: None,
+        initial_rsp: 0,
     })
 }

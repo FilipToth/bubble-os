@@ -360,12 +360,14 @@ fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
 }
 
 fn launch(command: &[u8]) -> bool {
-    let pid = if command.contains(&b'/') {
-        ulib::execute(command)
+    let (program, args) = split_command_line(command);
+
+    let pid = if program.contains(&b'/') {
+        ulib::execute(program, args)
     } else {
-        let bin_pid = execute_from_bin(command);
+        let bin_pid = execute_from_bin(program, args);
         if bin_pid == 0 {
-            ulib::execute(command)
+            ulib::execute(program, args)
         } else {
             bin_pid
         }
@@ -379,17 +381,28 @@ fn launch(command: &[u8]) -> bool {
     true
 }
 
-fn execute_from_bin(command: &[u8]) -> usize {
+/// Splits a command line into the program name and its argument string.
+fn split_command_line(command: &[u8]) -> (&[u8], &[u8]) {
+    match command.iter().position(|byte| byte.is_ascii_whitespace()) {
+        Some(index) => (
+            &command[..index],
+            trim_ascii_spaces(&command[index + 1..]),
+        ),
+        None => (command, b""),
+    }
+}
+
+fn execute_from_bin(program: &[u8], args: &[u8]) -> usize {
     const BIN_PREFIX: &[u8] = b"/bin/";
 
     let mut path_buffer = [0u8; 261];
-    let path_len = BIN_PREFIX.len() + command.len();
+    let path_len = BIN_PREFIX.len() + program.len();
     if path_len > path_buffer.len() {
         return 0;
     }
 
     path_buffer[..BIN_PREFIX.len()].copy_from_slice(BIN_PREFIX);
-    path_buffer[BIN_PREFIX.len()..path_len].copy_from_slice(command);
+    path_buffer[BIN_PREFIX.len()..path_len].copy_from_slice(program);
 
-    ulib::execute(&path_buffer[..path_len])
+    ulib::execute(&path_buffer[..path_len], args)
 }

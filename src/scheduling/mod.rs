@@ -260,7 +260,6 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
     process.context.cs = cs as usize;
     process.context.ss = ss as usize;
     process.context.rflags = 0x202;
-    process.context.rsp = process.stack.top;
 
     processes.push(process);
 

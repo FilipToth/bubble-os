@@ -36,5 +36,7 @@ pub fn create(stack: &FullInterruptStackFrame) -> Option<usize> {
         return Some(0);
     }
 
-    scheduling::curr_process_create_file(path, true, true)
+    // map a failed creation to fd 0, otherwise the dispatcher would leave
+    // the syscall number in rax and userspace would see a phantom fd
+    scheduling::curr_process_create_file(path, true, true).or(Some(0))
 }

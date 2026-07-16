@@ -94,6 +94,70 @@ impl DirEntry {
     }
 }
 
+/// The process arguments, read from the System V style entry stack frame.
+///
+/// Construct one in `rust_main` from the `argc`/`argv` values that `_start`
+/// takes off the initial stack pointer.
+#[derive(Clone, Copy)]
+pub struct Args {
+    argc: usize,
+    argv: *const *const u8,
+    index: usize,
+}
+
+impl Args {
+    /// ## Arguments
+    ///
+    /// - `argc` the argument count from the entry stack
+    /// - `argv` the argument pointer array from the entry stack
+    pub fn new(argc: usize, argv: *const *const u8) -> Self {
+        Self {
+            argc: argc,
+            argv: argv,
+            index: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.argc
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.argc == 0
+    }
+
+    /// The argument at an index as a byte slice, without the
+    /// NUL terminator.
+    pub fn get(&self, index: usize) -> Option<&'static [u8]> {
+        if index >= self.argc {
+            return None;
+        }
+
+        let arg = unsafe { *self.argv.add(index) };
+        if arg.is_null() {
+            return None;
+        }
+
+        let mut len = 0;
+        while unsafe { *arg.add(len) } != 0 {
+            len += 1;
+        }
+
+        Some(unsafe { core::slice::from_raw_parts(arg, len) })
+    }
+}
+
+impl Iterator for Args {
+    type Item = &'static [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let arg = self.get(self.index)?;
+        self.index += 1;
+
+        Some(arg)
+    }
+}
+
 #[inline(always)]
 unsafe fn syscall0(number: usize) -> usize {
     let ret: usize;
@@ -144,6 +208,21 @@ unsafe fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) -> usiz
     ret
 }
 
+#[inline(always)]
+unsafe fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
+    let ret: usize;
+    asm!(
+        "int 0x80",
+        inlateout("rax") number => ret,
+        in("rdi") arg0,
+        in("rsi") arg1,
+        in("rdx") arg2,
+        in("r10") arg3,
+    );
+
+    ret
+}
+
 pub fn write(fd: usize, bytes: &[u8]) -> usize {
     unsafe { syscall3(SYS_WRITE, fd, bytes.as_ptr() as usize, bytes.len()) }
 }
@@ -181,8 +260,26 @@ pub fn read_stdin_char() -> u8 {
     unsafe { syscall1(SYS_READ, STDIN) as u8 }
 }
 
-pub fn execute(path: &[u8]) -> usize {
-    unsafe { syscall2(SYS_EXECUTE, path.as_ptr() as usize, path.len()) }
+/// Launches an ELF binary.
+///
+/// ## Arguments
+///
+/// - `path` the path of the binary
+/// - `args` a whitespace-separated argument string; the kernel splits it
+///   into `argv[1..]`, with the path becoming `argv[0]`
+///
+/// ## Returns
+/// The new process PID, or 0 on failure.
+pub fn execute(path: &[u8], args: &[u8]) -> usize {
+    unsafe {
+        syscall4(
+            SYS_EXECUTE,
+            path.as_ptr() as usize,
+            path.len(),
+            args.as_ptr() as usize,
+            args.len(),
+        )
+    }
 }
 
 pub fn yield_now() {

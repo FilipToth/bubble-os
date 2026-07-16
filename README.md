@@ -17,6 +17,7 @@ Bubble-OS is a operating system kernel written in Rust for the x86-64 architectu
 - AHCI and SATA disk support
 - FAT32 filesystem driver with VFAT long filename support
 - ELF loader
+- System V style process argument passing (argc/argv entry stack frame)
 - PIT-driven monotonic clock, CMOS RTC wall clock, and POSIX-style timing syscalls
 - Round-robin scheduler with tick-based process sleeping
 - Userspace and ring3 initialization

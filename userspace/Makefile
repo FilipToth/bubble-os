@@ -31,5 +31,5 @@ ls:
 	cp ls/target/x86_64-bubble-userspace/release/ls bin/ls.elf
 
 cat:
-	nasm -f elf64 cat/cat.s -o obj/cat.o
-	ld -T cat/linker.ld -m elf_x86_64 obj/cat.o -o bin/cat.elf
+	cargo rustc --manifest-path cat/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target cat/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64
+	cp cat/target/x86_64-bubble-userspace/release/cat bin/cat.elf

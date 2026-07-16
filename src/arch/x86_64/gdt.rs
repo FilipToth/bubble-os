@@ -21,6 +21,7 @@ pub struct Selectors {
 
 pub static PIT_STACK_INDEX: usize = 0;
 pub static SYSCALL_STACK_INDEX: usize = 1;
+pub static DOUBLE_FAULT_STACK_INDEX: usize = 2;
 
 lazy_static! {
     static ref TSS: TaskStateSegment = {
@@ -31,6 +32,15 @@ lazy_static! {
 
         let syscall_stack = alloc_ist_stack();
         tss.interrupt_stack_table[SYSCALL_STACK_INDEX] = VirtAddr::new(syscall_stack);
+
+        let double_fault_stack = alloc_ist_stack();
+        tss.interrupt_stack_table[DOUBLE_FAULT_STACK_INDEX] = VirtAddr::new(double_fault_stack);
+
+        // the stack the CPU switches to when an exception without a
+        // dedicated IST stack arrives from ring 3; without it the CPU
+        // would push the exception frame to address 0 and triple fault
+        let ring0_stack = alloc_ist_stack();
+        tss.privilege_stack_table[0] = VirtAddr::new(ring0_stack);
 
         tss
     };
