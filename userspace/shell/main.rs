@@ -30,7 +30,7 @@ _start:
 
 #[no_mangle]
 extern "C" fn rust_main() -> ! {
-    let mut input_buffer = [0u8; 128];
+    let mut input_buffer = [0u8; 256];
     let mut cwd = Cwd::new();
 
     ulib::stdout(br#"
@@ -132,14 +132,14 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 }
 
 struct Cwd {
-    path: [u8; 128],
+    path: [u8; 256],
     len: usize,
 }
 
 impl Cwd {
     const fn new() -> Self {
         Self {
-            path: [0; 128],
+            path: [0; 256],
             len: 0,
         }
     }
@@ -305,7 +305,7 @@ fn launch(command: &[u8]) -> bool {
 fn execute_from_bin(command: &[u8]) -> usize {
     const BIN_PREFIX: &[u8] = b"/bin/";
 
-    let mut path_buffer = [0u8; 132];
+    let mut path_buffer = [0u8; 261];
     let path_len = BIN_PREFIX.len() + command.len();
     if path_len > path_buffer.len() {
         return 0;

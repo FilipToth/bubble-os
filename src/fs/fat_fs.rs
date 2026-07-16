@@ -17,7 +17,11 @@ use crate::{
 };
 
 use super::{
-    fat::{get_fat_filename, get_filename_from_fat, DirectoryEntry},
+    fat::{
+        decode_long_filename, encode_long_filename, generate_short_alias, get_fat_filename,
+        get_filename_from_fat, lfn_checksum, DirectoryEntry, LongDirectoryEntry, LFN_MAX_ENTRIES,
+        LFN_UNITS_PER_ENTRY,
+    },
     fs::{Directory, DirectoryItems, File},
 };
 
@@ -37,22 +41,30 @@ pub struct DirectoryEntryLocation {
     pub offset: usize,
 }
 
+/// A directory entry together with its on-disk location and decoded name.
+///
+/// When the entry carries a long filename, `name` holds it and
+/// `lfn_locations` points at the long filename entries preceding the short
+/// entry; otherwise `name` is the decoded 8.3 name and `lfn_locations` is
+/// empty.
 #[derive(Clone)]
 struct LocatedDirectoryEntry {
     entry: DirectoryEntry,
     location: DirectoryEntryLocation,
+    name: String,
+    lfn_locations: Vec<DirectoryEntryLocation>,
 }
 
 #[derive(Clone)]
 pub struct FATDirectory {
     entry: DirectoryEntry,
+    name: String,
     pub fs: Weak<Mutex<FATFileSystem>>,
 }
 
 impl Directory for FATDirectory {
     fn name(&self) -> String {
-        let name = self.entry.name;
-        get_filename_from_fat(&name)
+        self.name.clone()
     }
 
     fn list_dir(&self) -> DirectoryItems {
@@ -68,17 +80,17 @@ impl Directory for FATDirectory {
         let (files, directories) = fs_guard.list_directory(&self.entry);
 
         let directories: Vec<Arc<dyn Directory>> = directories
-            .iter()
+            .into_iter()
             .map(|d| {
-                let dir = FATDirectory::new(d.clone(), self.fs.clone());
+                let dir = FATDirectory::new(d.entry, d.name, self.fs.clone());
                 Arc::new(dir) as Arc<dyn Directory>
             })
             .collect();
 
         let files: Vec<Arc<RwLock<dyn File>>> = files
-            .iter()
+            .into_iter()
             .map(|f| {
-                let file = FATFile::new(f.entry.clone(), f.location, self.fs.clone());
+                let file = FATFile::new(f.entry, f.name, f.location, self.fs.clone());
                 Arc::new(RwLock::new(file)) as Arc<RwLock<dyn File>>
             })
             .collect();
@@ -93,6 +105,7 @@ impl Directory for FATDirectory {
 
         Some(Arc::new(RwLock::new(FATFile::new(
             file.entry,
+            file.name,
             file.location,
             self.fs.clone(),
         ))))
@@ -118,9 +131,10 @@ impl Directory for FATDirectory {
 }
 
 impl FATDirectory {
-    pub fn new(entry: DirectoryEntry, fs: Weak<Mutex<FATFileSystem>>) -> Self {
+    pub fn new(entry: DirectoryEntry, name: String, fs: Weak<Mutex<FATFileSystem>>) -> Self {
         Self {
             entry: entry,
+            name: name,
             fs: fs,
         }
     }
@@ -129,14 +143,14 @@ impl FATDirectory {
 #[derive(Clone)]
 pub struct FATFile {
     entry: DirectoryEntry,
+    name: String,
     location: DirectoryEntryLocation,
     fs: Weak<Mutex<FATFileSystem>>,
 }
 
 impl File for FATFile {
     fn name(&self) -> String {
-        let name = self.entry.name;
-        get_filename_from_fat(&name)
+        self.name.clone()
     }
 
     fn size(&self) -> usize {
@@ -179,11 +193,13 @@ impl File for FATFile {
 impl FATFile {
     pub fn new(
         entry: DirectoryEntry,
+        name: String,
         location: DirectoryEntryLocation,
         fs: Weak<Mutex<FATFileSystem>>,
     ) -> Self {
         Self {
             entry: entry,
+            name: name,
             location: location,
             fs: fs,
         }
@@ -215,7 +231,7 @@ impl FATFileSystem {
     pub fn root_dir(self_arc: Arc<Mutex<FATFileSystem>>) -> FATDirectory {
         let fs_weak = Arc::downgrade(&self_arc);
         let root = self_arc.lock().root();
-        FATDirectory::new(root, fs_weak)
+        FATDirectory::new(root, String::from("root"), fs_weak)
     }
 
     fn root(&self) -> DirectoryEntry {
@@ -244,63 +260,195 @@ impl FATFileSystem {
     fn list_directory(
         &mut self,
         dir: &DirectoryEntry,
-    ) -> (Vec<LocatedDirectoryEntry>, Vec<DirectoryEntry>) {
-        let mut cluster = dir.get_cluster();
-        if cluster == 0 {
-            cluster = self.root().get_cluster()
-        }
+    ) -> (Vec<LocatedDirectoryEntry>, Vec<LocatedDirectoryEntry>) {
+        let cluster = self.directory_cluster(dir);
+        let Some((slots, _)) = self.load_directory_slots(cluster) else {
+            return (Vec::new(), Vec::new());
+        };
 
         let mut files: Vec<LocatedDirectoryEntry> = Vec::new();
-        let mut subdirs: Vec<DirectoryEntry> = Vec::new();
+        let mut subdirs: Vec<LocatedDirectoryEntry> = Vec::new();
 
-        loop {
-            match self.read_directory_internal(cluster) {
-                Some(region) => {
-                    let num_entries = region.size / core::mem::size_of::<DirectoryEntry>();
-                    let dir = region.addr as *mut DirectoryEntry;
-                    let mut directory_end_reached = false;
-
-                    // copy directory entries
-                    let dir_arr = unsafe { core::slice::from_raw_parts_mut(dir, num_entries) };
-                    for (index, entry) in dir_arr.iter().enumerate() {
-                        if entry.is_end_marker() {
-                            directory_end_reached = true;
-                            break;
-                        }
-
-                        if entry.is_directory() {
-                            subdirs.push(entry.clone());
-                        } else if entry.is_regular_file() {
-                            // file
-                            files.push(LocatedDirectoryEntry {
-                                entry: entry.clone(),
-                                location: DirectoryEntryLocation {
-                                    cluster: cluster,
-                                    index: index,
-                                    offset: index * core::mem::size_of::<DirectoryEntry>(),
-                                },
-                            });
-                        }
-                    }
-
-                    let region_layout = region.construct_layout();
-                    unsafe { dealloc(region.get_ptr::<u8>(), region_layout) };
-
-                    if directory_end_reached {
-                        break;
-                    }
-
-                    // follow fat chain
-                    match self.fat.next_cluster(cluster) {
-                        Some(n) => cluster = n,
-                        None => break,
-                    };
-                }
-                None => break,
+        for parsed in Self::parse_directory_entries(&slots) {
+            if parsed.entry.is_directory() {
+                subdirs.push(parsed);
+            } else if parsed.entry.is_regular_file() {
+                files.push(parsed);
             }
         }
 
         (files, subdirs)
+    }
+
+    /// Loads every directory entry slot of a directory cluster chain.
+    ///
+    /// ## Arguments
+    ///
+    /// - `first_cluster` the first cluster of the directory
+    ///
+    /// ## Returns
+    /// All slots with their locations, including deleted and end marker
+    /// slots, along with the last cluster of the chain.
+    fn load_directory_slots(
+        &mut self,
+        first_cluster: usize,
+    ) -> Option<(Vec<(DirectoryEntry, DirectoryEntryLocation)>, usize)> {
+        let entry_size = core::mem::size_of::<DirectoryEntry>();
+        let mut slots = Vec::new();
+        let mut cluster = first_cluster;
+
+        loop {
+            let region = self.read_directory_internal(cluster)?;
+            let num_entries = region.size / entry_size;
+            let entries = unsafe {
+                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
+            };
+
+            for (index, entry) in entries.iter().enumerate() {
+                let location = DirectoryEntryLocation {
+                    cluster: cluster,
+                    index: index,
+                    offset: index * entry_size,
+                };
+
+                slots.push((entry.clone(), location));
+            }
+
+            Self::deallocate_region(&region);
+
+            match self.fat.next_cluster(cluster) {
+                Some(next_cluster) => cluster = next_cluster,
+                None => return Some((slots, cluster)),
+            }
+        }
+    }
+
+    /// Decodes directory slots into live entries with their names.
+    ///
+    /// Long filename chains are validated against their sequence numbers and
+    /// short-name checksum; invalid or orphaned chains are discarded and the
+    /// 8.3 name is used instead.
+    fn parse_directory_entries(
+        slots: &[(DirectoryEntry, DirectoryEntryLocation)],
+    ) -> Vec<LocatedDirectoryEntry> {
+        let mut parsed = Vec::new();
+        let mut lfn_chunks: Vec<[u16; LFN_UNITS_PER_ENTRY]> = Vec::new();
+        let mut lfn_locations: Vec<DirectoryEntryLocation> = Vec::new();
+        let mut lfn_expected_sequence = 0u8;
+        let mut lfn_checksum_value = 0u8;
+
+        for (entry, location) in slots {
+            if entry.is_end_marker() {
+                break;
+            }
+
+            if entry.is_deleted() {
+                lfn_chunks.clear();
+                lfn_locations.clear();
+                lfn_expected_sequence = 0;
+                continue;
+            }
+
+            if entry.is_long_filename() {
+                let lfn = LongDirectoryEntry::from_directory_entry(entry);
+                let sequence = lfn.sequence();
+
+                if lfn.is_last() {
+                    lfn_chunks.clear();
+                    lfn_locations.clear();
+                    lfn_checksum_value = lfn.checksum;
+                    lfn_expected_sequence =
+                        if sequence >= 1 && sequence as usize <= LFN_MAX_ENTRIES {
+                            sequence
+                        } else {
+                            0
+                        };
+                }
+
+                if lfn_expected_sequence == 0
+                    || sequence != lfn_expected_sequence
+                    || lfn.checksum != lfn_checksum_value
+                {
+                    lfn_chunks.clear();
+                    lfn_locations.clear();
+                    lfn_expected_sequence = 0;
+                    continue;
+                }
+
+                lfn_chunks.push(lfn.name_units());
+                lfn_locations.push(*location);
+                lfn_expected_sequence -= 1;
+                continue;
+            }
+
+            if entry.is_volume_label() {
+                lfn_chunks.clear();
+                lfn_locations.clear();
+                lfn_expected_sequence = 0;
+                continue;
+            }
+
+            let short_name = entry.name;
+            let lfn_complete = lfn_expected_sequence == 0
+                && !lfn_chunks.is_empty()
+                && lfn_checksum_value == lfn_checksum(&short_name);
+
+            let long_name = if lfn_complete {
+                let mut units: Vec<u16> = Vec::with_capacity(lfn_chunks.len() * LFN_UNITS_PER_ENTRY);
+                for chunk in lfn_chunks.iter().rev() {
+                    units.extend_from_slice(chunk);
+                }
+
+                decode_long_filename(&units)
+            } else {
+                None
+            };
+
+            let (name, lfn_entry_locations) = match long_name {
+                Some(name) => (name, core::mem::take(&mut lfn_locations)),
+                None => (get_filename_from_fat(&short_name), Vec::new()),
+            };
+
+            parsed.push(LocatedDirectoryEntry {
+                entry: entry.clone(),
+                location: *location,
+                name: name,
+                lfn_locations: lfn_entry_locations,
+            });
+
+            lfn_chunks.clear();
+            lfn_locations.clear();
+            lfn_expected_sequence = 0;
+        }
+
+        parsed
+    }
+
+    /// Finds a live directory entry by name.
+    ///
+    /// Both the long filename and the decoded 8.3 alias match,
+    /// case-insensitively.
+    fn find_parsed_entry<'a>(
+        parsed: &'a [LocatedDirectoryEntry],
+        name: &str,
+    ) -> Option<&'a LocatedDirectoryEntry> {
+        parsed.iter().find(|candidate| {
+            let short_name = candidate.entry.name;
+            candidate.name.eq_ignore_ascii_case(name)
+                || get_filename_from_fat(&short_name).eq_ignore_ascii_case(name)
+        })
+    }
+
+    fn find_entry_by_name(
+        &mut self,
+        dir: &DirectoryEntry,
+        name: &str,
+    ) -> Option<LocatedDirectoryEntry> {
+        let cluster = self.directory_cluster(dir);
+        let (slots, _) = self.load_directory_slots(cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
+
+        Self::find_parsed_entry(&parsed, name).cloned()
     }
 
     fn create_file(
@@ -308,10 +456,17 @@ impl FATFileSystem {
         dir: &DirectoryEntry,
         filename: &str,
     ) -> Option<LocatedDirectoryEntry> {
-        let name = get_fat_filename(filename)?;
-        let location = self.find_free_directory_entry(dir, &name)?;
+        let dir_cluster = self.directory_cluster(dir);
+        let (slots, _) = self.load_directory_slots(dir_cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
+
+        if Self::find_parsed_entry(&parsed, filename).is_some() {
+            return None;
+        }
+
+        let (short_name, lfn_entries) = Self::prepare_name_entries(&parsed, filename)?;
         let entry = DirectoryEntry {
-            name: name,
+            name: short_name,
             attributes: 0x20,
             reserved: 0,
             creation_time_centiseconds: 0,
@@ -325,19 +480,32 @@ impl FATFileSystem {
             size: 0,
         };
 
-        self.persist_directory_entry(location, &entry)?;
+        let (location, lfn_locations) = self.persist_new_entry(dir_cluster, &lfn_entries, &entry)?;
+        let name = if lfn_entries.is_empty() {
+            get_filename_from_fat(&short_name)
+        } else {
+            String::from(filename)
+        };
 
         Some(LocatedDirectoryEntry {
             entry: entry,
             location: location,
+            name: name,
+            lfn_locations: lfn_locations,
         })
     }
 
     fn create_directory(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
-        let name = get_fat_filename(name)?;
-        let location = self.find_free_directory_entry(parent, &name)?;
-        let cluster = self.fat.allocate_chain(1)?;
         let parent_cluster = self.directory_cluster(parent);
+        let (slots, _) = self.load_directory_slots(parent_cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
+
+        if Self::find_parsed_entry(&parsed, name).is_some() {
+            return None;
+        }
+
+        let (short_name, lfn_entries) = Self::prepare_name_entries(&parsed, name)?;
+        let cluster = self.fat.allocate_chain(1)?;
 
         if !self.initialize_directory_cluster(cluster, parent_cluster) {
             let _ = self.fat.free_chain(cluster);
@@ -349,8 +517,11 @@ impl FATFileSystem {
             return None;
         }
 
-        let entry = Self::directory_entry(name, cluster);
-        if self.persist_directory_entry(location, &entry).is_none() {
+        let entry = Self::directory_entry(short_name, cluster);
+        if self
+            .persist_new_entry(parent_cluster, &lfn_entries, &entry)
+            .is_none()
+        {
             self.rollback_allocated_chain(cluster);
             return None;
         }
@@ -358,9 +529,84 @@ impl FATFileSystem {
         Some(())
     }
 
+    /// Derives the on-disk name entries for a new directory entry.
+    ///
+    /// Names that fit the 8.3 format are stored as a plain short entry.
+    /// Longer names get a chain of long filename entries plus a unique
+    /// generated short alias.
+    ///
+    /// ## Arguments
+    ///
+    /// - `parsed` the live entries of the target directory
+    /// - `filename` the requested name
+    ///
+    /// ## Returns
+    /// The short 8.3 name and the long filename entries preceding it, or
+    /// `None` when the name is invalid.
+    fn prepare_name_entries(
+        parsed: &[LocatedDirectoryEntry],
+        filename: &str,
+    ) -> Option<([u8; 11], Vec<LongDirectoryEntry>)> {
+        if let Some(short_name) = get_fat_filename(filename) {
+            return Some((short_name, Vec::new()));
+        }
+
+        let units = encode_long_filename(filename)?;
+        let taken: Vec<[u8; 11]> = parsed.iter().map(|entry| entry.entry.name).collect();
+        let short_name = generate_short_alias(filename, &taken)?;
+        let checksum = lfn_checksum(&short_name);
+
+        let chunk_count = (units.len() + LFN_UNITS_PER_ENTRY - 1) / LFN_UNITS_PER_ENTRY;
+        let mut entries = Vec::with_capacity(chunk_count);
+
+        for chunk_index in (0..chunk_count).rev() {
+            let start = chunk_index * LFN_UNITS_PER_ENTRY;
+            let end = min(start + LFN_UNITS_PER_ENTRY, units.len());
+            let last = chunk_index == chunk_count - 1;
+
+            entries.push(LongDirectoryEntry::new(
+                (chunk_index + 1) as u8,
+                last,
+                checksum,
+                &units[start..end],
+            ));
+        }
+
+        Some((short_name, entries))
+    }
+
+    /// Persists a new directory entry along with its long filename entries.
+    ///
+    /// ## Arguments
+    ///
+    /// - `dir_cluster` the first cluster of the target directory
+    /// - `lfn_entries` the long filename entries, in on-disk order
+    /// - `entry` the short 8.3 entry
+    ///
+    /// ## Returns
+    /// The location of the short entry and the locations of the long
+    /// filename entries.
+    fn persist_new_entry(
+        &mut self,
+        dir_cluster: usize,
+        lfn_entries: &[LongDirectoryEntry],
+        entry: &DirectoryEntry,
+    ) -> Option<(DirectoryEntryLocation, Vec<DirectoryEntryLocation>)> {
+        let locations = self.allocate_directory_slots(dir_cluster, lfn_entries.len() + 1)?;
+
+        for (lfn, location) in lfn_entries.iter().zip(&locations) {
+            self.persist_directory_entry(*location, &lfn.to_directory_entry())?;
+        }
+
+        let short_location = *locations.last()?;
+        self.persist_directory_entry(short_location, entry)?;
+
+        let lfn_locations = locations[..locations.len() - 1].to_vec();
+        Some((short_location, lfn_locations))
+    }
+
     fn unlink_file(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
-        let name = get_fat_filename(name)?;
-        let file = self.find_directory_entry(parent, &name)?;
+        let file = self.find_entry_by_name(parent, name)?;
         if !file.entry.is_regular_file() {
             return None;
         }
@@ -369,9 +615,13 @@ impl FATFileSystem {
     }
 
     fn remove_directory(&mut self, parent: &DirectoryEntry, name: &str) -> Option<()> {
-        let name = get_fat_filename(name)?;
-        let directory = self.find_directory_entry(parent, &name)?;
-        if !directory.entry.is_directory() || directory.entry.get_cluster() == 0 {
+        let directory = self.find_entry_by_name(parent, name)?;
+        let short_name = directory.entry.name;
+
+        if !directory.entry.is_directory()
+            || directory.entry.get_cluster() == 0
+            || Self::is_dot_name(&short_name)
+        {
             return None;
         }
 
@@ -382,108 +632,77 @@ impl FATFileSystem {
         self.delete_directory_entry(directory)
     }
 
-    fn find_directory_entry(
+    /// Finds a run of consecutive free directory entry slots, extending the
+    /// directory with new clusters when needed.
+    ///
+    /// A slot is free when it is deleted or lies at or beyond the end
+    /// marker. The run may span cluster boundaries.
+    ///
+    /// ## Arguments
+    ///
+    /// - `dir_cluster` the first cluster of the directory
+    /// - `needed` the number of consecutive slots required
+    ///
+    /// ## Returns
+    /// The locations of the free slots, in directory order.
+    fn allocate_directory_slots(
         &mut self,
-        dir: &DirectoryEntry,
-        filename: &[u8; 11],
-    ) -> Option<LocatedDirectoryEntry> {
-        let mut cluster = self.directory_cluster(dir);
-        let entry_size = core::mem::size_of::<DirectoryEntry>();
+        dir_cluster: usize,
+        needed: usize,
+    ) -> Option<Vec<DirectoryEntryLocation>> {
+        let (slots, mut last_cluster) = self.load_directory_slots(dir_cluster)?;
+        let mut run: Vec<DirectoryEntryLocation> = Vec::new();
+        let mut past_end = false;
 
-        loop {
-            let region = self.read_directory_internal(cluster)?;
-            let num_entries = region.size / entry_size;
-            let entries = unsafe {
-                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
-            };
-
-            for (index, entry) in entries.iter().enumerate() {
-                if entry.is_end_marker() {
-                    Self::deallocate_region(&region);
-                    return None;
-                }
-
-                let entry_name = entry.name;
-                if !entry.is_deleted() && !entry.is_long_filename() && entry_name == *filename {
-                    let located = LocatedDirectoryEntry {
-                        entry: entry.clone(),
-                        location: DirectoryEntryLocation {
-                            cluster: cluster,
-                            index: index,
-                            offset: index * entry_size,
-                        },
-                    };
-
-                    Self::deallocate_region(&region);
-                    return Some(located);
-                }
+        for (entry, location) in &slots {
+            if !past_end && entry.is_end_marker() {
+                past_end = true;
             }
 
-            Self::deallocate_region(&region);
-            cluster = self.fat.next_cluster(cluster)?;
+            if past_end || entry.is_deleted() {
+                run.push(*location);
+                if run.len() == needed {
+                    return Some(run);
+                }
+            } else {
+                run.clear();
+            }
         }
-    }
 
-    fn find_free_directory_entry(
-        &mut self,
-        dir: &DirectoryEntry,
-        filename: &[u8; 11],
-    ) -> Option<DirectoryEntryLocation> {
-        let mut cluster = self.directory_cluster(dir);
-
+        // the remaining run is a suffix of the chain; extend the directory
+        // until enough consecutive slots are available
         let entry_size = core::mem::size_of::<DirectoryEntry>();
-        let mut first_free_entry = None;
+        let entries_per_cluster = self.cluster_size() / entry_size;
 
-        loop {
-            let region = self.read_directory_internal(cluster)?;
-            let num_entries = region.size / entry_size;
-            let entries = unsafe {
-                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
-            };
+        while run.len() < needed {
+            let new_cluster = self.append_directory_cluster(last_cluster)?;
+            last_cluster = new_cluster;
 
-            for (index, entry) in entries.iter().enumerate() {
-                if entry.is_end_marker() {
-                    let location = first_free_entry.unwrap_or(DirectoryEntryLocation {
-                        cluster: cluster,
-                        index: index,
-                        offset: index * entry_size,
-                    });
+            for index in 0..entries_per_cluster {
+                run.push(DirectoryEntryLocation {
+                    cluster: new_cluster,
+                    index: index,
+                    offset: index * entry_size,
+                });
 
-                    Self::deallocate_region(&region);
-                    return Some(location);
-                }
-
-                let entry_name = entry.name;
-                if !entry.is_deleted() && !entry.is_long_filename() && entry_name == *filename {
-                    Self::deallocate_region(&region);
-                    return None;
-                }
-
-                if entry.is_deleted() && first_free_entry.is_none() {
-                    first_free_entry = Some(DirectoryEntryLocation {
-                        cluster: cluster,
-                        index: index,
-                        offset: index * entry_size,
-                    });
-                }
-            }
-
-            Self::deallocate_region(&region);
-
-            match self.fat.next_cluster(cluster) {
-                Some(next_cluster) => cluster = next_cluster,
-                None => {
-                    if let Some(location) = first_free_entry {
-                        return Some(location);
-                    }
-
-                    return self.extend_directory(cluster);
+                if run.len() == needed {
+                    break;
                 }
             }
         }
+
+        Some(run)
     }
 
-    fn extend_directory(&mut self, last_cluster: usize) -> Option<DirectoryEntryLocation> {
+    /// Links a new zeroed cluster to the end of a directory cluster chain.
+    ///
+    /// ## Arguments
+    ///
+    /// - `last_cluster` the current last cluster of the directory
+    ///
+    /// ## Returns
+    /// The newly linked cluster.
+    fn append_directory_cluster(&mut self, last_cluster: usize) -> Option<usize> {
         let new_cluster = self.fat.allocate_chain(1)?;
         if self.fat.set(last_cluster, new_cluster as u32).is_none() {
             let _ = self.fat.free_chain(new_cluster);
@@ -497,11 +716,7 @@ impl FATFileSystem {
             return None;
         }
 
-        Some(DirectoryEntryLocation {
-            cluster: new_cluster,
-            index: 0,
-            offset: 0,
-        })
+        Some(new_cluster)
     }
 
     fn initialize_directory_cluster(&mut self, cluster: usize, parent_cluster: usize) -> bool {
@@ -542,38 +757,25 @@ impl FATFileSystem {
     }
 
     fn directory_is_empty(&mut self, dir: &DirectoryEntry) -> Option<bool> {
-        let mut cluster = self.directory_cluster(dir);
-        let entry_size = core::mem::size_of::<DirectoryEntry>();
+        let cluster = self.directory_cluster(dir);
+        let (slots, _) = self.load_directory_slots(cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
 
-        loop {
-            let region = self.read_directory_internal(cluster)?;
-            let num_entries = region.size / entry_size;
-            let entries = unsafe {
-                core::slice::from_raw_parts(region.get_ptr::<DirectoryEntry>(), num_entries)
-            };
+        let empty = parsed.iter().all(|entry| {
+            let name = entry.entry.name;
+            Self::is_dot_name(&name)
+        });
 
-            for entry in entries {
-                if entry.is_end_marker() {
-                    Self::deallocate_region(&region);
-                    return Some(true);
-                }
-
-                let name = entry.name;
-                if !entry.is_deleted() && !Self::is_dot_name(&name) {
-                    Self::deallocate_region(&region);
-                    return Some(false);
-                }
-            }
-
-            Self::deallocate_region(&region);
-            match self.fat.next_cluster(cluster) {
-                Some(next_cluster) => cluster = next_cluster,
-                None => return Some(true),
-            }
-        }
+        Some(empty)
     }
 
     fn delete_directory_entry(&mut self, located: LocatedDirectoryEntry) -> Option<()> {
+        for lfn_location in &located.lfn_locations {
+            let mut lfn_entry = self.read_directory_entry(*lfn_location)?;
+            lfn_entry.mark_deleted();
+            self.persist_directory_entry(*lfn_location, &lfn_entry)?;
+        }
+
         let first_cluster = located.entry.get_cluster();
         let mut deleted_entry = located.entry;
         deleted_entry.mark_deleted();

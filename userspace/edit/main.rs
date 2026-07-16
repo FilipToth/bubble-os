@@ -4,7 +4,7 @@
 use core::{arch::global_asm, cell::UnsafeCell, panic::PanicInfo};
 
 const FILE_CAPACITY: usize = 4 * 1024;
-const PATH_CAPACITY: usize = 128;
+const PATH_CAPACITY: usize = 256;
 const VIEW_ROWS: usize = 16;
 
 global_asm!(

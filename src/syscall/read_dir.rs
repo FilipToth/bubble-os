@@ -8,10 +8,13 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
 };
 
+/// Maximum filename bytes copied into a [`SyscallDirEntry`].
+const DIR_ENTRY_NAME_CAPACITY: usize = 256;
+
 /// Simplified version of the FAT directory entry
 #[repr(C)]
 struct SyscallDirEntry {
-    name: [u8; 64],
+    name: [u8; DIR_ENTRY_NAME_CAPACITY],
     attr: u8,
     size: u32,
 }
@@ -38,9 +41,9 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .0
         .iter()
         .map(|e| {
-            let mut name_buffer: [u8; 64] = [0; 64];
+            let mut name_buffer = [0u8; DIR_ENTRY_NAME_CAPACITY];
             let name = e.name();
-            let name_len = name.len().min(64);
+            let name_len = name.len().min(DIR_ENTRY_NAME_CAPACITY);
             let name = name.as_bytes();
 
             name_buffer[..name_len].copy_from_slice(&name[..name_len]);
@@ -59,9 +62,9 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
         .1
         .iter()
         .map(|e| {
-            let mut name_buffer: [u8; 64] = [0; 64];
+            let mut name_buffer = [0u8; DIR_ENTRY_NAME_CAPACITY];
             let name = e.read().name();
-            let name_len = name.len().min(64);
+            let name_len = name.len().min(DIR_ENTRY_NAME_CAPACITY);
             let name = name.as_bytes();
 
             name_buffer[..name_len].copy_from_slice(&name[..name_len]);

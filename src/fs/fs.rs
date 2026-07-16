@@ -60,8 +60,13 @@ pub trait Directory: DirectoryClone + Send + Sync {
 
     fn find_directory(&self, name: &str) -> Option<Arc<dyn Directory>> {
         // TODO: Use a method to only list subdirectories, so we save on performance
+        // FAT filenames are case-insensitive
         let items = self.list_dir();
-        let directory = items.0.iter().find(|d| d.name() == name)?;
+        let directory = items
+            .0
+            .iter()
+            .find(|d| d.name().eq_ignore_ascii_case(name))?;
+
         Some(directory.clone())
     }
 
@@ -69,7 +74,7 @@ pub trait Directory: DirectoryClone + Send + Sync {
         let items = self.list_dir();
         let file = items.1.iter().find(|f| {
             let f_guard = f.read();
-            f_guard.name() == name
+            f_guard.name().eq_ignore_ascii_case(name)
         })?;
 
         Some(file.clone())

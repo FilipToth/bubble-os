@@ -22,10 +22,17 @@ const SYS_MKDIR: usize = 13;
 const SYS_UNLINK: usize = 14;
 const SYS_RMDIR: usize = 15;
 
+/// Maximum filename bytes in a [`DirEntry`]; must match the kernel's
+/// `SyscallDirEntry` layout.
+pub const DIR_ENTRY_NAME_CAPACITY: usize = 256;
+
+/// Directory entry attribute flag marking a subdirectory.
+pub const DIR_ENTRY_ATTR_DIRECTORY: u8 = 0x10;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DirEntry {
-    pub name: [u8; 64],
+    pub name: [u8; DIR_ENTRY_NAME_CAPACITY],
     pub attr: u8,
     pub size: u32,
 }
@@ -33,10 +40,25 @@ pub struct DirEntry {
 impl DirEntry {
     pub const fn empty() -> Self {
         Self {
-            name: [0; 64],
+            name: [0; DIR_ENTRY_NAME_CAPACITY],
             attr: 0,
             size: 0,
         }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.attr & DIR_ENTRY_ATTR_DIRECTORY != 0
+    }
+
+    /// The entry name as a byte slice, without trailing NUL padding.
+    pub fn name_bytes(&self) -> &[u8] {
+        let len = self
+            .name
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(self.name.len());
+
+        &self.name[..len]
     }
 }
 
