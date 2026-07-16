@@ -21,6 +21,10 @@ pub struct Process {
     pub pre_schedule: bool,
     pub blocking: bool,
     pub awaiting_process: Option<usize>,
+
+    /// When set, the process stays descheduled until the tick counter
+    /// reaches this value.
+    pub sleep_until_tick: Option<u64>,
     pub context: FullInterruptStackFrame,
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
@@ -77,6 +81,7 @@ impl Process {
             pre_schedule: true,
             blocking: false,
             awaiting_process: None,
+            sleep_until_tick: None,
             context: context,
             start_region: entry.start_region,
             curr_working_dir: cwd,

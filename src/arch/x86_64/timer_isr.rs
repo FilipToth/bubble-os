@@ -6,6 +6,7 @@ use crate::{
     arch, interrupt_trampoline,
     io::serial,
     scheduling::{self, SCHEDULING_ENABLED},
+    time,
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -18,6 +19,7 @@ pub extern "x86-interrupt" fn timer_trampoline() {
 #[no_mangle]
 pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
     interrupts::disable();
+    time::tick();
 
     let sched_enabled = SCHEDULING_ENABLED.load(Ordering::SeqCst);
     arch::x86_64::pit::end_of_interrupt(0);

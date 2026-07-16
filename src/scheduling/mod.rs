@@ -11,7 +11,7 @@ use crate::{
     fs::fs::{normalize_path_components, Directory, File},
     io::LogType,
     mem::{paging::PageTable, GLOBAL_MEMORY_CONTROLLER},
-    print, with_root_dir,
+    print, time, with_root_dir,
 };
 
 pub mod process;
@@ -117,9 +117,13 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
             current_index + 1
         };
 
-        let (blocking, awaiting_process) = {
+        let (blocking, awaiting_process, sleep_until_tick) = {
             let process = &mut processes[current_index];
-            (process.blocking, process.awaiting_process)
+            (
+                process.blocking,
+                process.awaiting_process,
+                process.sleep_until_tick,
+            )
         };
 
         let mut new_current_ready = !blocking;
@@ -128,12 +132,19 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
             new_current_ready = !process_found;
         }
 
+        if let Some(deadline) = sleep_until_tick {
+            if time::current_ticks() < deadline {
+                new_current_ready = false;
+            }
+        }
+
         if new_current_ready {
             CURRENT_INDEX.store(current_index, Ordering::SeqCst);
 
             let new_current = &mut processes[current_index];
             new_current.pre_schedule = false;
             new_current.awaiting_process = None;
+            new_current.sleep_until_tick = None;
 
             return Some(new_current.clone());
         }
@@ -266,6 +277,27 @@ pub fn block_current() {
 
     let current = &mut processes[current_index];
     current.blocking = true;
+}
+
+/// Puts the current process to sleep until the tick counter reaches a
+/// deadline.
+///
+/// The caller must yield to the scheduler afterwards for the sleep to take
+/// effect.
+///
+/// ## Arguments
+///
+/// - `deadline_tick` the tick count at which the process becomes runnable
+pub fn sleep_current_until(deadline_tick: u64) {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    if processes.len() == 0 {
+        return;
+    }
+
+    let current = &mut processes[current_index];
+    current.sleep_until_tick = Some(deadline_tick);
 }
 
 pub fn process_input(input: char) {

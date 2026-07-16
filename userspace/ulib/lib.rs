@@ -21,6 +21,38 @@ const SYS_CREATE: usize = 12;
 const SYS_MKDIR: usize = 13;
 const SYS_UNLINK: usize = 14;
 const SYS_RMDIR: usize = 15;
+const SYS_CLOCK_GETTIME: usize = 16;
+const SYS_NANOSLEEP: usize = 17;
+
+pub const CLOCK_REALTIME: usize = 0;
+pub const CLOCK_MONOTONIC: usize = 1;
+
+pub const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
+pub const NANOSECONDS_PER_MILLISECOND: i64 = 1_000_000;
+
+/// A point in time, laid out like the POSIX `timespec`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Timespec {
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
+}
+
+impl Timespec {
+    pub const fn zero() -> Self {
+        Self {
+            tv_sec: 0,
+            tv_nsec: 0,
+        }
+    }
+
+    pub const fn from_milliseconds(milliseconds: i64) -> Self {
+        Self {
+            tv_sec: milliseconds / 1_000,
+            tv_nsec: (milliseconds % 1_000) * NANOSECONDS_PER_MILLISECOND,
+        }
+    }
+}
 
 /// Maximum filename bytes in a [`DirEntry`]; must match the kernel's
 /// `SyscallDirEntry` layout.
@@ -199,6 +231,49 @@ pub fn close(fd: usize) -> bool {
 
 pub fn truncate(fd: usize, size: usize) -> bool {
     unsafe { syscall2(SYS_TRUNCATE, fd, size) != 0 }
+}
+
+pub fn clock_gettime(clock_id: usize, timespec: &mut Timespec) -> bool {
+    unsafe {
+        syscall2(
+            SYS_CLOCK_GETTIME,
+            clock_id,
+            timespec as *mut Timespec as usize,
+        ) != 0
+    }
+}
+
+/// Seconds since the Unix epoch, or 0 when the clock is unavailable.
+pub fn time() -> i64 {
+    let mut timespec = Timespec::zero();
+    if !clock_gettime(CLOCK_REALTIME, &mut timespec) {
+        return 0;
+    }
+
+    timespec.tv_sec
+}
+
+/// Nanoseconds since boot, or 0 when the clock is unavailable.
+pub fn monotonic_ns() -> i64 {
+    let mut timespec = Timespec::zero();
+    if !clock_gettime(CLOCK_MONOTONIC, &mut timespec) {
+        return 0;
+    }
+
+    timespec.tv_sec * NANOSECONDS_PER_SECOND + timespec.tv_nsec
+}
+
+pub fn nanosleep(duration: &Timespec) -> bool {
+    unsafe { syscall1(SYS_NANOSLEEP, duration as *const Timespec as usize) != 0 }
+}
+
+pub fn sleep_ms(milliseconds: i64) -> bool {
+    let duration = Timespec::from_milliseconds(milliseconds);
+    nanosleep(&duration)
+}
+
+pub fn sleep(seconds: i64) -> bool {
+    sleep_ms(seconds * 1_000)
 }
 
 pub fn exit() -> ! {

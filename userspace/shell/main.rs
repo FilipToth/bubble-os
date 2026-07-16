@@ -125,6 +125,46 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
+        if command == b"uptime" {
+            let mut timespec = ulib::Timespec::zero();
+            if ulib::clock_gettime(ulib::CLOCK_MONOTONIC, &mut timespec) {
+                ulib::stdout(b"Up for ");
+                print_number(timespec.tv_sec as usize);
+                ulib::stdout(b"s\n");
+            } else {
+                ulib::stdout(b"Could not read the monotonic clock\n");
+            }
+
+            continue;
+        }
+
+        if command == b"date" {
+            let unix_time = ulib::time();
+            if unix_time != 0 {
+                ulib::stdout(b"Unix time: ");
+                print_number(unix_time as usize);
+                ulib::stdout(b"\n");
+            } else {
+                ulib::stdout(b"Could not read the wall clock\n");
+            }
+
+            continue;
+        }
+
+        if command.starts_with(b"sleep ") {
+            let argument = trim_ascii_spaces(&command[6..]);
+            let slept = match parse_number(argument) {
+                Some(seconds) => ulib::sleep(seconds as i64),
+                None => false,
+            };
+
+            if !slept {
+                ulib::stdout(b"Usage: sleep <seconds>\n");
+            }
+
+            continue;
+        }
+
         if !launch(command) {
             ulib::stdout(b"Program or command not found...\n");
         }
@@ -273,6 +313,43 @@ fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
     }
 
     bytes
+}
+
+fn print_number(mut number: usize) {
+    let mut digits = [0u8; 20];
+    let mut len = 0;
+
+    loop {
+        digits[len] = b'0' + (number % 10) as u8;
+        len += 1;
+        number /= 10;
+
+        if number == 0 {
+            break;
+        }
+    }
+
+    while len > 0 {
+        len -= 1;
+        ulib::stdout(&digits[len..len + 1]);
+    }
+}
+
+fn parse_number(bytes: &[u8]) -> Option<usize> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut number: usize = 0;
+    for byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+
+        number = number.checked_mul(10)?.checked_add((byte - b'0') as usize)?;
+    }
+
+    Some(number)
 }
 
 fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {

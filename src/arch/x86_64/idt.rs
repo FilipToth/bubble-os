@@ -97,6 +97,8 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         13 => syscall::mkdir(stack),
         14 => syscall::unlink(stack),
         15 => syscall::rmdir(stack),
+        16 => syscall::clock_gettime(stack),
+        17 => syscall::nanosleep(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

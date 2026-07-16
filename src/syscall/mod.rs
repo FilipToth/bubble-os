@@ -1,9 +1,11 @@
 mod cd;
+mod clock_gettime;
 mod close;
 mod create;
 mod execute;
 mod exit;
 mod mkdir;
+mod nanosleep;
 mod open;
 mod read;
 mod read_dir;
@@ -15,11 +17,13 @@ mod write;
 mod yld;
 
 pub use cd::cd;
+pub use clock_gettime::clock_gettime;
 pub use close::close;
 pub use create::create;
 pub use execute::execute;
 pub use exit::exit;
 pub use mkdir::mkdir;
+pub use nanosleep::nanosleep;
 pub use open::open;
 pub use read::read;
 pub use read_dir::read_dir;

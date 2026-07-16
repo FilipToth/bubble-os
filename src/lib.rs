@@ -28,6 +28,7 @@ mod net;
 mod scheduling;
 mod syscall;
 mod test;
+mod time;
 mod utils;
 
 use ahci::init_ahci;
@@ -103,6 +104,7 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     }
 
     arch::x86_64::pit::init_pit();
+    time::init();
 
     x86_64::instructions::interrupts::enable();
     log!(LogType::OK, "Initialized IDT");
