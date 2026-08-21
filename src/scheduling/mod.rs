@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use process::{FileDescriptor, Process, ProcessEntry};
 use spin::{Mutex, RwLock};
 
@@ -20,6 +20,23 @@ pub static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Exit statuses of processes that have already exited, keyed by pid.
+///
+/// A record is written when a process exits and taken by whoever waits for
+/// it. Nothing reaps the record of a process nobody ever waits for, so the
+/// map is capped and the oldest record is dropped on overflow.
+///
+/// `PID_COUNTER` never reuses a pid, so the BTree key order is also the
+/// insertion order and the first key is always the oldest record. Recycling
+/// pids would break that, and the eviction would start dropping arbitrary
+/// records instead of the stalest ones.
+///
+/// Lock ordering: `PROCESSES` is always taken before `EXIT_RECORDS`, never
+/// the other way around.
+static EXIT_RECORDS: Mutex<BTreeMap<usize, usize>> = Mutex::new(BTreeMap::new());
+
+const EXIT_RECORDS_MAX: usize = 64;
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
@@ -127,9 +144,17 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
         };
 
         let mut new_current_ready = !blocking;
+        let mut exit_status = None;
+
         if let Some(subprocess_pid) = awaiting_process {
             let process_found = processes.iter().any(|p| p.pid == subprocess_pid);
             new_current_ready = !process_found;
+
+            if new_current_ready {
+                // the record is only taken when this process is about to be
+                // picked, a candidate that is skipped must not consume it
+                exit_status = take_exit_status(subprocess_pid);
+            }
         }
 
         if let Some(deadline) = sleep_until_tick {
@@ -145,6 +170,12 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
             new_current.pre_schedule = false;
             new_current.awaiting_process = None;
             new_current.sleep_until_tick = None;
+
+            if let Some(status) = exit_status {
+                // the process is resuming inside the wait_for_process
+                // syscall, hand the child status back as its return value
+                new_current.context.rax = status;
+            }
 
             return Some(new_current.clone());
         }
@@ -343,7 +374,47 @@ pub fn current_wait_for_process(subprocess: usize) {
     current.awaiting_process = Some(subprocess);
 }
 
-pub fn exit_current() {
+/// Stores the exit status of a process for whoever waits on it.
+///
+/// ## Arguments
+///
+/// - `pid` the pid of the process that exited
+/// - `status` the status the process exited with
+fn record_exit(pid: usize, status: usize) {
+    let mut records = EXIT_RECORDS.lock();
+
+    if records.len() >= EXIT_RECORDS_MAX && !records.contains_key(&pid) {
+        // nobody is coming for the stalest record anymore
+        records.pop_first();
+    }
+
+    records.insert(pid, status);
+}
+
+/// Takes the recorded exit status of a process that has already exited.
+///
+/// The record is consumed, a second wait for the same pid finds nothing.
+///
+/// ## Arguments
+///
+/// - `pid` the pid of the exited process
+///
+/// ## Returns
+/// The exit status, or `None` when the process is still running or was
+/// never recorded.
+pub fn take_exit_status(pid: usize) -> Option<usize> {
+    EXIT_RECORDS.lock().remove(&pid)
+}
+
+/// Terminates the currently scheduled process and frees everything it owns.
+///
+/// The caller must yield to the scheduler afterwards, the current process no
+/// longer exists once this returns.
+///
+/// ## Arguments
+///
+/// - `status` the exit status handed to whoever waits for this process
+pub fn exit_current(status: usize) {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
     if processes.len() == 0 {
@@ -363,6 +434,7 @@ pub fn exit_current() {
     }
 
     let removed = processes.remove(current_index);
+    record_exit(removed.pid, status);
 
     elf::unmap(&removed.start_region);
 

@@ -288,10 +288,18 @@ pub fn yield_now() {
     }
 }
 
-pub fn wait_for_process(pid: usize) {
-    unsafe {
-        syscall1(SYS_WAIT_FOR_PROCESS, pid);
-    }
+/// Waits for a process to exit.
+///
+/// ## Arguments
+///
+/// - `pid` the pid to wait for
+///
+/// ## Returns
+/// The status the process exited with. A status of 128 or more means the
+/// kernel killed it after a CPU fault, and the value is 128 plus the
+/// exception vector.
+pub fn wait_for_process(pid: usize) -> usize {
+    unsafe { syscall1(SYS_WAIT_FOR_PROCESS, pid) }
 }
 
 pub fn read_dir(entries: &mut [DirEntry]) -> usize {
@@ -373,11 +381,18 @@ pub fn sleep(seconds: i64) -> bool {
     sleep_ms(seconds * 1_000)
 }
 
-pub fn exit() -> ! {
+/// Ends the current process.
+///
+/// ## Arguments
+///
+/// - `status` the exit status, 0 means success. Keep it below 128, the
+///   kernel reserves that range for processes it kills after a CPU fault
+pub fn exit(status: usize) -> ! {
     unsafe {
         asm!(
             "int 0x80",
             in("rax") SYS_EXIT,
+            in("rdi") status,
             options(noreturn),
         );
     }

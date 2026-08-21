@@ -17,6 +17,7 @@ _start:
     lea rsi, [rsp + 8]
     call rust_main
 
+    xor edi, edi
     mov rax, 1
     int 0x80
 
@@ -30,7 +31,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
     let args = Args::new(argc, argv);
     let Some(path) = args.get(1) else {
         ulib::stdout(b"Usage: cat <path>\n");
-        ulib::exit();
+        ulib::exit(1);
     };
 
     let fd = ulib::open(path);
@@ -38,7 +39,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
         ulib::stdout(b"cat: could not open ");
         ulib::stdout(path);
         ulib::stdout(b"\n");
-        ulib::exit();
+        ulib::exit(1);
     }
 
     let mut buffer = [0u8; 512];
@@ -52,10 +53,10 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
     }
 
     ulib::close(fd);
-    ulib::exit();
+    ulib::exit(0);
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    ulib::exit();
+    ulib::exit(101);
 }

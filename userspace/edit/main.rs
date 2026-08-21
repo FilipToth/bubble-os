@@ -19,6 +19,7 @@ _start:
     lea rsi, [rsp + 8]
     call rust_main
 
+    xor edi, edi
     mov rax, 1
     int 0x80
 
@@ -57,7 +58,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
             let path_len = read_line(&mut path_buffer);
             if path_len == 0 {
                 ulib::stdout(b"\nNo file selected.\n");
-                ulib::exit();
+                ulib::exit(1);
             }
 
             &path_buffer[..path_len]
@@ -68,7 +69,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
         Some(fd) => fd,
         None => {
             ulib::stdout(b"\nCould not open or create file.\n");
-            ulib::exit();
+            ulib::exit(1);
         }
     };
 
@@ -79,7 +80,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
         if ulib::read(fd, &mut extra) != 0 {
             ulib::close(fd);
             ulib::stdout(b"\nFile is larger than edit's 4 KiB buffer.\n");
-            ulib::exit();
+            ulib::exit(1);
         }
     }
 
@@ -104,12 +105,12 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
 
     ulib::close(fd);
     ulib::stdout(b"\x1B[2J\x1B[H");
-    ulib::exit();
+    ulib::exit(0);
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    ulib::exit();
+    ulib::exit(101);
 }
 
 fn file_buffer() -> &'static mut [u8; FILE_CAPACITY] {

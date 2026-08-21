@@ -43,6 +43,11 @@ extern "x86-interrupt" fn double_fault_isr(stack: InterruptStackFrame, err_code:
     loop {}
 }
 
+/// The exit status of a killed process is this plus the exception vector, so
+/// a program that died to a fault can be told apart from one that chose its
+/// own status.
+const FAULT_EXIT_STATUS_BASE: usize = 128;
+
 /// Handles a CPU exception that could have been raised by a user program.
 ///
 /// A ring 3 fault is fatal to the faulting program, but it must not take the
@@ -53,8 +58,9 @@ extern "x86-interrupt" fn double_fault_isr(stack: InterruptStackFrame, err_code:
 /// ## Arguments
 ///
 /// - `stack` the exception stack frame pushed by the CPU
+/// - `vector` the exception vector, used to build the exit status
 /// - `name` the human readable name of the exception, used when logging
-fn handle_fault(stack: &InterruptStackFrame, name: &str) {
+fn handle_fault(stack: &InterruptStackFrame, vector: usize, name: &str) {
     // the low two bits of the saved cs hold the privilege level the
     // exception was raised at
     let from_userspace = stack.code_segment & 3 != 0;
@@ -64,14 +70,16 @@ fn handle_fault(stack: &InterruptStackFrame, name: &str) {
         loop {}
     }
 
+    let status = FAULT_EXIT_STATUS_BASE + vector;
     match scheduling::current_pid() {
         Some(pid) => log!(
             crate::io::LogType::EXCEPTION,
-            "killing pid {} after {} at rip 0x{:X}, rsp 0x{:X}",
+            "killing pid {} after {} at rip 0x{:X}, rsp 0x{:X}, status {}",
             pid,
             name,
             stack.instruction_pointer.as_u64(),
-            stack.stack_pointer.as_u64()
+            stack.stack_pointer.as_u64(),
+            status
         ),
         None => {
             // a ring 3 frame without a current process means the scheduler
@@ -87,7 +95,7 @@ fn handle_fault(stack: &InterruptStackFrame, name: &str) {
         }
     }
 
-    scheduling::exit_current();
+    scheduling::exit_current(status);
     scheduling::schedule(None);
 
     // schedule jumps straight into the next process and never returns
@@ -95,11 +103,11 @@ fn handle_fault(stack: &InterruptStackFrame, name: &str) {
 }
 
 extern "x86-interrupt" fn divide_error_isr(stack: InterruptStackFrame) {
-    handle_fault(&stack, "divide error");
+    handle_fault(&stack, 0, "divide error");
 }
 
 extern "x86-interrupt" fn invalid_opcode_isr(stack: InterruptStackFrame) {
-    handle_fault(&stack, "invalid opcode");
+    handle_fault(&stack, 6, "invalid opcode");
 }
 
 extern "x86-interrupt" fn stack_segment_fault_isr(stack: InterruptStackFrame, err_code: u64) {
@@ -109,7 +117,7 @@ extern "x86-interrupt" fn stack_segment_fault_isr(stack: InterruptStackFrame, er
         err_code
     );
 
-    handle_fault(&stack, "stack segment fault");
+    handle_fault(&stack, 12, "stack segment fault");
 }
 
 extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
@@ -119,7 +127,7 @@ extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
         err_code
     );
 
-    handle_fault(&stack, "general protection fault");
+    handle_fault(&stack, 13, "general protection fault");
 }
 
 extern "x86-interrupt" fn page_fault_isr(stack: InterruptStackFrame, err_code: PageFaultErrorCode) {
@@ -131,7 +139,7 @@ extern "x86-interrupt" fn page_fault_isr(stack: InterruptStackFrame, err_code: P
         cr2
     );
 
-    handle_fault(&stack, "page fault");
+    handle_fault(&stack, 14, "page fault");
 }
 
 extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
@@ -149,7 +157,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
     let syscall_number = stack.rax;
 
     let rax = match syscall_number {
-        1 => syscall::exit(),
+        1 => syscall::exit(stack),
         2 => syscall::write(stack),
         3 => syscall::read(stack),
         4 => syscall::execute(stack),
@@ -230,7 +238,8 @@ pub unsafe fn init_idt() {
         .set_stack_index(DOUBLE_FAULT_STACK_INDEX as u16);
     IDT.general_protection_fault.set_handler_fn(gpf_isr);
     IDT.page_fault.set_handler_fn(page_fault_isr);
-    IDT.stack_segment_fault.set_handler_fn(stack_segment_fault_isr);
+    IDT.stack_segment_fault
+        .set_handler_fn(stack_segment_fault_isr);
 
     // without these a user program dividing by zero or running a bad
     // instruction would hit an unregistered vector and triple fault

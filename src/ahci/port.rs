@@ -186,7 +186,7 @@ impl AHCIPort {
             u32::from_be_bytes(identify_bytes[120..124].try_into().unwrap()).rotate_left(16);
 
         self.block_count = block_count;
-        unsafe { dealloc(buffer, layout) }; 
+        unsafe { dealloc(buffer, layout) };
 
         // success
         true

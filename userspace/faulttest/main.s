@@ -167,6 +167,7 @@ test_none:
     jmp end
 
 end:
+    xor edi, edi            ; exit status 0
     mov rax, 0x01           ; exit
     int 0x80
 

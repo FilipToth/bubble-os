@@ -23,6 +23,7 @@ _start:
     lea rsp, [rip + stack_top]
     call rust_main
 
+    xor edi, edi
     mov rax, 1
     int 0x80
 
@@ -54,10 +55,10 @@ extern "C" fn rust_main() -> ! {
         ulib::stdout(b"\n");
     }
 
-    ulib::exit();
+    ulib::exit(0);
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    ulib::exit();
+    ulib::exit(101);
 }

@@ -1,9 +1,12 @@
 // syscall 1 - exit the current process
 
-use crate::scheduling;
+use crate::{arch::x86_64::registers::FullInterruptStackFrame, scheduling};
 
-pub fn exit() -> Option<usize> {
-    scheduling::exit_current();
+pub fn exit(stack: &FullInterruptStackFrame) -> Option<usize> {
+    let status = stack.rdi;
+
+    scheduling::exit_current(status);
     scheduling::schedule(None);
+
     None
 }

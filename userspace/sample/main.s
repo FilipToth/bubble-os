@@ -33,6 +33,7 @@ success:
 
 exit:
     ; exit syscall
+    xor edi, edi
     mov rax, 0x01
     int 0x80
 

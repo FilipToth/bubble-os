@@ -20,6 +20,7 @@ _start:
     lea rsp, [rip + stack_top]
     call rust_main
 
+    xor edi, edi
     mov rax, 1
     int 0x80
 
@@ -28,10 +29,15 @@ _start:
 "#
 );
 
+/// Exit statuses at or above this mean the kernel killed the process after a
+/// CPU fault, the rest of the value is the exception vector.
+const FAULT_STATUS_BASE: usize = 128;
+
 #[no_mangle]
 extern "C" fn rust_main() -> ! {
     let mut input_buffer = [0u8; 256];
     let mut cwd = Cwd::new();
+    let mut last_status = 0usize;
 
     ulib::stdout(br#"
  _______             __        __        __                   ______    ______
@@ -165,7 +171,13 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if !launch(command) {
+        if command == b"status" {
+            print_number(last_status);
+            ulib::stdout(b"\n");
+            continue;
+        }
+
+        if !launch(command, &mut last_status) {
             ulib::stdout(b"Program or command not found...\n");
         }
     }
@@ -261,7 +273,7 @@ impl Cwd {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    ulib::exit();
+    ulib::exit(101);
 }
 
 fn read_command(buffer: &mut [u8]) -> usize {
@@ -359,7 +371,7 @@ fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
     }
 }
 
-fn launch(command: &[u8]) -> bool {
+fn launch(command: &[u8], last_status: &mut usize) -> bool {
     let (program, args) = split_command_line(command);
 
     let pid = if program.contains(&b'/') {
@@ -377,7 +389,17 @@ fn launch(command: &[u8]) -> bool {
         return false;
     }
 
-    ulib::wait_for_process(pid);
+    let status = ulib::wait_for_process(pid);
+    *last_status = status;
+
+    // a program the kernel killed is easy to miss otherwise, it dies
+    // wherever it was and the shell just prints the next prompt
+    if status >= FAULT_STATUS_BASE {
+        ulib::stdout(b"Killed by fault, exception vector ");
+        print_number(status - FAULT_STATUS_BASE);
+        ulib::stdout(b"\n");
+    }
+
     true
 }
 
