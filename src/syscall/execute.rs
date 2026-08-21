@@ -132,7 +132,12 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         region
     };
 
-    let Some(elf_entry) = elf::load(region, &argv) else {
+    // the child inherits the parent environment, the entries come from the
+    // kernel rather than a user pointer so there is nothing to validate
+    let env = scheduling::current_env();
+    let envp: Vec<&str> = env.iter().map(|entry| entry.as_str()).collect();
+
+    let Some(elf_entry) = elf::load(region, &argv, &envp) else {
         log!(
             LogType::ERR,
             "execute: elf::load failed for path {:?}",

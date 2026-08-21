@@ -161,10 +161,11 @@ fn unmap_regions_from_active_table(
 ///
 /// - `elf` the raw ELF file contents
 /// - `argv` the process arguments, starting with the program name
+/// - `envp` the environment entries, each of them a `KEY=VALUE` string
 ///
 /// ## Returns
 /// A process entry ready to be deployed.
-pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
+pub fn load(elf: Region, argv: &[&str], envp: &[&str]) -> Option<ProcessEntry> {
     let Some(mut entry) = loader::load(elf) else {
         log!(LogType::ERR, "elf_load: loader::load failed");
         return None;
@@ -332,7 +333,7 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
 
     // write the argument frame while the process page table
     // is still active
-    let Some(initial_rsp) = write_args_frame(&stack, argv) else {
+    let Some(initial_rsp) = write_args_frame(&stack, argv, envp) else {
         log!(LogType::ERR, "elf_load: failed to write argument frame");
         mc.free_stack(&stack);
         unmap_regions_from_active_table(mc, &start_region);
@@ -360,16 +361,18 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
 
 /// Writes a System V style argument frame onto a fresh user stack.
 ///
-/// The argument strings are copied NUL-terminated to the very top of the
-/// stack, and below them sits the pointer frame the process starts with:
+/// The argument and environment strings are copied NUL-terminated to the very
+/// top of the stack, and below them sits the pointer frame the process starts
+/// with:
 ///
 /// ```text
-/// rsp -> [argc][argv[0]]..[argv[argc - 1]][NULL][NULL] .. [strings]
+/// rsp -> [argc][argv[0]]..[argv[argc - 1]][NULL][envp[0]]..[NULL] .. [strings]
 /// ```
 ///
-/// The final `NULL` terminates the (empty) environment list. The initial
-/// stack pointer is 16-byte aligned and points at `argc`, matching what a
-/// standard libc `_start` expects.
+/// Both pointer arrays are NULL terminated, so a process finds its environment
+/// at `rsp + 8 + 8 * (argc + 1)` without being told how large it is. The
+/// initial stack pointer is 16-byte aligned and points at `argc`, matching
+/// what a standard libc `_start` expects.
 ///
 /// Must be called while the process page table is active.
 ///
@@ -377,16 +380,18 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
 ///
 /// - `stack` the user stack to write into
 /// - `argv` the process arguments, starting with the program name
+/// - `envp` the environment entries, each of them a `KEY=VALUE` string
 ///
 /// ## Returns
 /// The initial user stack pointer, or `None` when the frame does not fit
 /// into the stack.
-fn write_args_frame(stack: &Stack, argv: &[&str]) -> Option<usize> {
-    let string_bytes: usize = argv.iter().map(|arg| arg.len() + 1).sum();
-    let strings_base = stack.top.checked_sub(string_bytes)?;
+fn write_args_frame(stack: &Stack, argv: &[&str], envp: &[&str]) -> Option<usize> {
+    let arg_bytes: usize = argv.iter().map(|arg| arg.len() + 1).sum();
+    let env_bytes: usize = envp.iter().map(|entry| entry.len() + 1).sum();
+    let strings_base = stack.top.checked_sub(arg_bytes.checked_add(env_bytes)?)?;
 
-    // argc + argv pointers + argv NULL terminator + envp NULL terminator
-    let frame_words = argv.len().checked_add(3)?;
+    // argc + argv pointers + argv NULL + envp pointers + envp NULL
+    let frame_words = argv.len().checked_add(envp.len())?.checked_add(3)?;
     let frame_size = frame_words.checked_mul(core::mem::size_of::<usize>())?;
     let frame_base = strings_base.checked_sub(frame_size)? & !0xF;
 
@@ -397,19 +402,33 @@ fn write_args_frame(stack: &Stack, argv: &[&str]) -> Option<usize> {
     let frame = frame_base as *mut usize;
     let mut string_addr = strings_base;
 
+    /// Copies a NUL-terminated string to `addr` and returns the address
+    /// right after it.
+    unsafe fn write_string(addr: usize, string: &str) -> usize {
+        core::ptr::copy_nonoverlapping(string.as_ptr(), addr as *mut u8, string.len());
+        *((addr + string.len()) as *mut u8) = 0;
+
+        addr + string.len() + 1
+    }
+
     unsafe {
         *frame = argv.len();
 
         for (index, arg) in argv.iter().enumerate() {
             *frame.add(1 + index) = string_addr;
-
-            core::ptr::copy_nonoverlapping(arg.as_ptr(), string_addr as *mut u8, arg.len());
-            *((string_addr + arg.len()) as *mut u8) = 0;
-            string_addr += arg.len() + 1;
+            string_addr = write_string(string_addr, arg);
         }
 
+        // terminates argv, the environment array starts right after it
         *frame.add(1 + argv.len()) = 0;
-        *frame.add(2 + argv.len()) = 0;
+
+        let env_base = 2 + argv.len();
+        for (index, entry) in envp.iter().enumerate() {
+            *frame.add(env_base + index) = string_addr;
+            string_addr = write_string(string_addr, entry);
+        }
+
+        *frame.add(env_base + envp.len()) = 0;
     }
 
     Some(frame_base)

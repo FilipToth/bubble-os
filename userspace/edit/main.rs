@@ -17,6 +17,7 @@ global_asm!(
 _start:
     mov rdi, [rsp]
     lea rsi, [rsp + 8]
+    lea rdx, [rsi + rdi*8 + 8]
     call rust_main
 
     xor edi, edi
@@ -46,7 +47,9 @@ struct Editor {
 }
 
 #[no_mangle]
-extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
+extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const u8) -> ! {
+    ulib::set_environ(envp);
+
     let mut path_buffer = [0u8; PATH_CAPACITY];
 
     // take the file from argv[1], falling back to a prompt

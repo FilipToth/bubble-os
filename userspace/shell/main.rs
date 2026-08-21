@@ -4,20 +4,18 @@
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
+// runs on the kernel-provided stack, with the System V argument frame at the
+// initial stack pointer. Switching to a .bss stack here would throw away the
+// frame, and with it the environment
 global_asm!(
     r#"
-    .section .bss
-    .align 16
-
-stack_bottom:
-    .skip 4096
-
-stack_top:
     .section .text
     .global _start
 
 _start:
-    lea rsp, [rip + stack_top]
+    mov rdi, [rsp]
+    lea rsi, [rsp + 8]
+    lea rdx, [rsi + rdi*8 + 8]
     call rust_main
 
     xor edi, edi
@@ -34,7 +32,9 @@ _start:
 const FAULT_STATUS_BASE: usize = 128;
 
 #[no_mangle]
-extern "C" fn rust_main() -> ! {
+extern "C" fn rust_main(_argc: usize, _argv: *const *const u8, envp: *const *const u8) -> ! {
+    ulib::set_environ(envp);
+
     let mut input_buffer = [0u8; 256];
     let mut cwd = Cwd::new();
     let mut last_status = 0usize;
@@ -66,7 +66,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         let command = &input_buffer[..input_len];
         if command.starts_with(b"cd ") {
-            let path = trim_ascii_spaces(&command[3..]);
+            let path = ulib::trim_ascii_spaces(&command[3..]);
             if ulib::cd(path) {
                 cwd.update(path);
             }
@@ -75,7 +75,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"write ") {
-            let bytes = trim_ascii_spaces(&command[6..]);
+            let bytes = ulib::trim_ascii_spaces(&command[6..]);
             if ulib::write_existing_file(b"/res/resource.txt", bytes) {
                 ulib::stdout(b"Wrote to res/resource.txt\n");
             } else {
@@ -86,7 +86,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"touch ") {
-            let path = trim_ascii_spaces(&command[6..]);
+            let path = ulib::trim_ascii_spaces(&command[6..]);
             let fd = ulib::create(path);
             if fd != 0 {
                 ulib::close(fd);
@@ -99,7 +99,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"mkdir ") {
-            let path = trim_ascii_spaces(&command[6..]);
+            let path = ulib::trim_ascii_spaces(&command[6..]);
             if ulib::mkdir(path) {
                 ulib::stdout(b"Created directory\n");
             } else {
@@ -110,7 +110,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"unlink ") {
-            let path = trim_ascii_spaces(&command[7..]);
+            let path = ulib::trim_ascii_spaces(&command[7..]);
             if ulib::unlink(path) {
                 ulib::stdout(b"Removed file\n");
             } else {
@@ -121,7 +121,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"rmdir ") {
-            let path = trim_ascii_spaces(&command[6..]);
+            let path = ulib::trim_ascii_spaces(&command[6..]);
             if ulib::rmdir(path) {
                 ulib::stdout(b"Removed directory\n");
             } else {
@@ -158,7 +158,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         if command.starts_with(b"sleep ") {
-            let argument = trim_ascii_spaces(&command[6..]);
+            let argument = ulib::trim_ascii_spaces(&command[6..]);
             let slept = match parse_number(argument) {
                 Some(seconds) => ulib::sleep(seconds as i64),
                 None => false,
@@ -166,6 +166,15 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
             if !slept {
                 ulib::stdout(b"Usage: sleep <seconds>\n");
+            }
+
+            continue;
+        }
+
+        if command == b"env" {
+            for entry in ulib::environ() {
+                ulib::stdout(entry);
+                ulib::stdout(b"\n");
             }
 
             continue;
@@ -208,7 +217,7 @@ impl Cwd {
     }
 
     fn update(&mut self, path: &[u8]) {
-        let path = trim_ascii_spaces(path);
+        let path = ulib::trim_ascii_spaces(path);
         if path == b"/" || path == b"~" {
             self.len = 0;
             return;
@@ -307,26 +316,6 @@ fn read_command(buffer: &mut [u8]) -> usize {
     }
 }
 
-fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
-    while let Some((first, rest)) = bytes.split_first() {
-        if !first.is_ascii_whitespace() {
-            break;
-        }
-
-        bytes = rest;
-    }
-
-    while let Some((last, rest)) = bytes.split_last() {
-        if !last.is_ascii_whitespace() {
-            break;
-        }
-
-        bytes = rest;
-    }
-
-    bytes
-}
-
 fn print_number(mut number: usize) {
     let mut digits = [0u8; 20];
     let mut len = 0;
@@ -372,24 +361,10 @@ fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
 }
 
 fn launch(command: &[u8], last_status: &mut usize) -> bool {
-    let (program, args) = split_command_line(command);
-
-    let pid = if program.contains(&b'/') {
-        ulib::execute(program, args)
-    } else {
-        let bin_pid = execute_from_bin(program, args);
-        if bin_pid == 0 {
-            ulib::execute(program, args)
-        } else {
-            bin_pid
-        }
+    let Some(status) = ulib::system(command) else {
+        return false;
     };
 
-    if pid == 0 {
-        return false;
-    }
-
-    let status = ulib::wait_for_process(pid);
     *last_status = status;
 
     // a program the kernel killed is easy to miss otherwise, it dies
@@ -403,28 +378,3 @@ fn launch(command: &[u8], last_status: &mut usize) -> bool {
     true
 }
 
-/// Splits a command line into the program name and its argument string.
-fn split_command_line(command: &[u8]) -> (&[u8], &[u8]) {
-    match command.iter().position(|byte| byte.is_ascii_whitespace()) {
-        Some(index) => (
-            &command[..index],
-            trim_ascii_spaces(&command[index + 1..]),
-        ),
-        None => (command, b""),
-    }
-}
-
-fn execute_from_bin(program: &[u8], args: &[u8]) -> usize {
-    const BIN_PREFIX: &[u8] = b"/bin/";
-
-    let mut path_buffer = [0u8; 261];
-    let path_len = BIN_PREFIX.len() + program.len();
-    if path_len > path_buffer.len() {
-        return 0;
-    }
-
-    path_buffer[..BIN_PREFIX.len()].copy_from_slice(BIN_PREFIX);
-    path_buffer[BIN_PREFIX.len()..path_len].copy_from_slice(program);
-
-    ulib::execute(&path_buffer[..path_len], args)
-}

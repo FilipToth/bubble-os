@@ -1,6 +1,6 @@
 use core::{cmp::min, mem::size_of, ptr};
 
-use alloc::{alloc::dealloc, sync::Arc, vec::Vec};
+use alloc::{alloc::dealloc, string::String, sync::Arc, vec::Vec};
 use spin::{Mutex, RwLock};
 
 use crate::{
@@ -31,6 +31,10 @@ pub struct Process {
     pub stack: Stack,
     pub ring3_page_table: Option<PageTable>,
     pub fd_table: Vec<Option<FileDescriptor>>,
+
+    /// The process environment, each entry a `KEY=VALUE` string. Handed to
+    /// children through their entry stack frame when they are executed.
+    pub env: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -89,6 +93,10 @@ impl Process {
             stack: stack,
             ring3_page_table: entry.ring3_page_table,
             fd_table: Self::standard_fd_table(),
+
+            // deploy fills this in, either from the parent or from the
+            // default environment
+            env: Vec::new(),
         })
     }
 

@@ -138,12 +138,7 @@ impl Args {
             return None;
         }
 
-        let mut len = 0;
-        while unsafe { *arg.add(len) } != 0 {
-            len += 1;
-        }
-
-        Some(unsafe { core::slice::from_raw_parts(arg, len) })
+        Some(unsafe { cstr_bytes(arg) })
     }
 }
 
@@ -156,6 +151,249 @@ impl Iterator for Args {
 
         Some(arg)
     }
+}
+
+/// The bytes of a NUL-terminated string, without the terminator.
+///
+/// ## Arguments
+///
+/// - `ptr` a pointer to the first byte of the string
+unsafe fn cstr_bytes(ptr: *const u8) -> &'static [u8] {
+    let mut len = 0;
+    while *ptr.add(len) != 0 {
+        len += 1;
+    }
+
+    core::slice::from_raw_parts(ptr, len)
+}
+
+/// The process environment, read from the System V style entry stack frame.
+///
+/// The pointer array is NULL terminated rather than counted, which is the one
+/// thing that keeps this from being [`Args`].
+#[derive(Clone, Copy)]
+pub struct Env {
+    envp: *const *const u8,
+    index: usize,
+}
+
+impl Env {
+    /// ## Arguments
+    ///
+    /// - `envp` the environment pointer array from the entry stack
+    pub fn new(envp: *const *const u8) -> Self {
+        Self {
+            envp: envp,
+            index: 0,
+        }
+    }
+
+    /// The entry at an index as a `KEY=VALUE` byte slice, or `None` at or
+    /// past the end of the array.
+    pub fn get(&self, index: usize) -> Option<&'static [u8]> {
+        if self.envp.is_null() {
+            return None;
+        }
+
+        let entry = unsafe { *self.envp.add(index) };
+        if entry.is_null() {
+            return None;
+        }
+
+        Some(unsafe { cstr_bytes(entry) })
+    }
+}
+
+impl Iterator for Env {
+    type Item = &'static [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.get(self.index)?;
+        self.index += 1;
+
+        Some(entry)
+    }
+}
+
+/// The environment the process was started with, as handed to `_start`.
+static mut ENVIRON: *const *const u8 = core::ptr::null();
+
+/// Records the environment pointer so [`getenv`] and [`system`] can be free
+/// functions instead of taking an [`Env`] everywhere.
+///
+/// Call it first thing in `rust_main`, with the third argument `_start` takes
+/// off the entry stack. A program that never calls it simply has no
+/// environment, and [`getenv`] returns `None` for every key.
+///
+/// ## Arguments
+///
+/// - `envp` the environment pointer array from the entry stack
+pub fn set_environ(envp: *const *const u8) {
+    unsafe { ENVIRON = envp };
+}
+
+/// The process environment.
+pub fn environ() -> Env {
+    Env::new(unsafe { ENVIRON })
+}
+
+/// Looks up an environment variable.
+///
+/// ## Arguments
+///
+/// - `key` the variable name, without the `=`
+///
+/// ## Returns
+/// The value, or `None` when the variable is not set.
+pub fn getenv(key: &[u8]) -> Option<&'static [u8]> {
+    for entry in environ() {
+        let Some(rest) = entry.strip_prefix(key) else {
+            continue;
+        };
+
+        if rest.first() == Some(&b'=') {
+            return Some(&rest[1..]);
+        }
+    }
+
+    None
+}
+
+/// Where programs are looked up when the environment has no `PATH`.
+const DEFAULT_PATH: &[u8] = b"/bin";
+
+/// Maximum length of a program path built during a `PATH` search.
+const PATH_MAX: usize = 512;
+
+/// Runs a command and waits for it to finish.
+///
+/// The command is split on the first whitespace into a program and its
+/// argument string, so a multi-word argument cannot survive. That is the same
+/// limitation the execute syscall itself has.
+///
+/// ## Arguments
+///
+/// - `command` the command line to run
+///
+/// ## Returns
+/// The exit status of the program, or `None` when nothing could be launched.
+pub fn system(command: &[u8]) -> Option<usize> {
+    let (program, args) = split_command_line(command);
+    if program.is_empty() {
+        return None;
+    }
+
+    let pid = spawn(program, args)?;
+    Some(wait_for_process(pid))
+}
+
+/// Launches a program without waiting for it.
+///
+/// A name containing `/` is taken as a path and used as it is. A bare name is
+/// looked up in each colon-separated entry of `PATH`, and finally relative to
+/// the working directory.
+///
+/// ## Arguments
+///
+/// - `program` the program name or path
+/// - `args` the whitespace-separated argument string
+///
+/// ## Returns
+/// The new pid, or `None` when no candidate could be launched.
+pub fn spawn(program: &[u8], args: &[u8]) -> Option<usize> {
+    if program.contains(&b'/') {
+        return match execute(program, args) {
+            0 => None,
+            pid => Some(pid),
+        };
+    }
+
+    let path = getenv(b"PATH").unwrap_or(DEFAULT_PATH);
+    for directory in path.split(|byte| *byte == b':') {
+        let mut buffer = [0u8; PATH_MAX];
+        let Some(candidate) = join_path(&mut buffer, directory, program) else {
+            continue;
+        };
+
+        let pid = execute(candidate, args);
+        if pid != 0 {
+            return Some(pid);
+        }
+    }
+
+    // nothing on the search path, try the working directory
+    match execute(program, args) {
+        0 => None,
+        pid => Some(pid),
+    }
+}
+
+/// Splits a command line into the program name and its argument string.
+///
+/// ## Arguments
+///
+/// - `command` the command line to split
+pub fn split_command_line(command: &[u8]) -> (&[u8], &[u8]) {
+    match command.iter().position(|byte| byte.is_ascii_whitespace()) {
+        Some(index) => (&command[..index], trim_ascii_spaces(&command[index + 1..])),
+        None => (command, b""),
+    }
+}
+
+/// Strips leading and trailing ASCII whitespace.
+///
+/// ## Arguments
+///
+/// - `bytes` the slice to trim
+pub fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
+    while let Some((first, rest)) = bytes.split_first() {
+        if !first.is_ascii_whitespace() {
+            break;
+        }
+
+        bytes = rest;
+    }
+
+    while let Some((last, rest)) = bytes.split_last() {
+        if !last.is_ascii_whitespace() {
+            break;
+        }
+
+        bytes = rest;
+    }
+
+    bytes
+}
+
+/// Joins a directory and a program name into a caller-provided buffer.
+///
+/// ## Arguments
+///
+/// - `buffer` scratch space for the joined path
+/// - `directory` the search path entry
+/// - `program` the program name
+///
+/// ## Returns
+/// The joined path, or `None` when it does not fit into the buffer.
+fn join_path<'a>(buffer: &'a mut [u8], directory: &[u8], program: &[u8]) -> Option<&'a [u8]> {
+    let separator: &[u8] = if directory.is_empty() || directory.ends_with(b"/") {
+        b""
+    } else {
+        b"/"
+    };
+
+    let len = directory.len() + separator.len() + program.len();
+    if len > buffer.len() {
+        return None;
+    }
+
+    let mut offset = 0;
+    for part in [directory, separator, program] {
+        buffer[offset..offset + part.len()].copy_from_slice(part);
+        offset += part.len();
+    }
+
+    Some(&buffer[..len])
 }
 
 #[inline(always)]

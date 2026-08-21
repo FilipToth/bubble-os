@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use process::{FileDescriptor, Process, ProcessEntry};
 use spin::{Mutex, RwLock};
 
@@ -37,6 +37,11 @@ pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static EXIT_RECORDS: Mutex<BTreeMap<usize, usize>> = Mutex::new(BTreeMap::new());
 
 const EXIT_RECORDS_MAX: usize = 64;
+
+/// The environment the first process starts with. Every other process
+/// inherits its parent's environment instead, so this is only ever read on
+/// the boot path and by a non-forking deploy.
+pub const DEFAULT_ENV: [&str; 2] = ["PATH=/bin", "HOME=/"];
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
@@ -259,12 +264,16 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
             return 0;
         };
 
-        Some((current.curr_working_dir.clone(), current.fd_table.clone()))
+        Some((
+            current.curr_working_dir.clone(),
+            current.fd_table.clone(),
+            current.env.clone(),
+        ))
     } else {
         None
     };
 
-    let cwd = if let Some((cwd, _)) = &parent_state {
+    let cwd = if let Some((cwd, _, _)) = &parent_state {
         cwd.clone()
     } else {
         // root directory
@@ -281,8 +290,15 @@ pub fn deploy(entry: ProcessEntry, fork_current: bool) -> usize {
         return 0;
     };
 
-    if let Some((_, fd_table)) = parent_state {
-        process.fd_table = fd_table;
+    match parent_state {
+        Some((_, fd_table, env)) => {
+            process.fd_table = fd_table;
+            process.env = env;
+        }
+        None => {
+            // the first process has no parent to inherit from
+            process.env = DEFAULT_ENV.iter().map(|entry| String::from(*entry)).collect();
+        }
     }
 
     let cs = GDT.1.user_code.0;
@@ -478,6 +494,21 @@ pub fn current_pid() -> Option<usize> {
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
 
     processes.get(current_index).map(|process| process.pid)
+}
+
+/// The environment of the currently scheduled process.
+///
+/// ## Returns
+/// The `KEY=VALUE` entries, or the default environment when there is no
+/// current process.
+pub fn current_env() -> Vec<String> {
+    let processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    match processes.get(current_index) {
+        Some(process) => process.env.clone(),
+        None => DEFAULT_ENV.iter().map(|entry| String::from(*entry)).collect(),
+    }
 }
 
 pub fn get_current_cwd() -> Arc<dyn Directory> {

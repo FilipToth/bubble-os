@@ -15,6 +15,7 @@ global_asm!(
 _start:
     mov rdi, [rsp]
     lea rsi, [rsp + 8]
+    lea rdx, [rsi + rdi*8 + 8]
     call rust_main
 
     xor edi, edi
@@ -27,7 +28,9 @@ _start:
 );
 
 #[no_mangle]
-extern "C" fn rust_main(argc: usize, argv: *const *const u8) -> ! {
+extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const u8) -> ! {
+    ulib::set_environ(envp);
+
     let args = Args::new(argc, argv);
     let Some(path) = args.get(1) else {
         ulib::stdout(b"Usage: cat <path>\n");
