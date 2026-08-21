@@ -357,12 +357,12 @@ impl FATFileSystem {
                     lfn_chunks.clear();
                     lfn_locations.clear();
                     lfn_checksum_value = lfn.checksum;
-                    lfn_expected_sequence =
-                        if sequence >= 1 && sequence as usize <= LFN_MAX_ENTRIES {
-                            sequence
-                        } else {
-                            0
-                        };
+                    lfn_expected_sequence = if sequence >= 1 && sequence as usize <= LFN_MAX_ENTRIES
+                    {
+                        sequence
+                    } else {
+                        0
+                    };
                 }
 
                 if lfn_expected_sequence == 0
@@ -394,7 +394,8 @@ impl FATFileSystem {
                 && lfn_checksum_value == lfn_checksum(&short_name);
 
             let long_name = if lfn_complete {
-                let mut units: Vec<u16> = Vec::with_capacity(lfn_chunks.len() * LFN_UNITS_PER_ENTRY);
+                let mut units: Vec<u16> =
+                    Vec::with_capacity(lfn_chunks.len() * LFN_UNITS_PER_ENTRY);
                 for chunk in lfn_chunks.iter().rev() {
                     units.extend_from_slice(chunk);
                 }
@@ -480,7 +481,8 @@ impl FATFileSystem {
             size: 0,
         };
 
-        let (location, lfn_locations) = self.persist_new_entry(dir_cluster, &lfn_entries, &entry)?;
+        let (location, lfn_locations) =
+            self.persist_new_entry(dir_cluster, &lfn_entries, &entry)?;
         let name = if lfn_entries.is_empty() {
             get_filename_from_fat(&short_name)
         } else {

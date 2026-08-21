@@ -3,7 +3,7 @@ use fat_fs::FATFileSystem;
 use fs::Directory;
 use spin::Mutex;
 
-use crate::{ahci::port::AHCIPort, print};
+use crate::ahci::port::AHCIPort;
 
 pub mod fat;
 pub mod fat_fs;

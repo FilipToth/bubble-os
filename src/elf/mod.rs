@@ -9,6 +9,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use spin::Mutex;
+use x86_64::instructions::tlb;
 
 mod loader;
 
@@ -121,18 +122,34 @@ fn unmap_regions_from_active_table(
 ) {
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
-        let region = region.lock();
-        if region.region.size == 0 {
+        let (addr, size) = {
+            let region = region.lock();
+            (region.region.addr, region.region.size)
+        };
+
+        if size == 0 {
+            continue;
+        }
+
+        // read only segments cannot be scrubbed as they are, CR0.WP makes
+        // the read only bit apply to the kernel as well
+        if !mem_controller.make_range_writable(addr, size) {
+            log!(
+                LogType::ERR,
+                "elf_unmap: failed to restore write access to region 0x{:X}, size 0x{:X}",
+                addr,
+                size
+            );
+
             continue;
         }
 
         unsafe {
-            let ptr = region.region.get_ptr::<u8>();
-            core::ptr::write_bytes(ptr, 0, region.region.size);
+            core::ptr::write_bytes(addr as *mut u8, 0, size);
         }
 
-        let start_page = Page::for_address(region.region.addr);
-        let end_page = Page::for_address((region.region.addr + region.region.size - 1) as usize);
+        let start_page = Page::for_address(addr);
+        let end_page = Page::for_address(addr + size - 1);
 
         mem_controller.unmap(start_page, end_page);
     }
@@ -182,19 +199,25 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
 
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
-        let region = region.lock();
-
-        let addr = region.region.addr;
-        let size = region.region.size;
+        let (addr, size, flags) = {
+            let region = region.lock();
+            (
+                region.region.addr,
+                region.region.size,
+                region.flags.to_entry_flags(),
+            )
+        };
 
         let start_page = Page::for_address(addr);
         let end_page = Page::for_address(addr + size - 1);
 
-        let flags = region.flags.to_entry_flags();
+        // the segment contents are copied in below and CR0.WP makes the read
+        // only bit apply to ring 0 too, so map everything writable for now.
+        // The real protection is applied once every copy is done
         ring3_table.map_range(
             start_page,
             end_page,
-            flags,
+            flags | EntryFlags::WRITABLE,
             &mut mc.frame_allocator,
             &mut mc.slot_allocator,
             &mut mc.temp_mapper,
@@ -214,20 +237,25 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
     // load elf regions
     let iter = ElfRegionIterator::from(start_region.clone());
     for region in iter {
-        let region = region.lock();
+        // the region lock has to be released before any error path, the
+        // cleanup walks the same list and would deadlock on it
+        let (addr, size, ph_file_src, ph_file_size) = {
+            let region = region.lock();
+            (
+                region.region.addr,
+                region.region.size,
+                region.origin_buffer.addr as *mut u8,
+                region.origin_buffer.size,
+            )
+        };
 
-        // load entry into memory
-        let ph_file_src = region.origin_buffer.addr as *mut u8;
-        let destination_ptr = region.region.addr as *mut u8;
-
-        let ph_file_size = region.origin_buffer.size;
-        let size = region.region.size;
+        let destination_ptr = addr as *mut u8;
 
         if ph_file_size > size {
             log!(
                 LogType::ERR,
                 "elf_load: refusing copy where file bytes exceed region size, dst: 0x{:X}, file_size: 0x{:X}, region_size: 0x{:X}",
-                region.region.addr,
+                addr,
                 ph_file_size,
                 size
             );
@@ -242,13 +270,50 @@ pub fn load(elf: Region, argv: &[&str]) -> Option<ProcessEntry> {
         }
 
         // check if BSS exists
-        let bss_size = (size as i64) - (ph_file_size as i64);
+        let bss_size = size - ph_file_size;
         if bss_size > 0 {
             // zero BSS
-            let bss_ptr = unsafe { destination_ptr.add(ph_file_size as usize) };
-            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size as usize) };
+            let bss_ptr = unsafe { destination_ptr.add(ph_file_size) };
+            unsafe { core::ptr::write_bytes(bss_ptr, 0, bss_size) };
         }
     }
+
+    // now that every segment is loaded, drop the temporary write access
+    // from the ones the program header does not ask to be writable
+    let iter = ElfRegionIterator::from(start_region.clone());
+    for region in iter {
+        let (addr, size, flags) = {
+            let region = region.lock();
+            (
+                region.region.addr,
+                region.region.size,
+                region.flags.to_entry_flags(),
+            )
+        };
+
+        if flags.contains(EntryFlags::WRITABLE) {
+            continue;
+        }
+
+        if ring3_table
+            .set_range_flags(addr, size, flags, &mut mc.temp_mapper)
+            .is_none()
+        {
+            log!(
+                LogType::ERR,
+                "elf_load: failed to protect region 0x{:X}, size 0x{:X}",
+                addr,
+                size
+            );
+
+            unmap_regions_from_active_table(mc, &start_region);
+            mc.switch_table(&prev_table);
+            return None;
+        }
+    }
+
+    // the segments were writable in the TLB while they were copied
+    tlb::flush_all();
 
     // allocate stack
     let Some(stack) = mc.stack_allocator.alloc(

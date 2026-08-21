@@ -14,7 +14,7 @@ use crate::{
     },
     interrupt_trampoline,
     io::io,
-    print, syscall,
+    print, scheduling, syscall,
 };
 
 use super::registers::FullInterruptStackFrame;
@@ -43,6 +43,75 @@ extern "x86-interrupt" fn double_fault_isr(stack: InterruptStackFrame, err_code:
     loop {}
 }
 
+/// Handles a CPU exception that could have been raised by a user program.
+///
+/// A ring 3 fault is fatal to the faulting program, but it must not take the
+/// kernel down with it, so the offending process is killed and the scheduler
+/// moves on to the next one. A ring 0 fault is a kernel bug, there is nothing
+/// sane to return to, so we dump the frame and halt.
+///
+/// ## Arguments
+///
+/// - `stack` the exception stack frame pushed by the CPU
+/// - `name` the human readable name of the exception, used when logging
+fn handle_fault(stack: &InterruptStackFrame, name: &str) {
+    // the low two bits of the saved cs hold the privilege level the
+    // exception was raised at
+    let from_userspace = stack.code_segment & 3 != 0;
+    if !from_userspace {
+        log!(crate::io::LogType::ERR, "{} in kernel mode, halting", name);
+        log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
+        loop {}
+    }
+
+    match scheduling::current_pid() {
+        Some(pid) => log!(
+            crate::io::LogType::EXCEPTION,
+            "killing pid {} after {} at rip 0x{:X}, rsp 0x{:X}",
+            pid,
+            name,
+            stack.instruction_pointer.as_u64(),
+            stack.stack_pointer.as_u64()
+        ),
+        None => {
+            // a ring 3 frame without a current process means the scheduler
+            // state is inconsistent, there is nobody to kill
+            log!(
+                crate::io::LogType::ERR,
+                "{} from ring 3 with no current process, halting",
+                name
+            );
+
+            log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
+            loop {}
+        }
+    }
+
+    scheduling::exit_current();
+    scheduling::schedule(None);
+
+    // schedule jumps straight into the next process and never returns
+    loop {}
+}
+
+extern "x86-interrupt" fn divide_error_isr(stack: InterruptStackFrame) {
+    handle_fault(&stack, "divide error");
+}
+
+extern "x86-interrupt" fn invalid_opcode_isr(stack: InterruptStackFrame) {
+    handle_fault(&stack, "invalid opcode");
+}
+
+extern "x86-interrupt" fn stack_segment_fault_isr(stack: InterruptStackFrame, err_code: u64) {
+    log!(
+        crate::io::LogType::EXCEPTION,
+        "Stack segment fault! With error code: 0x{:X}",
+        err_code
+    );
+
+    handle_fault(&stack, "stack segment fault");
+}
+
 extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
     log!(
         crate::io::LogType::EXCEPTION,
@@ -50,8 +119,7 @@ extern "x86-interrupt" fn gpf_isr(stack: InterruptStackFrame, err_code: u64) {
         err_code
     );
 
-    log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
-    loop {}
+    handle_fault(&stack, "general protection fault");
 }
 
 extern "x86-interrupt" fn page_fault_isr(stack: InterruptStackFrame, err_code: PageFaultErrorCode) {
@@ -63,8 +131,7 @@ extern "x86-interrupt" fn page_fault_isr(stack: InterruptStackFrame, err_code: P
         cr2
     );
 
-    log!(crate::io::LogType::ERR, "Dumping stack frame\n{:#?}", stack);
-    loop {}
+    handle_fault(&stack, "page fault");
 }
 
 extern "x86-interrupt" fn debug_isr(_stack: InterruptStackFrame) {
@@ -163,6 +230,12 @@ pub unsafe fn init_idt() {
         .set_stack_index(DOUBLE_FAULT_STACK_INDEX as u16);
     IDT.general_protection_fault.set_handler_fn(gpf_isr);
     IDT.page_fault.set_handler_fn(page_fault_isr);
+    IDT.stack_segment_fault.set_handler_fn(stack_segment_fault_isr);
+
+    // without these a user program dividing by zero or running a bad
+    // instruction would hit an unregistered vector and triple fault
+    IDT.divide_error.set_handler_fn(divide_error_isr);
+    IDT.invalid_opcode.set_handler_fn(invalid_opcode_isr);
 
     IDT[IRQ0 as usize]
         .set_handler_addr(VirtAddr::new(timer_trampoline as u64))

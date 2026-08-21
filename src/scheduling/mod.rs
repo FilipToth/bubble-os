@@ -400,6 +400,14 @@ pub fn exit_current() {
     CURRENT_INDEX.store(new_index, Ordering::SeqCst);
 }
 
+/// Returns the pid of the currently scheduled process, if there is one.
+pub fn current_pid() -> Option<usize> {
+    let processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+
+    processes.get(current_index).map(|process| process.pid)
+}
+
 pub fn get_current_cwd() -> Arc<dyn Directory> {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);

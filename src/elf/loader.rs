@@ -72,12 +72,9 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
         let addr = entry.virt_addr as usize;
         let size = entry.memory_size as usize;
         if size == 0 {
-            log!(
-                LogType::ERR,
-                "elf_loader: LOAD ph {} has zero memory size",
-                i
-            );
-            return None;
+            // a linker script that declares a PHDRS entry it never fills
+            // still emits an empty LOAD segment, there is nothing to map
+            continue;
         }
 
         if entry.file_size > entry.memory_size {
@@ -118,15 +115,18 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
         let elf_region = Arc::new(Mutex::new(elf_region));
 
         match &mut last_region {
-            Some(last_region) => {
-                last_region.lock().next = Some(elf_region);
+            Some(last) => {
+                last.lock().next = Some(elf_region.clone());
             }
             None => {
                 // initializing whole linked list
-                start_region = Some(elf_region);
-                last_region = start_region.clone();
+                start_region = Some(elf_region.clone());
             }
         }
+
+        // advance the tail, otherwise every following segment would
+        // overwrite the next pointer of the first one and get dropped
+        last_region = Some(elf_region);
     }
 
     start_region

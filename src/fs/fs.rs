@@ -4,9 +4,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+
 use spin::RwLock;
 
-use crate::{mem::Region, print};
+use crate::mem::Region;
 
 pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<RwLock<dyn File>>>);
 

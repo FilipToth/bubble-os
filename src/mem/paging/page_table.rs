@@ -381,6 +381,49 @@ impl PageTable {
         Some(())
     }
 
+    /// Replaces the entry flags of every mapped page in a virtual address range.
+    ///
+    /// The frames stay exactly where they are, only the permission bits change.
+    /// The caller is responsible for flushing the TLB afterwards.
+    ///
+    /// ## Arguments
+    ///
+    /// - `addr` the start virtual address of the range
+    /// - `size` the size of the range in bytes
+    /// - `flags` the new entry flags, `PRESENT` is added automatically
+    /// - `temp_mapper` a reference to the global temporary page mapping manager
+    ///
+    /// ## Returns
+    /// Some if the entire range was remapped, None if any page table level or
+    /// frame in the range is missing.
+    pub fn set_range_flags(
+        &self,
+        addr: usize,
+        size: usize,
+        flags: EntryFlags,
+        temp_mapper: &mut TempMapper,
+    ) -> Option<()> {
+        if size == 0 {
+            return Some(());
+        }
+
+        let end_addr = addr.checked_add(size - 1)?;
+        let start_page = Page::for_address(addr);
+        let end_page = Page::for_address(end_addr);
+
+        for page in Page::range(start_page, end_page) {
+            let pml3 = self.next_table_temp(page.p4_index(), temp_mapper)?;
+            let pml2 = pml3.next_table_temp(page.p3_index(), temp_mapper)?;
+            let mut pml1 = pml2.next_table_temp(page.p2_index(), temp_mapper)?;
+
+            let p1_index = page.p1_index();
+            let frame = pml1.get_frame(p1_index)?;
+            pml1.set(p1_index, frame, flags | EntryFlags::PRESENT);
+        }
+
+        Some(())
+    }
+
     /// Creates a temporary next-level page table. Only valid until the temporary page
     /// mapping changes, only use when in control of temporary page state!
     ///

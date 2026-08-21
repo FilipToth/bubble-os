@@ -164,6 +164,33 @@ impl MemoryController {
         }
     }
 
+    /// Restores kernel write access to a mapped virtual range in the active
+    /// table.
+    ///
+    /// `CR0.WP` is set, so a page mapped read only cannot be written even from
+    /// ring 0. Read only ELF segments have to be made writable again before the
+    /// kernel can scrub them on process teardown. This drops every other flag
+    /// on the range, so it is only safe on memory that is about to be unmapped.
+    ///
+    /// ## Arguments
+    ///
+    /// - `addr` the start virtual address of the range
+    /// - `size` the size of the range in bytes
+    ///
+    /// ## Returns
+    /// Whether the whole range is now writable.
+    pub fn make_range_writable(&mut self, addr: usize, size: usize) -> bool {
+        let result = self.active_table.set_range_flags(
+            addr,
+            size,
+            EntryFlags::WRITABLE,
+            &mut self.temp_mapper,
+        );
+
+        tlb::flush_all();
+        result.is_some()
+    }
+
     /// Frees a stack that was allocated through the stack allocator.
     ///
     /// The stack memory is zeroed before its mapped pages are unmapped and

@@ -277,11 +277,7 @@ pub fn encode_long_filename(filename: &str) -> Option<Vec<u16>> {
 }
 
 fn is_invalid_long_name_char(char: char) -> bool {
-    (char as u32) < 0x20
-        || matches!(
-            char,
-            '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|'
-        )
+    (char as u32) < 0x20 || matches!(char, '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|')
 }
 
 /// Decodes the UTF-16 units collected from a long filename chain.
