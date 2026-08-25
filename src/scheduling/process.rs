@@ -35,6 +35,15 @@ pub struct Process {
     /// The process environment, each entry a `KEY=VALUE` string. Handed to
     /// children through their entry stack frame when they are executed.
     pub env: Vec<String>,
+
+    /// The lowest address the heap can occupy, one page past the end of the
+    /// highest ELF segment. Also the break of a process that has never called
+    /// `brk`, at which point the heap has no pages behind it at all.
+    pub heap_start: usize,
+
+    /// The current program break, recorded to the byte even though memory is
+    /// handed out a page at a time.
+    pub heap_break: usize,
 }
 
 #[derive(Clone)]
@@ -97,6 +106,9 @@ impl Process {
             // deploy fills this in, either from the parent or from the
             // default environment
             env: Vec::new(),
+
+            heap_start: entry.heap_start,
+            heap_break: entry.heap_start,
         })
     }
 
@@ -386,4 +398,8 @@ pub struct ProcessEntry {
     /// The initial user stack pointer, pointing at the argument
     /// frame below the stack top.
     pub initial_rsp: usize,
+
+    /// Where the heap begins, worked out from the segment addresses while the
+    /// ELF was parsed.
+    pub heap_start: usize,
 }

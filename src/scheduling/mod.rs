@@ -10,9 +10,13 @@ use crate::{
     elf,
     fs::fs::{normalize_path_components, Directory, File},
     io::LogType,
-    mem::{paging::PageTable, GLOBAL_MEMORY_CONTROLLER},
+    mem::{
+        paging::{entry::EntryFlags, Page, PageTable},
+        MemoryController, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
+    },
     print, time, with_root_dir,
 };
+use x86_64::instructions::tlb;
 
 pub mod process;
 
@@ -42,6 +46,19 @@ const EXIT_RECORDS_MAX: usize = 64;
 /// inherits its parent's environment instead, so this is only ever read on
 /// the boot path and by a non-forking deploy.
 pub const DEFAULT_ENV: [&str; 2] = ["PATH=/bin", "HOME=/"];
+
+/// The furthest a process may push its program break past `heap_start`.
+///
+/// `brk` is the one syscall that lets ring 3 decide how many frames the kernel
+/// hands out, so the size needs a ceiling that is not "all of physical memory".
+const MAX_HEAP_SIZE: usize = 64 * 1024 * 1024;
+
+/// Heap pages are writable data, never code. Leaving out `NO_EXECUTE` here
+/// would hand every process a writable executable mapping and undo the W^X
+/// split the ELF loader applies to the segments.
+const HEAP_FLAGS: EntryFlags = EntryFlags::WRITABLE
+    .union(EntryFlags::RING3_ACCESSIBLE)
+    .union(EntryFlags::NO_EXECUTE);
 
 unsafe fn jump(context: &FullInterruptStackFrame) {
     let ctx_addr = context as *const FullInterruptStackFrame as usize;
@@ -457,6 +474,13 @@ pub fn exit_current(status: usize) {
     {
         let mut mc = GLOBAL_MEMORY_CONTROLLER.lock();
         if let Some(mc) = mc.as_mut() {
+            // the heap only ever exists in this process' page table, which is
+            // still the active one here, so it has to be given back now
+            if let Some(heap_end) = heap_last_page(removed.heap_start, removed.heap_break) {
+                release_heap_pages(mc, Page::for_address(removed.heap_start), heap_end);
+                tlb::flush_all();
+            }
+
             mc.free_stack(&removed.stack);
 
             if let Some(page_table) = &removed.ring3_page_table {
@@ -486,6 +510,190 @@ pub fn exit_current(status: usize) {
     };
 
     CURRENT_INDEX.store(new_index, Ordering::SeqCst);
+}
+
+/// The page holding the last byte a heap needs at a given break.
+///
+/// ## Arguments
+///
+/// - `heap_start` the lowest address the heap can occupy
+/// - `program_break` the break to measure
+///
+/// ## Returns
+/// `None` when the break sits at `heap_start`, where the heap needs no pages
+/// at all.
+fn heap_last_page(heap_start: usize, program_break: usize) -> Option<Page> {
+    if program_break <= heap_start {
+        return None;
+    }
+
+    Some(Page::for_address(program_break - 1))
+}
+
+/// Zeroes a heap range and returns its frames to the frame allocator.
+///
+/// The frames go straight back into the global pool, so they must not carry
+/// the process' data into whoever is handed them next.
+///
+/// ## Arguments
+///
+/// - `mem_controller` the initialized memory controller
+/// - `start` the first page to release
+/// - `end` the last page to release, inclusive
+fn release_heap_pages(mem_controller: &mut MemoryController, start: Page, end: Page) {
+    let addr = start.start_address();
+    let size = (end.start_address() + PAGE_SIZE) - addr;
+
+    unsafe {
+        core::ptr::write_bytes(addr as *mut u8, 0, size);
+    }
+
+    mem_controller.unmap(start, end);
+}
+
+/// Maps or releases heap pages until `[heap_start, new_break)` is exactly the
+/// range backed by memory.
+///
+/// This works on the active page table, so the caller has to be running with
+/// the owning process' table loaded.
+///
+/// ## Arguments
+///
+/// - `mem_controller` the initialized memory controller
+/// - `heap_start` the lowest address the heap can occupy
+/// - `current_break` the break the heap is at now
+/// - `new_break` the break the heap should end up at
+///
+/// ## Returns
+/// Whether the range is now backed. A growth that runs out of memory leaves
+/// the heap exactly as it was.
+fn resize_heap(
+    mem_controller: &mut MemoryController,
+    heap_start: usize,
+    current_break: usize,
+    new_break: usize,
+) -> bool {
+    let mapped_end = heap_last_page(heap_start, current_break);
+    let wanted_end = heap_last_page(heap_start, new_break);
+
+    // the break is tracked to the byte while memory is handed out by the page,
+    // so a move that stays inside one page changes nothing that is mapped
+    if mapped_end == wanted_end {
+        return true;
+    }
+
+    let first_page = Page::for_address(heap_start);
+    let resized = match (mapped_end, wanted_end) {
+        (None, Some(wanted)) => mem_controller.try_map(first_page, wanted, HEAP_FLAGS),
+        (Some(mapped), Some(wanted)) if wanted > mapped => {
+            mem_controller.try_map(mapped + 1, wanted, HEAP_FLAGS)
+        }
+        (Some(mapped), Some(wanted)) => {
+            release_heap_pages(mem_controller, wanted + 1, mapped);
+            true
+        }
+        (Some(mapped), None) => {
+            release_heap_pages(mem_controller, first_page, mapped);
+            true
+        }
+        (None, None) => true,
+    };
+
+    // a released page stays reachable through its stale entry until something
+    // reloads cr3, and a fresh one has to be visible on the return to ring 3
+    tlb::flush_all();
+    resized
+}
+
+/// Moves a process' program break, mapping or releasing pages to match it.
+///
+/// ## Arguments
+///
+/// - `process` the process whose break is moving, which has to be the one
+/// whose page table is currently active
+/// - `new_break` the requested break, which does not have to be page aligned
+///
+/// ## Returns
+/// The new break, or `None` when the request was refused.
+fn set_process_break(process: &mut Process, new_break: usize) -> Option<usize> {
+    // the heap can be given back down to its start, but never below it, the
+    // ELF segments are down there
+    if new_break < process.heap_start {
+        return None;
+    }
+
+    if new_break - process.heap_start > MAX_HEAP_SIZE {
+        return None;
+    }
+
+    if new_break != process.heap_break {
+        // PROCESSES is held by the caller, and it is always taken before the
+        // memory controller
+        let mut mem_controller = GLOBAL_MEMORY_CONTROLLER.lock();
+        let Some(mem_controller) = mem_controller.as_mut() else {
+            log!(
+                LogType::ERR,
+                "set_process_break: memory controller is not initialized"
+            );
+
+            return None;
+        };
+
+        if !resize_heap(
+            mem_controller,
+            process.heap_start,
+            process.heap_break,
+            new_break,
+        ) {
+            return None;
+        }
+    }
+
+    process.heap_break = new_break;
+    Some(new_break)
+}
+
+/// Moves the program break of the currently scheduled process to an absolute
+/// address.
+///
+/// ## Arguments
+///
+/// - `new_break` the requested break
+///
+/// ## Returns
+/// The new break, or `None` when the request was refused.
+pub fn current_set_break(new_break: usize) -> Option<usize> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let process = processes.get_mut(current_index)?;
+
+    set_process_break(process, new_break)
+}
+
+/// Moves the program break of the currently scheduled process by a signed
+/// number of bytes.
+///
+/// Reading the break and moving it happen under the same lock, so an increment
+/// can never be applied to a break that has changed in between.
+///
+/// ## Arguments
+///
+/// - `increment` how far to move the break, negative to give memory back
+///
+/// ## Returns
+/// The new break, or `None` when the request was refused.
+pub fn current_adjust_break(increment: isize) -> Option<usize> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let process = processes.get_mut(current_index)?;
+
+    let new_break = if increment >= 0 {
+        process.heap_break.checked_add(increment as usize)?
+    } else {
+        process.heap_break.checked_sub(increment.unsigned_abs())?
+    };
+
+    set_process_break(process, new_break)
 }
 
 /// Returns the pid of the currently scheduled process, if there is one.

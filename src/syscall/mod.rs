@@ -1,3 +1,4 @@
+mod brk;
 mod cd;
 mod clock_gettime;
 mod close;
@@ -10,12 +11,14 @@ mod open;
 mod read;
 mod read_dir;
 mod rmdir;
+mod sbrk;
 mod truncate;
 mod unlink;
 mod wait_for_process;
 mod write;
 mod yld;
 
+pub use brk::brk;
 pub use cd::cd;
 pub use clock_gettime::clock_gettime;
 pub use close::close;
@@ -28,6 +31,7 @@ pub use open::open;
 pub use read::read;
 pub use read_dir::read_dir;
 pub use rmdir::rmdir;
+pub use sbrk::sbrk;
 pub use truncate::truncate;
 pub use unlink::unlink;
 pub use wait_for_process::wait_for_process;

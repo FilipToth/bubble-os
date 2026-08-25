@@ -183,6 +183,48 @@ impl MemoryController {
         }
     }
 
+    /// Maps a range of pages to unused page frames, giving up instead of
+    /// panicking when memory runs out.
+    ///
+    /// [`MemoryController::map`] panics on an exhausted frame allocator, which
+    /// is fine for ranges the kernel sizes itself but not for ones ring 3 gets
+    /// to choose, like the heap. Nothing is left mapped when this fails.
+    ///
+    /// ## Arguments
+    ///
+    /// - `start` the start page
+    /// - `end` the end page, inclusive
+    /// - `flags` the page table entry flags to be applied
+    ///
+    /// ## Returns
+    /// Whether the whole range was mapped.
+    pub fn try_map(&mut self, start: Page, end: Page, flags: EntryFlags) -> bool {
+        let mut last_mapped: Option<Page> = None;
+
+        for page in Page::range(start, end) {
+            let Some(frame) = self.frame_allocator.falloc() else {
+                if let Some(last_mapped) = last_mapped {
+                    self.unmap(start, last_mapped);
+                }
+
+                return false;
+            };
+
+            self.active_table.map_to(
+                page,
+                frame,
+                flags,
+                &mut self.frame_allocator,
+                &mut self.slot_allocator,
+                &mut self.temp_mapper,
+            );
+
+            last_mapped = Some(page);
+        }
+
+        true
+    }
+
     /// Unmaps a range of pages and frees page frames
     ///
     /// ## Arguments

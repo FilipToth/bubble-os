@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use spin::Mutex;
 
-use crate::{io::LogType, log, mem::Region, scheduling::process::ProcessEntry};
+use crate::{io::LogType, log, mem::Region, mem::PAGE_SIZE, scheduling::process::ProcessEntry};
 
 use super::{ElfProgramHeaderFlags, ElfRegion};
 
@@ -38,7 +38,12 @@ struct ElfProgramHeader64 {
     align: u64,
 }
 
-fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRegion>>> {
+/// Walks the LOAD program headers, building the mapped region list.
+///
+/// ## Returns
+/// The head of the region list and the address the process heap starts at,
+/// which is one page past the highest address any segment occupies.
+fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<(Arc<Mutex<ElfRegion>>, usize)> {
     let elf_ptr = elf.get_ptr::<u8>();
     let ph_table_size = (header.ph_num as usize).checked_mul(header.ph_entry_size as usize)?;
     let ph_table_end = (header.ph_offset as usize).checked_add(ph_table_size)?;
@@ -58,6 +63,11 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
     let ph_ptr = unsafe { elf_ptr.add(header.ph_offset as usize) };
     let mut start_region: Option<Arc<Mutex<ElfRegion>>> = None;
     let mut last_region: Option<Arc<Mutex<ElfRegion>>> = None;
+
+    // the highest address any segment reaches, tracked as a maximum rather
+    // than taken from the last header, nothing makes a program header table
+    // list its segments in ascending address order
+    let mut segments_end: usize = 0;
 
     for i in 0..header.ph_num {
         let ph_offset = (i * header.ph_entry_size) as usize;
@@ -103,6 +113,11 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
             return None;
         }
 
+        let segment_end = addr.checked_add(size)?;
+        if segment_end > segments_end {
+            segments_end = segment_end;
+        }
+
         let ph_file_src = unsafe { elf_ptr.add(entry.offset as usize) };
         let ph_file_addr = ph_file_src as usize;
         let ph_file_size = entry.file_size as usize;
@@ -129,7 +144,13 @@ fn load_ph_headers(header: &ElfHeader64, elf: &Region) -> Option<Arc<Mutex<ElfRe
         last_region = Some(elf_region);
     }
 
-    start_region
+    let start_region = start_region?;
+
+    // one page of separation so the first heap page can never share a page
+    // with the tail of a segment, whether or not the segment ended aligned
+    let heap_start = segments_end.checked_add(PAGE_SIZE)?;
+
+    Some((start_region, heap_start))
 }
 
 pub fn load(elf: Region) -> Option<ProcessEntry> {
@@ -165,7 +186,7 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
 
     // TODO: Do further ELF validation
 
-    let Some(start_region) = load_ph_headers(header, &elf) else {
+    let Some((start_region, heap_start)) = load_ph_headers(header, &elf) else {
         log!(LogType::ERR, "elf_loader: failed to load program headers");
         return None;
     };
@@ -177,5 +198,6 @@ pub fn load(elf: Region) -> Option<ProcessEntry> {
         ring3_page_table: None,
         stack: None,
         initial_rsp: 0,
+        heap_start: heap_start,
     })
 }

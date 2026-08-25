@@ -23,6 +23,8 @@ const SYS_UNLINK: usize = 14;
 const SYS_RMDIR: usize = 15;
 const SYS_CLOCK_GETTIME: usize = 16;
 const SYS_NANOSLEEP: usize = 17;
+const SYS_BRK: usize = 18;
+const SYS_SBRK: usize = 19;
 
 pub const CLOCK_REALTIME: usize = 0;
 pub const CLOCK_MONOTONIC: usize = 1;
@@ -574,6 +576,50 @@ pub fn close(fd: usize) -> bool {
 
 pub fn truncate(fd: usize, size: usize) -> bool {
     unsafe { syscall2(SYS_TRUNCATE, fd, size) != 0 }
+}
+
+/// Moves the program break to an absolute address.
+///
+/// The heap starts one page past the end of the program image, so the only way
+/// to learn a usable address is to ask for the current break with `sbrk(0)`
+/// first. Lowering the break gives pages back and drops whatever was in them.
+///
+/// ## Arguments
+///
+/// - `end_data_segment` the requested break
+///
+/// ## Returns
+/// `0` on success and `-1` on failure, as `int brk(void *)` does.
+pub fn brk(end_data_segment: usize) -> i32 {
+    // the kernel answers with the new break, and with zero on failure
+    let result = unsafe { syscall1(SYS_BRK, end_data_segment) };
+    if result == 0 {
+        -1
+    } else {
+        0
+    }
+}
+
+/// Moves the program break by a signed number of bytes.
+///
+/// `sbrk(0)` reads the current break without moving it, which is how a program
+/// finds where its heap begins.
+///
+/// ## Arguments
+///
+/// - `increment` how far to move the break, negative to give memory back
+///
+/// ## Returns
+/// The break as it was before the call, so the return value of a positive
+/// increment is the start of the newly usable bytes. `None` on failure.
+pub fn sbrk(increment: isize) -> Option<usize> {
+    let result = unsafe { syscall1(SYS_SBRK, increment as usize) };
+    if result == 0 {
+        return None;
+    }
+
+    // the kernel returns the new break, sbrk is defined to hand back the old
+    Some((result as isize - increment) as usize)
 }
 
 pub fn clock_gettime(clock_id: usize, timespec: &mut Timespec) -> bool {
