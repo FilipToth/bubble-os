@@ -316,8 +316,9 @@ pub fn load(elf: Region, argv: &[&str], envp: &[&str]) -> Option<ProcessEntry> {
     // the segments were writable in the TLB while they were copied
     tlb::flush_all();
 
-    // allocate stack
-    let Some(stack) = mc.stack_allocator.alloc(
+    // allocate the stack in the process' own PML4 slot, the subtree below it
+    // is created fresh in this table and stays private to the process
+    let Some(stack) = mc.user_stack_allocator.alloc(
         &mut ring3_table,
         &mut mc.frame_allocator,
         &mut mc.slot_allocator,

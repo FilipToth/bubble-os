@@ -1,0 +1,1 @@
+ - the `specs` directory contains markdown files containing the implementation specifications for different features, you can also use these to quickly lookup how different features inside different subsystems are implemented.

@@ -42,11 +42,31 @@ pub static GLOBAL_MEMORY_CONTROLLER: Mutex<Option<MemoryController>> = Mutex::ne
 pub const PAGE_TABLE_REGION_START: usize = 0x0000_6BCF_0000_0000;
 const STACK_ALLOCATOR_PAGES: usize = 4096;
 
+/// The base of the user stack region, PML4 slot 225.
+///
+/// User stacks need a slot the kernel page table leaves empty.
+/// `clone_kernel_table` copies the kernel PML4 verbatim, so a stack mapped under
+/// a slot the kernel already occupies lands in a subtree every process shares,
+/// and every process could then reach every other process' stack at its own
+/// virtual address. Mapping a ring 3 page there would also mark the shared
+/// intermediate entries ring 3 accessible, which makes `free_user_subtables`
+/// walk into kernel page tables on process teardown.
+///
+/// A slot of its own gives each process a private subtree instead, which
+/// `free_user_subtables` reclaims like any other user mapping.
+pub const USER_STACK_REGION_START: usize = 0x0000_7080_0000_0000;
+const USER_STACK_ALLOCATOR_PAGES: usize = 4096;
+
 pub struct MemoryController {
     pub active_table: PageTable,
     pub kernel_table: PageTable,
     pub frame_allocator: SimplePageFrameAllocator,
     pub stack_allocator: StackAllocator,
+
+    /// Carves ring 3 stacks out of [`USER_STACK_REGION_START`], kept apart from
+    /// `stack_allocator` so kernel stacks stay in the shared kernel region where
+    /// they have to be reachable from every process' page table.
+    pub user_stack_allocator: StackAllocator,
     pub slot_allocator: PageTableSlotAllocator,
     pub temp_mapper: TempMapper,
 }
@@ -57,6 +77,7 @@ impl MemoryController {
         kernel_table: PageTable,
         frame_allocator: SimplePageFrameAllocator,
         stack_allocator: StackAllocator,
+        user_stack_allocator: StackAllocator,
         slot_allocator: PageTableSlotAllocator,
         temp_mapper: TempMapper,
     ) -> MemoryController {
@@ -65,11 +86,20 @@ impl MemoryController {
             kernel_table: kernel_table,
             frame_allocator: frame_allocator,
             stack_allocator: stack_allocator,
+            user_stack_allocator: user_stack_allocator,
             slot_allocator: slot_allocator,
             temp_mapper: temp_mapper,
         }
     }
 
+    /// Allocates a stack in the active page table.
+    ///
+    /// ## Arguments
+    ///
+    /// - `pages_to_alloc` the number of usable stack pages, not counting the
+    /// guard page the allocator places below them
+    /// - `user` whether this is a ring 3 stack, which also picks the region the
+    /// range is carved out of
     pub fn alloc_stack(&mut self, pages_to_alloc: usize, user: bool) -> Option<Stack> {
         let flags = if user {
             EntryFlags::WRITABLE | EntryFlags::RING3_ACCESSIBLE
@@ -77,7 +107,13 @@ impl MemoryController {
             EntryFlags::WRITABLE
         };
 
-        self.stack_allocator.alloc(
+        let stack_allocator = if user {
+            &mut self.user_stack_allocator
+        } else {
+            &mut self.stack_allocator
+        };
+
+        stack_allocator.alloc(
             &mut self.active_table,
             &mut self.frame_allocator,
             &mut self.slot_allocator,
@@ -211,7 +247,14 @@ impl MemoryController {
         let start = Page::for_address(stack.bottom);
         let end = Page::for_address(stack.top - 1);
         self.unmap(start, end);
-        self.stack_allocator.free(stack);
+
+        // the two stack regions are disjoint, so the address alone decides
+        // which allocator the range has to go back to
+        if stack.bottom >= USER_STACK_REGION_START {
+            self.user_stack_allocator.free(stack);
+        } else {
+            self.stack_allocator.free(stack);
+        }
     }
 
     /// Clones the kernel base page table, keeping all
@@ -374,11 +417,23 @@ pub fn init(boot_info: &BootInformation) {
         StackAllocator::new(stack_range)
     };
 
+    // ring 3 stacks live in their own PML4 slot, no pages are mapped here yet.
+    // Each process maps its own stack into the slot after cloning the kernel
+    // table, so the subtree below it is never shared
+    let user_stack_allocator = {
+        let stack_start = Page::for_address(USER_STACK_REGION_START);
+        let stack_end = stack_start + (USER_STACK_ALLOCATOR_PAGES - 1);
+        let stack_range = Page::range(stack_start, stack_end);
+
+        StackAllocator::new(stack_range)
+    };
+
     let controller = MemoryController::new(
         pml4.clone(),
         pml4,
         allocator,
         stack_allocator,
+        user_stack_allocator,
         slot_allocator,
         temp,
     );
