@@ -42,7 +42,15 @@ static ENTRY_BUFFER: EntryBuffer = EntryBuffer(UnsafeCell::new([DirEntry::empty(
 #[no_mangle]
 extern "C" fn rust_main() -> ! {
     let entries = unsafe { &mut *ENTRY_BUFFER.0.get() };
-    let count = ulib::read_dir(entries);
+    let count = match ulib::read_dir(entries) {
+        Ok(count) => count,
+        Err(error) => {
+            ulib::stdout(b"ls: could not read the directory: ");
+            ulib::stdout(error.as_str().as_bytes());
+            ulib::stdout(b"\n");
+            ulib::exit(1);
+        }
+    };
 
     for entry in &entries[..count] {
         if entry.is_directory() {

@@ -4,19 +4,22 @@ use alloc::format;
 
 use crate::log;
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    scheduling,
+    scheduling::process::Process,
+    syscall::{Errno, SyscallResult},
 };
 
-pub fn unlink(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn unlink(stack: &FullInterruptStackFrame) -> SyscallResult {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
     let Some(page_table) = scheduling::get_current_process_page_table() else {
-        return Some(0);
+        return Some(Err(Errno::Srch));
     };
 
     let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
-        return Some(0);
+        return Some(Err(Errno::Fault));
     };
 
     let path = match core::str::from_utf8(&buffer) {
@@ -28,11 +31,13 @@ pub fn unlink(stack: &FullInterruptStackFrame) -> Option<usize> {
             );
 
             log!(crate::io::LogType::SYS, "{}\n{:?}", message, error);
-            return Some(0);
+            return Some(Err(Errno::Inval));
         }
     };
 
-    scheduling::curr_process_unlink_file(path)
-        .then_some(1)
-        .or(Some(0))
+    if !scheduling::curr_process_unlink_file(path) {
+        return Some(Err(Errno::NoEnt));
+    }
+
+    Some(Ok(0))
 }

@@ -67,8 +67,9 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         let command = &input_buffer[..input_len];
         if command.starts_with(b"cd ") {
             let path = ulib::trim_ascii_spaces(&command[3..]);
-            if ulib::cd(path) {
-                cwd.update(path);
+            match ulib::cd(path) {
+                Ok(()) => cwd.update(path),
+                Err(error) => print_error(b"cd", error),
             }
 
             continue;
@@ -87,12 +88,12 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         if command.starts_with(b"touch ") {
             let path = ulib::trim_ascii_spaces(&command[6..]);
-            let fd = ulib::create(path);
-            if fd != 0 {
-                ulib::close(fd);
-                ulib::stdout(b"Created file\n");
-            } else {
-                ulib::stdout(b"Could not create file\n");
+            match ulib::create(path) {
+                Ok(fd) => {
+                    let _ = ulib::close(fd);
+                    ulib::stdout(b"Created file\n");
+                }
+                Err(error) => print_error(b"touch", error),
             }
 
             continue;
@@ -100,10 +101,11 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         if command.starts_with(b"mkdir ") {
             let path = ulib::trim_ascii_spaces(&command[6..]);
-            if ulib::mkdir(path) {
-                ulib::stdout(b"Created directory\n");
-            } else {
-                ulib::stdout(b"Could not create directory\n");
+            match ulib::mkdir(path) {
+                Ok(()) => {
+                    ulib::stdout(b"Created directory\n");
+                }
+                Err(error) => print_error(b"mkdir", error),
             }
 
             continue;
@@ -111,10 +113,11 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         if command.starts_with(b"unlink ") {
             let path = ulib::trim_ascii_spaces(&command[7..]);
-            if ulib::unlink(path) {
-                ulib::stdout(b"Removed file\n");
-            } else {
-                ulib::stdout(b"Could not remove file\n");
+            match ulib::unlink(path) {
+                Ok(()) => {
+                    ulib::stdout(b"Removed file\n");
+                }
+                Err(error) => print_error(b"unlink", error),
             }
 
             continue;
@@ -122,10 +125,11 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         if command.starts_with(b"rmdir ") {
             let path = ulib::trim_ascii_spaces(&command[6..]);
-            if ulib::rmdir(path) {
-                ulib::stdout(b"Removed directory\n");
-            } else {
-                ulib::stdout(b"Could not remove directory\n");
+            match ulib::rmdir(path) {
+                Ok(()) => {
+                    ulib::stdout(b"Removed directory\n");
+                }
+                Err(error) => print_error(b"rmdir", error),
             }
 
             continue;
@@ -133,7 +137,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
         if command == b"uptime" {
             let mut timespec = ulib::Timespec::zero();
-            if ulib::clock_gettime(ulib::CLOCK_MONOTONIC, &mut timespec) {
+            if ulib::clock_gettime(ulib::CLOCK_MONOTONIC, &mut timespec).is_ok() {
                 ulib::stdout(b"Up for ");
                 print_number(timespec.tv_sec as usize);
                 ulib::stdout(b"s\n");
@@ -160,7 +164,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         if command.starts_with(b"sleep ") {
             let argument = ulib::trim_ascii_spaces(&command[6..]);
             let slept = match parse_number(argument) {
-                Some(seconds) => ulib::sleep(seconds as i64),
+                Some(seconds) => ulib::sleep(seconds as i64).is_ok(),
                 None => false,
             };
 
@@ -186,9 +190,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if !launch(command, &mut last_status) {
-            ulib::stdout(b"Program or command not found...\n");
-        }
+        launch(command, &mut last_status);
     }
 }
 
@@ -360,9 +362,17 @@ fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
     }
 }
 
-fn launch(command: &[u8], last_status: &mut usize) -> bool {
-    let Some(status) = ulib::system(command) else {
-        return false;
+fn launch(command: &[u8], last_status: &mut usize) {
+    let status = match ulib::system(command) {
+        Ok(status) => status,
+        Err(ulib::Errno::NOENT) => {
+            ulib::stdout(b"Program or command not found...\n");
+            return;
+        }
+        Err(error) => {
+            print_error(command, error);
+            return;
+        }
     };
 
     *last_status = status;
@@ -374,7 +384,18 @@ fn launch(command: &[u8], last_status: &mut usize) -> bool {
         print_number(status - FAULT_STATUS_BASE);
         ulib::stdout(b"\n");
     }
+}
 
-    true
+/// Prints a failed command as `name: reason`.
+///
+/// ## Arguments
+///
+/// - `name` what was being attempted
+/// - `error` the error the kernel reported
+fn print_error(name: &[u8], error: ulib::Errno) {
+    ulib::stdout(name);
+    ulib::stdout(b": ");
+    ulib::stdout(error.as_str().as_bytes());
+    ulib::stdout(b"\n");
 }
 

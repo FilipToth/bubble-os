@@ -7,19 +7,20 @@ use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     print, scheduling,
     scheduling::process::{FileDescriptor, Process},
+    syscall::{Errno, SyscallResult},
 };
 
-pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn write(stack: &FullInterruptStackFrame) -> SyscallResult {
     let file_descriptor = stack.rdi;
     let buffer_addr = stack.rsi;
     let buffer_size = stack.rdx;
 
     let Some(page_table) = scheduling::get_current_process_page_table() else {
-        return Some(0);
+        return Some(Err(Errno::Srch));
     };
 
     let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
-        return Some(0);
+        return Some(Err(Errno::Fault));
     };
 
     match scheduling::get_current_file_descriptor(file_descriptor) {
@@ -33,18 +34,21 @@ pub fn write(stack: &FullInterruptStackFrame) -> Option<usize> {
                     );
 
                     log!(crate::io::LogType::ERR, "{}\n{:?}", msg, e);
-                    return Some(0);
+                    return Some(Err(Errno::Inval));
                 }
             };
 
             print!("{}", string);
-            Some(buffer.len())
+            Some(Ok(buffer.len()))
         }
         Some(FileDescriptor::File(_)) => {
-            // map a failed write to 0 bytes written, otherwise the
-            // dispatcher would leave the syscall number in rax
-            scheduling::write_current_file_descriptor(file_descriptor, &buffer).or(Some(0))
+            let Some(written) = scheduling::write_current_file_descriptor(file_descriptor, &buffer)
+            else {
+                return Some(Err(Errno::BadF));
+            };
+
+            Some(Ok(written))
         }
-        _ => Some(0),
+        _ => Some(Err(Errno::BadF)),
     }
 }

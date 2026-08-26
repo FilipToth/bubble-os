@@ -77,11 +77,16 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const
     };
 
     let buffer = file_buffer();
-    let len = ulib::read(fd, buffer);
+    let Ok(len) = ulib::read(fd, buffer) else {
+        let _ = ulib::close(fd);
+        ulib::stdout(b"\nCould not read the file.\n");
+        ulib::exit(1);
+    };
+
     if len == FILE_CAPACITY {
         let mut extra = [0u8; 1];
-        if ulib::read(fd, &mut extra) != 0 {
-            ulib::close(fd);
+        if ulib::read(fd, &mut extra).unwrap_or(0) != 0 {
+            let _ = ulib::close(fd);
             ulib::stdout(b"\nFile is larger than edit's 4 KiB buffer.\n");
             ulib::exit(1);
         }
@@ -106,7 +111,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const
         }
     }
 
-    ulib::close(fd);
+    let _ = ulib::close(fd);
     ulib::stdout(b"\x1B[2J\x1B[H");
     ulib::exit(0);
 }
@@ -121,13 +126,11 @@ fn file_buffer() -> &'static mut [u8; FILE_CAPACITY] {
 }
 
 fn open_or_create(path: &[u8]) -> Option<usize> {
-    let fd = ulib::open(path);
-    if fd != 0 {
+    if let Ok(fd) = ulib::open(path) {
         return Some(fd);
     }
 
-    let fd = ulib::create(path);
-    (fd != 0).then_some(fd)
+    ulib::create(path).ok()
 }
 
 fn read_line(buffer: &mut [u8]) -> usize {
@@ -268,12 +271,12 @@ impl Editor {
     }
 
     fn save(&mut self, buffer: &[u8]) {
-        if !ulib::truncate(self.fd, 0) {
+        if ulib::truncate(self.fd, 0).is_err() {
             self.message = b"Could not truncate file";
             return;
         }
 
-        if ulib::write_file(self.fd, &buffer[..self.len]) != self.len {
+        if ulib::write_file(self.fd, &buffer[..self.len]).unwrap_or(0) != self.len {
             self.message = b"Could not write file";
             return;
         }

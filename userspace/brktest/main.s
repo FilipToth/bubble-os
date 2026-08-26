@@ -7,6 +7,10 @@
 ;
 ; Run it from the shell with brktest.elf. The exit status is the number of
 ; failed cases, so `status` reporting 0 after a run means everything passed.
+; The kernel masks exit statuses to a byte, which the case count never exceeds.
+;
+; Syscalls report failures as a negated errno in rax, so a refused request
+; answers with a small negative number rather than zero.
 ;
 ; The cases build on each other, they are not independent: case 0 records the
 ; break the process starts with and every later case is written against it.
@@ -26,11 +30,21 @@ STDOUT      equ 0x01
 PAGE_SIZE   equ 0x1000
 MAX_HEAP    equ 0x4000000       ; 64 MiB, the kernel's per process ceiling
 
+; syscalls answer failures with the errno negated
+ENOMEM      equ 12
+EINVAL      equ 22
+
 ; prints a string, %1 is a label in .rodata with a matching %1_len constant
 %macro say 1
     mov rsi, %1
     mov rdx, %1 %+ _len
     call puts
+%endmacro
+
+; sets r8b when rax holds exactly the negated errno %1
+%macro expect_errno 1
+    cmp rax, -%1
+    sete r8b
 %endmacro
 
 ; closes a case, r8b already holds 1 for a pass and 0 for a failure
@@ -55,8 +69,9 @@ _start:
     mov rax, SYS_SBRK
     int 0x80
     mov r12, rax                    ; every later case is written against this
-    test rax, rax
-    setnz r8b
+    ; a break is a large positive address, never a small negative errno
+    cmp rax, 0
+    setg r8b
     verdict desc_initial
 
 ; --- Case 1: sbrk(0) reads the break without moving it ----------------------
@@ -119,16 +134,14 @@ _start:
     lea rdi, [r12 - 1]
     mov rax, SYS_BRK
     int 0x80
-    test rax, rax
-    setz r8b
+    expect_errno EINVAL
     verdict desc_below_start
 
 ; --- Case 9: so is brk(0) ---------------------------------------------------
     xor rdi, rdi
     mov rax, SYS_BRK
     int 0x80
-    test rax, rax
-    setz r8b
+    expect_errno EINVAL
     verdict desc_brk_zero
 
 ; --- Case 10: and so is a break past the kernel's heap ceiling --------------
@@ -136,8 +149,7 @@ _start:
     lea rdi, [r12 + rcx]
     mov rax, SYS_BRK
     int 0x80
-    test rax, rax
-    setz r8b
+    expect_errno ENOMEM
     verdict desc_over_cap
 
 ; --- Case 11: a refused request leaves the break where it was ---------------
@@ -201,8 +213,7 @@ _start:
     mov rdi, rcx
     mov rax, SYS_SBRK
     int 0x80
-    test rax, rax
-    setz r8b
+    expect_errno EINVAL
     verdict desc_shrink_too_far
 
 ; --- Case 17: and the heap can be handed back one last time -----------------
@@ -386,13 +397,13 @@ desc_survives_grow_len: equ $ - desc_survives_grow
 desc_release_all:   db "brk(start) releases the whole heap"
 desc_release_all_len: equ $ - desc_release_all
 
-desc_below_start:   db "a break below the heap start is refused"
+desc_below_start:   db "a break below the heap start reports EINVAL"
 desc_below_start_len: equ $ - desc_below_start
 
-desc_brk_zero:      db "brk(0) is refused"
+desc_brk_zero:      db "brk(0) reports EINVAL"
 desc_brk_zero_len:  equ $ - desc_brk_zero
 
-desc_over_cap:      db "a break past the heap ceiling is refused"
+desc_over_cap:      db "a break past the heap ceiling reports ENOMEM"
 desc_over_cap_len:  equ $ - desc_over_cap
 
 desc_refusal_clean: db "a refused request leaves the break unchanged"
@@ -410,7 +421,7 @@ desc_shrink_len:    equ $ - desc_shrink
 desc_after_shrink:  db "the heap left after a shrink is still usable"
 desc_after_shrink_len: equ $ - desc_after_shrink
 
-desc_shrink_too_far: db "shrinking past the heap start is refused"
+desc_shrink_too_far: db "shrinking past the heap start reports EINVAL"
 desc_shrink_too_far_len: equ $ - desc_shrink_too_far
 
 desc_final_release: db "the heap can be handed back a second time"

@@ -3,8 +3,12 @@
 use alloc::{format, vec::Vec};
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, elf, io::LogType, log, scheduling,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    elf,
+    io::LogType,
+    log, scheduling,
     scheduling::process::Process,
+    syscall::{Errno, SyscallResult},
 };
 
 /// Maximum byte length of the argument string.
@@ -13,7 +17,7 @@ const ARGS_MAX_BYTES: usize = 4096;
 /// Maximum number of process arguments, including the program name.
 const ARGS_MAX_COUNT: usize = 64;
 
-pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn execute(stack: &FullInterruptStackFrame) -> SyscallResult {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
     let args_addr = stack.rdx;
@@ -27,7 +31,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             buffer_size
         );
 
-        return Some(0);
+        return Some(Err(Errno::Srch));
     };
 
     let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
@@ -38,7 +42,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             buffer_size
         );
 
-        return Some(0);
+        return Some(Err(Errno::Fault));
     };
 
     let path = match core::str::from_utf8(&buffer) {
@@ -50,13 +54,13 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             );
 
             log!(LogType::ERR, "{}\n{:?}", msg, e);
-            return Some(0);
+            return Some(Err(Errno::Inval));
         }
     };
 
     if path.rsplit('/').next() == Some("shell.elf") {
         log!(LogType::ERR, "execute: blocked attempt to launch shell.elf");
-        return Some(0);
+        return Some(Err(Errno::Perm));
     }
 
     if args_size > ARGS_MAX_BYTES {
@@ -67,7 +71,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             args_size
         );
 
-        return Some(0);
+        return Some(Err(Errno::Range));
     }
 
     let args_buffer = if args_size == 0 {
@@ -81,7 +85,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
                 args_size
             );
 
-            return Some(0);
+            return Some(Err(Errno::Fault));
         };
 
         buffer
@@ -95,7 +99,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             args_size
         );
 
-        return Some(0);
+        return Some(Err(Errno::Inval));
     };
 
     // the program name is argv[0], the argument string
@@ -111,13 +115,13 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             argv.len()
         );
 
-        return Some(0);
+        return Some(Err(Errno::Range));
     }
 
     let file = scheduling::find_file_from_path(path);
 
     let Some(file) = file else {
-        return Some(0);
+        return Some(Err(Errno::NoEnt));
     };
 
     // read file
@@ -126,7 +130,7 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
         let file_name = file_guard.name();
         let Some(region) = file_guard.read() else {
             log!(LogType::ERR, "execute: failed to read file {:?}", file_name);
-            return Some(0);
+            return Some(Err(Errno::Io));
         };
 
         region
@@ -144,10 +148,14 @@ pub fn execute(stack: &FullInterruptStackFrame) -> Option<usize> {
             path
         );
 
-        return Some(0);
+        return Some(Err(Errno::NoExec));
     };
 
     let pid = scheduling::deploy(elf_entry, true);
+    if pid == 0 {
+        // pids start at 1, so deploy only answers with zero when it failed
+        return Some(Err(Errno::NoMem));
+    }
 
-    Some(pid)
+    Some(Ok(pid))
 }

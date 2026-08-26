@@ -183,13 +183,14 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
                 syscall_number
             );
 
-            None
+            Some(Err(syscall::Errno::NoSys))
         }
     };
 
-    // set return value
-    if let Some(rax) = rax {
-        stack.rax = rax;
+    // a handler that returns None descheduled the caller, rax now belongs to
+    // whichever process runs next and must be left alone
+    if let Some(result) = rax {
+        stack.rax = syscall::encode(result);
     }
 }
 

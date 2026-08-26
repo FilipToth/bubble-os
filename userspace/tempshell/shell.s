@@ -100,10 +100,11 @@ execute_elf:
     mov rsi, [input_counter]
     int 0x80
 
-    ; PID will be in rax, check if we
-    ; actually ran the ELF
+    ; PID will be in rax, check if we actually ran the ELF. Pids start at 1
+    ; and failures come back as a negated errno, so anything not positive
+    ; means the launch did not happen
     cmp rax, 0x00
-    je error
+    jle error
 
     ; wait for subprocess completion
     mov rdi, rax

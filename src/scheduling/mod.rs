@@ -14,7 +14,9 @@ use crate::{
         paging::{entry::EntryFlags, Page, PageTable},
         MemoryController, GLOBAL_MEMORY_CONTROLLER, PAGE_SIZE,
     },
-    print, time, with_root_dir,
+    print,
+    syscall::Errno,
+    time, with_root_dir,
 };
 use x86_64::instructions::tlb;
 
@@ -23,7 +25,12 @@ pub mod process;
 pub static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
-pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+/// The next pid to hand out.
+///
+/// Starts at 1 so that pid 0 is never a real process. Userspace treats it as
+/// a reserved sentinel, and a wait on it is an unambiguous ESRCH rather than
+/// a wait on whichever process happened to boot first.
+pub static PID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 /// Exit statuses of processes that have already exited, keyed by pid.
 ///
@@ -195,8 +202,10 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
 
             if let Some(status) = exit_status {
                 // the process is resuming inside the wait_for_process
-                // syscall, hand the child status back as its return value
-                new_current.context.rax = status;
+                // syscall, hand the child status back as its return value.
+                // Statuses are masked to a byte at exit, so one can never be
+                // mistaken for a negative errno
+                new_current.context.rax = crate::syscall::encode(Ok(status));
             }
 
             return Some(new_current.clone());
@@ -614,16 +623,17 @@ fn resize_heap(
 /// - `new_break` the requested break, which does not have to be page aligned
 ///
 /// ## Returns
-/// The new break, or `None` when the request was refused.
-fn set_process_break(process: &mut Process, new_break: usize) -> Option<usize> {
+/// The new break, or the reason the request was refused.
+fn set_process_break(process: &mut Process, new_break: usize) -> Result<usize, Errno> {
     // the heap can be given back down to its start, but never below it, the
-    // ELF segments are down there
+    // ELF segments are down there. That is the caller asking for something
+    // impossible rather than the kernel running out of memory
     if new_break < process.heap_start {
-        return None;
+        return Err(Errno::Inval);
     }
 
     if new_break - process.heap_start > MAX_HEAP_SIZE {
-        return None;
+        return Err(Errno::NoMem);
     }
 
     if new_break != process.heap_break {
@@ -636,7 +646,7 @@ fn set_process_break(process: &mut Process, new_break: usize) -> Option<usize> {
                 "set_process_break: memory controller is not initialized"
             );
 
-            return None;
+            return Err(Errno::NoMem);
         };
 
         if !resize_heap(
@@ -645,12 +655,12 @@ fn set_process_break(process: &mut Process, new_break: usize) -> Option<usize> {
             process.heap_break,
             new_break,
         ) {
-            return None;
+            return Err(Errno::NoMem);
         }
     }
 
     process.heap_break = new_break;
-    Some(new_break)
+    Ok(new_break)
 }
 
 /// Moves the program break of the currently scheduled process to an absolute
@@ -661,11 +671,13 @@ fn set_process_break(process: &mut Process, new_break: usize) -> Option<usize> {
 /// - `new_break` the requested break
 ///
 /// ## Returns
-/// The new break, or `None` when the request was refused.
-pub fn current_set_break(new_break: usize) -> Option<usize> {
+/// The new break, or the reason the request was refused.
+pub fn current_set_break(new_break: usize) -> Result<usize, Errno> {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-    let process = processes.get_mut(current_index)?;
+    let Some(process) = processes.get_mut(current_index) else {
+        return Err(Errno::Srch);
+    };
 
     set_process_break(process, new_break)
 }
@@ -681,19 +693,40 @@ pub fn current_set_break(new_break: usize) -> Option<usize> {
 /// - `increment` how far to move the break, negative to give memory back
 ///
 /// ## Returns
-/// The new break, or `None` when the request was refused.
-pub fn current_adjust_break(increment: isize) -> Option<usize> {
+/// The new break, or the reason the request was refused.
+pub fn current_adjust_break(increment: isize) -> Result<usize, Errno> {
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-    let process = processes.get_mut(current_index)?;
+    let Some(process) = processes.get_mut(current_index) else {
+        return Err(Errno::Srch);
+    };
 
+    // an increment that runs off either end of the address space is the
+    // caller's mistake, not a memory shortage
     let new_break = if increment >= 0 {
-        process.heap_break.checked_add(increment as usize)?
+        process.heap_break.checked_add(increment as usize)
     } else {
-        process.heap_break.checked_sub(increment.unsigned_abs())?
+        process.heap_break.checked_sub(increment.unsigned_abs())
+    };
+
+    let Some(new_break) = new_break else {
+        return Err(Errno::Inval);
     };
 
     set_process_break(process, new_break)
+}
+
+/// Whether a process with this pid is currently alive.
+///
+/// A pid that has already exited is not alive, its status lives in the exit
+/// records instead.
+///
+/// ## Arguments
+///
+/// - `pid` the pid to look for
+pub fn process_exists(pid: usize) -> bool {
+    let processes = PROCESSES.lock();
+    processes.iter().any(|process| process.pid == pid)
 }
 
 /// Returns the pid of the currently scheduled process, if there is one.

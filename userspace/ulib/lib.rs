@@ -26,6 +26,81 @@ const SYS_NANOSLEEP: usize = 17;
 const SYS_BRK: usize = 18;
 const SYS_SBRK: usize = 19;
 
+/// The largest error number a syscall return can carry.
+const MAX_ERRNO: usize = 4095;
+
+/// An error number returned by a syscall.
+///
+/// The kernel answers failures with the errno negated, so anything from `-1`
+/// to `-MAX_ERRNO` is an error and everything else is a success value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Errno(pub usize);
+
+impl Errno {
+    pub const PERM: Errno = Errno(1);
+    pub const NOENT: Errno = Errno(2);
+    pub const SRCH: Errno = Errno(3);
+    pub const IO: Errno = Errno(5);
+    pub const NOEXEC: Errno = Errno(8);
+    pub const BADF: Errno = Errno(9);
+    pub const CHILD: Errno = Errno(10);
+    pub const NOMEM: Errno = Errno(12);
+    pub const ACCESS: Errno = Errno(13);
+    pub const FAULT: Errno = Errno(14);
+    pub const EXIST: Errno = Errno(17);
+    pub const NOTDIR: Errno = Errno(20);
+    pub const ISDIR: Errno = Errno(21);
+    pub const INVAL: Errno = Errno(22);
+    pub const MFILE: Errno = Errno(24);
+    pub const NOSPC: Errno = Errno(28);
+    pub const RANGE: Errno = Errno(34);
+    pub const NOSYS: Errno = Errno(38);
+    pub const NOTEMPTY: Errno = Errno(39);
+
+    /// A short human readable name, for programs that report errors.
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            Errno::PERM => "operation not permitted",
+            Errno::NOENT => "no such file or directory",
+            Errno::SRCH => "no such process",
+            Errno::IO => "input/output error",
+            Errno::NOEXEC => "bad executable format",
+            Errno::BADF => "bad file descriptor",
+            Errno::CHILD => "no child processes",
+            Errno::NOMEM => "out of memory",
+            Errno::ACCESS => "permission denied",
+            Errno::FAULT => "bad address",
+            Errno::EXIST => "file exists",
+            Errno::NOTDIR => "not a directory",
+            Errno::ISDIR => "is a directory",
+            Errno::INVAL => "invalid argument",
+            Errno::MFILE => "too many open files",
+            Errno::NOSPC => "no space left on device",
+            Errno::RANGE => "result out of range",
+            Errno::NOSYS => "function not implemented",
+            Errno::NOTEMPTY => "directory not empty",
+            _ => "unknown error",
+        }
+    }
+}
+
+/// What every syscall wrapper returns.
+pub type Result<T> = core::result::Result<T, Errno>;
+
+/// Splits a raw syscall return into a success value or an error number.
+///
+/// ## Arguments
+///
+/// - `raw` the value the kernel left in `rax`
+fn decode(raw: usize) -> Result<usize> {
+    let signed = raw as isize;
+    if signed < 0 && signed >= -(MAX_ERRNO as isize) {
+        return Err(Errno(signed.unsigned_abs()));
+    }
+
+    Ok(raw)
+}
+
 pub const CLOCK_REALTIME: usize = 0;
 pub const CLOCK_MONOTONIC: usize = 1;
 
@@ -278,15 +353,15 @@ const PATH_MAX: usize = 512;
 /// - `command` the command line to run
 ///
 /// ## Returns
-/// The exit status of the program, or `None` when nothing could be launched.
-pub fn system(command: &[u8]) -> Option<usize> {
+/// The exit status of the program, or the error that stopped it launching.
+pub fn system(command: &[u8]) -> Result<usize> {
     let (program, args) = split_command_line(command);
     if program.is_empty() {
-        return None;
+        return Err(Errno::INVAL);
     }
 
     let pid = spawn(program, args)?;
-    Some(wait_for_process(pid))
+    wait_for_process(pid)
 }
 
 /// Launches a program without waiting for it.
@@ -301,33 +376,36 @@ pub fn system(command: &[u8]) -> Option<usize> {
 /// - `args` the whitespace-separated argument string
 ///
 /// ## Returns
-/// The new pid, or `None` when no candidate could be launched.
-pub fn spawn(program: &[u8], args: &[u8]) -> Option<usize> {
+/// The new pid, or the error that stopped it launching.
+pub fn spawn(program: &[u8], args: &[u8]) -> Result<usize> {
     if program.contains(&b'/') {
-        return match execute(program, args) {
-            0 => None,
-            pid => Some(pid),
-        };
+        return execute(program, args);
     }
 
     let path = getenv(b"PATH").unwrap_or(DEFAULT_PATH);
+    let mut last_error = Errno::NOENT;
+
     for directory in path.split(|byte| *byte == b':') {
         let mut buffer = [0u8; PATH_MAX];
         let Some(candidate) = join_path(&mut buffer, directory, program) else {
             continue;
         };
 
-        let pid = execute(candidate, args);
-        if pid != 0 {
-            return Some(pid);
+        match execute(candidate, args) {
+            Ok(pid) => return Ok(pid),
+
+            // a missing candidate just means the next directory gets a turn,
+            // anything else is worth reporting rather than walking past
+            Err(Errno::NOENT) => continue,
+            Err(error) => last_error = error,
         }
     }
 
     // nothing on the search path, try the working directory
-    match execute(program, args) {
-        0 => None,
-        pid => Some(pid),
-    }
+    execute(program, args).map_err(|error| match error {
+        Errno::NOENT => last_error,
+        error => error,
+    })
 }
 
 /// Splits a command line into the program name and its argument string.
@@ -463,41 +541,54 @@ unsafe fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: u
     ret
 }
 
-pub fn write(fd: usize, bytes: &[u8]) -> usize {
-    unsafe { syscall3(SYS_WRITE, fd, bytes.as_ptr() as usize, bytes.len()) }
+pub fn write(fd: usize, bytes: &[u8]) -> Result<usize> {
+    decode(unsafe { syscall3(SYS_WRITE, fd, bytes.as_ptr() as usize, bytes.len()) })
 }
 
-pub fn write_file(fd: usize, bytes: &[u8]) -> usize {
+pub fn write_file(fd: usize, bytes: &[u8]) -> Result<usize> {
     write(fd, bytes)
 }
 
 pub fn write_existing_file(path: &[u8], bytes: &[u8]) -> bool {
-    let fd = open(path);
-    if fd == 0 {
+    let Ok(fd) = open(path) else {
         return false;
-    }
+    };
 
-    let bytes_written = write_file(fd, bytes);
-    let truncated = truncate(fd, bytes_written);
-    close(fd);
+    let bytes_written = write_file(fd, bytes).unwrap_or(0);
+    let truncated = truncate(fd, bytes_written).is_ok();
+    let _ = close(fd);
 
     bytes_written == bytes.len() && truncated
 }
 
+/// Writes to stdout, ignoring any error.
+///
+/// Printing is the last thing a program does on most error paths, so a
+/// checked write there would just push the problem up with nowhere to go.
 pub fn stdout(bytes: &[u8]) -> usize {
-    write(STDOUT, bytes)
+    write(STDOUT, bytes).unwrap_or(0)
 }
 
+/// Writes to stderr, ignoring any error.
 pub fn stderr(bytes: &[u8]) -> usize {
-    write(STDERR, bytes)
+    write(STDERR, bytes).unwrap_or(0)
 }
 
-pub fn read(fd: usize, buffer: &mut [u8]) -> usize {
-    unsafe { syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len()) }
+/// Reads into a buffer.
+///
+/// ## Returns
+/// The number of bytes read, where `0` means end of file.
+pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
+    decode(unsafe { syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len()) })
 }
 
+/// Blocks until a key is pressed and returns it.
+///
+/// The keyboard handler writes the character straight into the waiting
+/// process' `rax`, so this never carries an error number, but it is decoded
+/// like any other return in case that path ever does start failing.
 pub fn read_stdin_char() -> u8 {
-    unsafe { syscall1(SYS_READ, STDIN) as u8 }
+    decode(unsafe { syscall1(SYS_READ, STDIN) }).unwrap_or(0) as u8
 }
 
 /// Launches an ELF binary.
@@ -509,9 +600,9 @@ pub fn read_stdin_char() -> u8 {
 ///   into `argv[1..]`, with the path becoming `argv[0]`
 ///
 /// ## Returns
-/// The new process PID, or 0 on failure.
-pub fn execute(path: &[u8], args: &[u8]) -> usize {
-    unsafe {
+/// The new process PID, which is always at least 1.
+pub fn execute(path: &[u8], args: &[u8]) -> Result<usize> {
+    decode(unsafe {
         syscall4(
             SYS_EXECUTE,
             path.as_ptr() as usize,
@@ -519,7 +610,7 @@ pub fn execute(path: &[u8], args: &[u8]) -> usize {
             args.as_ptr() as usize,
             args.len(),
         )
-    }
+    })
 }
 
 pub fn yield_now() {
@@ -538,44 +629,52 @@ pub fn yield_now() {
 /// The status the process exited with. A status of 128 or more means the
 /// kernel killed it after a CPU fault, and the value is 128 plus the
 /// exception vector.
-pub fn wait_for_process(pid: usize) -> usize {
-    unsafe { syscall1(SYS_WAIT_FOR_PROCESS, pid) }
+/// Waits for a process to exit.
+///
+/// ## Returns
+/// Its exit status, which the kernel masks to a byte.
+pub fn wait_for_process(pid: usize) -> Result<usize> {
+    decode(unsafe { syscall1(SYS_WAIT_FOR_PROCESS, pid) })
 }
 
-pub fn read_dir(entries: &mut [DirEntry]) -> usize {
-    unsafe { syscall2(SYS_READ_DIR, entries.as_mut_ptr() as usize, entries.len()) }
+/// Fills a buffer with the entries of the working directory.
+///
+/// ## Returns
+/// The number of entries written, where `0` is an empty directory.
+pub fn read_dir(entries: &mut [DirEntry]) -> Result<usize> {
+    decode(unsafe { syscall2(SYS_READ_DIR, entries.as_mut_ptr() as usize, entries.len()) })
 }
 
-pub fn cd(path: &[u8]) -> bool {
-    unsafe { syscall2(SYS_CD, path.as_ptr() as usize, path.len()) != 0 }
+pub fn cd(path: &[u8]) -> Result<()> {
+    decode(unsafe { syscall2(SYS_CD, path.as_ptr() as usize, path.len()) }).map(|_| ())
 }
 
-pub fn open(path: &[u8]) -> usize {
-    unsafe { syscall2(SYS_OPEN, path.as_ptr() as usize, path.len()) }
+pub fn open(path: &[u8]) -> Result<usize> {
+    decode(unsafe { syscall2(SYS_OPEN, path.as_ptr() as usize, path.len()) })
 }
 
-pub fn create(path: &[u8]) -> usize {
-    unsafe { syscall2(SYS_CREATE, path.as_ptr() as usize, path.len()) }
+pub fn create(path: &[u8]) -> Result<usize> {
+    decode(unsafe { syscall2(SYS_CREATE, path.as_ptr() as usize, path.len()) })
 }
 
-pub fn mkdir(path: &[u8]) -> bool {
-    unsafe { syscall2(SYS_MKDIR, path.as_ptr() as usize, path.len()) != 0 }
+pub fn mkdir(path: &[u8]) -> Result<()> {
+    decode(unsafe { syscall2(SYS_MKDIR, path.as_ptr() as usize, path.len()) }).map(|_| ())
 }
 
-pub fn unlink(path: &[u8]) -> bool {
-    unsafe { syscall2(SYS_UNLINK, path.as_ptr() as usize, path.len()) != 0 }
+pub fn unlink(path: &[u8]) -> Result<()> {
+    decode(unsafe { syscall2(SYS_UNLINK, path.as_ptr() as usize, path.len()) }).map(|_| ())
 }
 
-pub fn rmdir(path: &[u8]) -> bool {
-    unsafe { syscall2(SYS_RMDIR, path.as_ptr() as usize, path.len()) != 0 }
+pub fn rmdir(path: &[u8]) -> Result<()> {
+    decode(unsafe { syscall2(SYS_RMDIR, path.as_ptr() as usize, path.len()) }).map(|_| ())
 }
 
-pub fn close(fd: usize) -> bool {
-    unsafe { syscall1(SYS_CLOSE, fd) != 0 }
+pub fn close(fd: usize) -> Result<()> {
+    decode(unsafe { syscall1(SYS_CLOSE, fd) }).map(|_| ())
 }
 
-pub fn truncate(fd: usize, size: usize) -> bool {
-    unsafe { syscall2(SYS_TRUNCATE, fd, size) != 0 }
+pub fn truncate(fd: usize, size: usize) -> Result<()> {
+    decode(unsafe { syscall2(SYS_TRUNCATE, fd, size) }).map(|_| ())
 }
 
 /// Moves the program break to an absolute address.
@@ -590,14 +689,8 @@ pub fn truncate(fd: usize, size: usize) -> bool {
 ///
 /// ## Returns
 /// `0` on success and `-1` on failure, as `int brk(void *)` does.
-pub fn brk(end_data_segment: usize) -> i32 {
-    // the kernel answers with the new break, and with zero on failure
-    let result = unsafe { syscall1(SYS_BRK, end_data_segment) };
-    if result == 0 {
-        -1
-    } else {
-        0
-    }
+pub fn brk(end_data_segment: usize) -> Result<()> {
+    decode(unsafe { syscall1(SYS_BRK, end_data_segment) }).map(|_| ())
 }
 
 /// Moves the program break by a signed number of bytes.
@@ -612,30 +705,28 @@ pub fn brk(end_data_segment: usize) -> i32 {
 /// ## Returns
 /// The break as it was before the call, so the return value of a positive
 /// increment is the start of the newly usable bytes. `None` on failure.
-pub fn sbrk(increment: isize) -> Option<usize> {
-    let result = unsafe { syscall1(SYS_SBRK, increment as usize) };
-    if result == 0 {
-        return None;
-    }
+pub fn sbrk(increment: isize) -> Result<usize> {
+    let new_break = decode(unsafe { syscall1(SYS_SBRK, increment as usize) })?;
 
     // the kernel returns the new break, sbrk is defined to hand back the old
-    Some((result as isize - increment) as usize)
+    Ok((new_break as isize - increment) as usize)
 }
 
-pub fn clock_gettime(clock_id: usize, timespec: &mut Timespec) -> bool {
-    unsafe {
+pub fn clock_gettime(clock_id: usize, timespec: &mut Timespec) -> Result<()> {
+    decode(unsafe {
         syscall2(
             SYS_CLOCK_GETTIME,
             clock_id,
             timespec as *mut Timespec as usize,
-        ) != 0
-    }
+        )
+    })
+    .map(|_| ())
 }
 
 /// Seconds since the Unix epoch, or 0 when the clock is unavailable.
 pub fn time() -> i64 {
     let mut timespec = Timespec::zero();
-    if !clock_gettime(CLOCK_REALTIME, &mut timespec) {
+    if clock_gettime(CLOCK_REALTIME, &mut timespec).is_err() {
         return 0;
     }
 
@@ -645,23 +736,23 @@ pub fn time() -> i64 {
 /// Nanoseconds since boot, or 0 when the clock is unavailable.
 pub fn monotonic_ns() -> i64 {
     let mut timespec = Timespec::zero();
-    if !clock_gettime(CLOCK_MONOTONIC, &mut timespec) {
+    if clock_gettime(CLOCK_MONOTONIC, &mut timespec).is_err() {
         return 0;
     }
 
     timespec.tv_sec * NANOSECONDS_PER_SECOND + timespec.tv_nsec
 }
 
-pub fn nanosleep(duration: &Timespec) -> bool {
-    unsafe { syscall1(SYS_NANOSLEEP, duration as *const Timespec as usize) != 0 }
+pub fn nanosleep(duration: &Timespec) -> Result<()> {
+    decode(unsafe { syscall1(SYS_NANOSLEEP, duration as *const Timespec as usize) }).map(|_| ())
 }
 
-pub fn sleep_ms(milliseconds: i64) -> bool {
+pub fn sleep_ms(milliseconds: i64) -> Result<()> {
     let duration = Timespec::from_milliseconds(milliseconds);
     nanosleep(&duration)
 }
 
-pub fn sleep(seconds: i64) -> bool {
+pub fn sleep(seconds: i64) -> Result<()> {
     sleep_ms(seconds * 1_000)
 }
 

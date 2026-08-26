@@ -1,3 +1,5 @@
+pub mod errno;
+
 mod brk;
 mod cd;
 mod clock_gettime;
@@ -17,6 +19,8 @@ mod unlink;
 mod wait_for_process;
 mod write;
 mod yld;
+
+pub use errno::{encode, Errno, SyscallResult};
 
 pub use brk::brk;
 pub use cd::cd;

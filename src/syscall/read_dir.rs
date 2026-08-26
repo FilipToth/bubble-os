@@ -5,7 +5,10 @@ use core::mem::size_of;
 use alloc::vec::Vec;
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    scheduling,
+    scheduling::process::Process,
+    syscall::{Errno, SyscallResult},
 };
 
 /// Maximum filename bytes copied into a [`SyscallDirEntry`].
@@ -19,19 +22,19 @@ struct SyscallDirEntry {
     size: u32,
 }
 
-pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn read_dir(stack: &FullInterruptStackFrame) -> SyscallResult {
     let buffer_addr = stack.rdi;
     let max_items = stack.rsi;
     let Some(page_table) = scheduling::get_current_process_page_table() else {
-        return Some(0);
+        return Some(Err(Errno::Srch));
     };
 
     let Some(buffer_size) = max_items.checked_mul(size_of::<SyscallDirEntry>()) else {
-        return Some(0);
+        return Some(Err(Errno::Inval));
     };
 
     if !Process::can_process_pointer(&page_table, buffer_addr, buffer_size, true) {
-        return Some(0);
+        return Some(Err(Errno::Fault));
     }
 
     let cwd = scheduling::get_current_cwd();
@@ -82,8 +85,10 @@ pub fn read_dir(stack: &FullInterruptStackFrame) -> Option<usize> {
 
     let num_entries = directory_entries.len();
     if Process::copy_slice_to_user(&page_table, buffer_addr, &directory_entries).is_none() {
-        return Some(0);
+        return Some(Err(Errno::Fault));
     }
 
-    Some(num_entries)
+    // an empty directory returns zero entries, which is a success now that
+    // failures are negative
+    Some(Ok(num_entries))
 }

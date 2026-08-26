@@ -37,25 +37,37 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const
         ulib::exit(1);
     };
 
-    let fd = ulib::open(path);
-    if fd == 0 {
-        ulib::stdout(b"cat: could not open ");
-        ulib::stdout(path);
-        ulib::stdout(b"\n");
-        ulib::exit(1);
-    }
+    let fd = match ulib::open(path) {
+        Ok(fd) => fd,
+        Err(error) => {
+            ulib::stdout(b"cat: could not open ");
+            ulib::stdout(path);
+            ulib::stdout(b": ");
+            ulib::stdout(error.as_str().as_bytes());
+            ulib::stdout(b"\n");
+            ulib::exit(1);
+        }
+    };
 
     let mut buffer = [0u8; 512];
     loop {
-        let bytes_read = ulib::read(fd, &mut buffer);
-        if bytes_read == 0 {
-            break;
-        }
+        let bytes_read = match ulib::read(fd, &mut buffer) {
+            // a zero length read is end of file, an error is its own answer
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(error) => {
+                ulib::stdout(b"cat: read failed: ");
+                ulib::stdout(error.as_str().as_bytes());
+                ulib::stdout(b"\n");
+                let _ = ulib::close(fd);
+                ulib::exit(1);
+            }
+        };
 
         ulib::stdout(&buffer[..bytes_read]);
     }
 
-    ulib::close(fd);
+    let _ = ulib::close(fd);
     ulib::exit(0);
 }
 

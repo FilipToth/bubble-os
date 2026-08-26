@@ -4,19 +4,22 @@ use alloc::format;
 
 use crate::log;
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame, scheduling, scheduling::process::Process,
+    arch::x86_64::registers::FullInterruptStackFrame,
+    scheduling,
+    scheduling::process::Process,
+    syscall::{Errno, SyscallResult},
 };
 
-pub fn open(stack: &FullInterruptStackFrame) -> Option<usize> {
+pub fn open(stack: &FullInterruptStackFrame) -> SyscallResult {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
 
     let Some(page_table) = scheduling::get_current_process_page_table() else {
-        return Some(0);
+        return Some(Err(Errno::Srch));
     };
 
     let Some(buffer) = Process::copy_from_user(&page_table, buffer_addr, buffer_size) else {
-        return Some(0);
+        return Some(Err(Errno::Fault));
     };
 
     let path = match core::str::from_utf8(&buffer) {
@@ -28,11 +31,15 @@ pub fn open(stack: &FullInterruptStackFrame) -> Option<usize> {
             );
 
             log!(crate::io::LogType::SYS, "{}\n{:?}", msg, e);
-            return Some(0);
+            return Some(Err(Errno::Inval));
         }
     };
 
-    // map a missing file to fd 0, otherwise the dispatcher would leave
-    // the syscall number in rax and userspace would see a phantom fd
-    scheduling::curr_process_open_file(path, true, true).or(Some(0))
+    // the lookup only reports whether it found the file, so a missing file
+    // and an unreadable one both surface here as ENOENT
+    let Some(fd) = scheduling::curr_process_open_file(path, true, true) else {
+        return Some(Err(Errno::NoEnt));
+    };
+
+    Some(Ok(fd))
 }
