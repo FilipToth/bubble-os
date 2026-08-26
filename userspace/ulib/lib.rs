@@ -25,6 +25,18 @@ const SYS_CLOCK_GETTIME: usize = 16;
 const SYS_NANOSLEEP: usize = 17;
 const SYS_BRK: usize = 18;
 const SYS_SBRK: usize = 19;
+const SYS_LSEEK: usize = 20;
+const SYS_FSTAT: usize = 21;
+const SYS_STAT: usize = 22;
+
+/// `lseek` whence: the offset is absolute.
+pub const SEEK_SET: usize = 0;
+
+/// `lseek` whence: the offset is relative to the current position.
+pub const SEEK_CUR: usize = 1;
+
+/// `lseek` whence: the offset is relative to the end of the file.
+pub const SEEK_END: usize = 2;
 
 /// The largest error number a syscall return can carry.
 const MAX_ERRNO: usize = 4095;
@@ -671,6 +683,154 @@ pub fn rmdir(path: &[u8]) -> Result<()> {
 
 pub fn close(fd: usize) -> Result<()> {
     decode(unsafe { syscall1(SYS_CLOSE, fd) }).map(|_| ())
+}
+
+/// `st_mode` mask that selects the file type bits.
+pub const S_IFMT: u32 = 0o170_000;
+
+/// `st_mode` type bits: a regular file.
+pub const S_IFREG: u32 = 0o100_000;
+
+/// `st_mode` type bits: a directory.
+pub const S_IFDIR: u32 = 0o040_000;
+
+/// `st_mode` type bits: a character device, which the standard streams are.
+pub const S_IFCHR: u32 = 0o020_000;
+
+/// Metadata about a file or directory.
+///
+/// This mirrors the kernel's layout exactly. It is deliberately not a C
+/// `struct stat`; the libc porting layer copies these fields into whatever
+/// its own header declares, so the two can be changed independently.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct Stat {
+    /// Identifies the file within its filesystem. FAT has no inodes, so this
+    /// is the file's first cluster, and empty files report zero.
+    pub inode: u64,
+
+    /// The file type, one of [`S_IFREG`], [`S_IFDIR`] or [`S_IFCHR`].
+    pub mode: u32,
+
+    /// How many names refer to this file, always 1 on FAT.
+    pub links: u32,
+
+    /// The size in bytes. Directories report zero.
+    pub size: u64,
+
+    /// The filesystem cluster size, the unit reads are most efficient in.
+    pub block_size: u32,
+
+    /// How many blocks the file occupies, rounded up to whole clusters.
+    pub blocks: u32,
+
+    /// Last access time in seconds since the Unix epoch. FAT records only a
+    /// date, so the time of day is always midnight.
+    pub accessed_time: i64,
+
+    /// Last modification time in seconds since the Unix epoch.
+    pub modified_time: i64,
+
+    /// Creation time in seconds since the Unix epoch.
+    pub created_time: i64,
+}
+
+impl Stat {
+    pub const fn zero() -> Self {
+        Self {
+            inode: 0,
+            mode: 0,
+            links: 0,
+            size: 0,
+            block_size: 0,
+            blocks: 0,
+            accessed_time: 0,
+            modified_time: 0,
+            created_time: 0,
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.mode & S_IFMT == S_IFDIR
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.mode & S_IFMT == S_IFREG
+    }
+
+    /// Whether this is a character device, which is what the standard streams
+    /// report and what `isatty` is really asking about.
+    pub fn is_char_device(&self) -> bool {
+        self.mode & S_IFMT == S_IFCHR
+    }
+}
+
+/// Describes an open file descriptor.
+///
+/// ## Arguments
+///
+/// - `fd` the descriptor to describe
+/// - `stat` filled in on success
+pub fn fstat(fd: usize, stat: &mut Stat) -> Result<()> {
+    decode(unsafe { syscall2(SYS_FSTAT, fd, stat as *mut Stat as usize) }).map(|_| ())
+}
+
+/// Describes a file or directory by path.
+///
+/// ## Arguments
+///
+/// - `path` the path to describe
+/// - `stat` filled in on success
+pub fn stat(path: &[u8], stat: &mut Stat) -> Result<()> {
+    decode(unsafe {
+        syscall3(
+            SYS_STAT,
+            path.as_ptr() as usize,
+            path.len(),
+            stat as *mut Stat as usize,
+        )
+    })
+    .map(|_| ())
+}
+
+/// Whether a descriptor refers to a terminal.
+///
+/// stdio uses this to choose line buffering over full buffering, which is the
+/// difference between output appearing as it is written and appearing only
+/// once a buffer fills.
+pub fn isatty(fd: usize) -> bool {
+    let mut info = Stat::zero();
+    match fstat(fd, &mut info) {
+        Ok(()) => info.is_char_device(),
+        Err(_) => false,
+    }
+}
+
+/// Moves the offset of an open file descriptor.
+///
+/// Seeking past the end of a file is allowed; reads there report end of file
+/// until a write extends it.
+///
+/// ## Arguments
+///
+/// - `fd` the descriptor to seek
+/// - `offset` how far to move, relative to `whence`, negative to move back
+/// - `whence` [`SEEK_SET`], [`SEEK_CUR`] or [`SEEK_END`]
+///
+/// ## Returns
+/// The new offset from the start of the file.
+pub fn lseek(fd: usize, offset: isize, whence: usize) -> Result<usize> {
+    decode(unsafe { syscall3(SYS_LSEEK, fd, offset as usize, whence) })
+}
+
+/// The current offset of a descriptor, without moving it.
+pub fn tell(fd: usize) -> Result<usize> {
+    lseek(fd, 0, SEEK_CUR)
+}
+
+/// Moves a descriptor back to the start of its file.
+pub fn rewind(fd: usize) -> Result<()> {
+    lseek(fd, 0, SEEK_SET).map(|_| ())
 }
 
 pub fn truncate(fd: usize, size: usize) -> Result<()> {

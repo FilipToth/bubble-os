@@ -1,6 +1,6 @@
-.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat prepare
+.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo prepare
 
-all: prepare sample sample2 faulttest brktest shell edit ls cat
+all: prepare sample sample2 faulttest brktest shell edit ls cat statinfo
 
 prepare:
 	mkdir -p bin
@@ -41,3 +41,7 @@ ls:
 cat:
 	cargo rustc --manifest-path cat/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target cat/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64 -C link-arg=-z -C link-arg=max-page-size=0x1000
 	cp cat/target/x86_64-bubble-userspace/release/cat bin/cat.elf
+
+statinfo:
+	cargo rustc --manifest-path statinfo/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target statinfo/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64 -C link-arg=-z -C link-arg=max-page-size=0x1000
+	cp statinfo/target/x86_64-bubble-userspace/release/statinfo bin/statinfo.elf

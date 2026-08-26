@@ -104,6 +104,41 @@ impl DirectoryEntry {
             && !self.is_volume_label()
     }
 
+    /// Converts a FAT date and time pair to seconds since the Unix epoch.
+    ///
+    /// FAT packs the date as `yyyyyyym mmmddddd` counting years from 1980, and
+    /// the time as `hhhhhmmm mmmsssss` where the seconds field counts two
+    /// second intervals. A zeroed pair means the timestamp was never set, and
+    /// reports as the epoch rather than as 1980.
+    ///
+    /// ## Arguments
+    ///
+    /// - `date` the packed date field
+    /// - `time` the packed time field, zero for date-only fields
+    pub fn dos_datetime_to_unix(date: u16, time: u16) -> i64 {
+        if date == 0 {
+            return 0;
+        }
+
+        let year = 1980 + (date >> 9) as i64;
+        let month = ((date >> 5) & 0x0F) as u64;
+        let day = (date & 0x1F) as u64;
+
+        // a corrupt entry must not produce a wildly wrong date
+        if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            return 0;
+        }
+
+        let hours = (time >> 11) as i64;
+        let minutes = ((time >> 5) & 0x3F) as i64;
+        let seconds = ((time & 0x1F) * 2) as i64;
+
+        crate::time::days_from_civil(year, month, day) * 86_400
+            + hours * 3_600
+            + minutes * 60
+            + seconds
+    }
+
     pub fn get_cluster(&self) -> usize {
         (((self.first_cluster_high as u32) << 16) | self.first_cluster_low as u32) as usize
     }

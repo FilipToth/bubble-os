@@ -56,21 +56,6 @@ fn bcd_to_binary(value: u8) -> u8 {
     (value & 0x0F) + ((value >> 4) * 10)
 }
 
-/// Days since the Unix epoch for a Gregorian calendar date.
-///
-/// Uses Howard Hinnant's `days_from_civil` algorithm.
-fn days_from_civil(year: i64, month: u64, day: u64) -> i64 {
-    let adjusted_year = if month <= 2 { year - 1 } else { year };
-    let era = adjusted_year.div_euclid(400);
-    let year_of_era = (adjusted_year - era * 400) as u64;
-
-    let month_shifted = if month > 2 { month - 3 } else { month + 9 };
-    let day_of_year = (153 * month_shifted + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-
-    era * 146_097 + day_of_era as i64 - 719_468
-}
-
 /// Reads the current wall-clock time from the CMOS RTC.
 ///
 /// The RTC only stores a two-digit year, which is interpreted as 20xx.
@@ -107,7 +92,7 @@ pub fn read_unix_time() -> u64 {
     }
 
     let year = 2000 + datetime.year as i64;
-    let days = days_from_civil(year, datetime.month as u64, datetime.day as u64);
+    let days = crate::time::days_from_civil(year, datetime.month as u64, datetime.day as u64);
 
     days as u64 * 86_400
         + datetime.hours as u64 * 3_600

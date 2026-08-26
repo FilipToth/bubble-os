@@ -22,7 +22,7 @@ use super::{
         get_filename_from_fat, lfn_checksum, DirectoryEntry, LongDirectoryEntry, LFN_MAX_ENTRIES,
         LFN_UNITS_PER_ENTRY,
     },
-    fs::{Directory, DirectoryItems, File},
+    fs::{Directory, DirectoryItems, File, FileStat, S_IFDIR, S_IFREG},
 };
 
 const FAT_CLUSTER_FREE: u32 = 0x00000000;
@@ -65,6 +65,19 @@ pub struct FATDirectory {
 impl Directory for FATDirectory {
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn stat(&self) -> Option<FileStat> {
+        let fs = self.fs.upgrade()?;
+        let fs_guard = fs.lock();
+
+        // the root has no directory entry of its own, root() hands back a
+        // synthetic one, so this covers it without a special case
+        let mut stat = fs_guard.stat_entry(&self.entry);
+
+        // root's synthetic entry carries no attributes, but it is a directory
+        stat.mode = S_IFDIR;
+        Some(stat)
     }
 
     fn list_dir(&self) -> DirectoryItems {
@@ -170,6 +183,23 @@ impl File for FATFile {
         let mut fs_guard = fs.lock();
         let entry = fs_guard.read_directory_entry(self.location)?;
         fs_guard.read_file(&entry)
+    }
+
+    fn stat(&self) -> Option<FileStat> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+
+        // read the entry back rather than trusting the cached copy, the size
+        // moves under it whenever the file is written or truncated
+        let entry = fs_guard.read_directory_entry(self.location)?;
+        Some(fs_guard.stat_entry(&entry))
+    }
+
+    fn read_at(&self, offset: usize, buffer: &mut [u8]) -> Option<usize> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+        let entry = fs_guard.read_directory_entry(self.location)?;
+        fs_guard.read_file_at(&entry, offset, buffer)
     }
 
     fn write(&self, offset: usize, bytes: &[u8]) -> Option<usize> {
@@ -904,6 +934,85 @@ impl FATFileSystem {
         Some(region)
     }
 
+    /// Reads a window of a file without buffering the whole thing.
+    ///
+    /// The cluster chain is walked to the one holding `offset` without reading
+    /// any of the clusters along the way, then only the clusters the window
+    /// actually covers are pulled off the disk.
+    ///
+    /// ## Arguments
+    ///
+    /// - `file` the directory entry of the file to read
+    /// - `offset` the byte offset to start reading at
+    /// - `buffer` where the bytes are copied to, its length is the most that
+    /// will be read
+    ///
+    /// ## Returns
+    /// The number of bytes read, which is short of the buffer length at end of
+    /// file and zero when `offset` is at or past it.
+    fn read_file_at(
+        &mut self,
+        file: &DirectoryEntry,
+        offset: usize,
+        buffer: &mut [u8],
+    ) -> Option<usize> {
+        if file.attributes != 32 {
+            return None;
+        }
+
+        let filesize = file.size as usize;
+        if buffer.is_empty() || offset >= filesize {
+            // reading at or past the end is end of file, not a failure
+            return Some(0);
+        }
+
+        let to_read = min(buffer.len(), filesize - offset);
+
+        let cluster_size =
+            (self.bs.bytes_per_sector as usize) * (self.bs.sectors_per_cluster as usize);
+
+        let mut cluster = file.get_cluster();
+        if cluster == 0 {
+            return None;
+        }
+
+        // skip whole clusters to reach the one the window starts in, following
+        // the chain is all it takes, none of them have to be read
+        let mut cluster_offset = offset;
+        while cluster_offset >= cluster_size {
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset -= cluster_size;
+        }
+
+        let mut bytes_read = 0;
+        while bytes_read < to_read {
+            let region = self.read_cluster(cluster)?;
+            let available = min(to_read - bytes_read, cluster_size - cluster_offset);
+            let ptr = region.get_ptr::<u8>();
+
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    ptr.add(cluster_offset),
+                    buffer.as_mut_ptr().add(bytes_read),
+                    available,
+                );
+            }
+
+            let region_layout = region.construct_layout();
+            unsafe { dealloc(ptr, region_layout) };
+
+            bytes_read += available;
+            if bytes_read == to_read {
+                break;
+            }
+
+            cluster = self.fat.next_cluster(cluster)?;
+            cluster_offset = 0;
+        }
+
+        Some(bytes_read)
+    }
+
     fn write_existing_file(
         &mut self,
         file: &DirectoryEntry,
@@ -1226,6 +1335,46 @@ impl FATFileSystem {
             + (self.bs.table_count as usize * self.bs_32.table_size as usize);
 
         first_data_sector + (cluster - 2) * self.bs.sectors_per_cluster as usize
+    }
+
+    /// Builds the metadata for a directory entry.
+    ///
+    /// ## Arguments
+    ///
+    /// - `entry` the entry to describe
+    ///
+    /// ## Returns
+    /// The metadata, with the fields FAT does not record left at zero.
+    fn stat_entry(&self, entry: &DirectoryEntry) -> FileStat {
+        let is_directory = entry.is_directory();
+
+        // FAT records no size for a directory, its length is however many
+        // entries the cluster chain holds
+        let size = if is_directory { 0 } else { entry.size as usize };
+        let cluster_size = self.cluster_size();
+
+        FileStat {
+            // FAT has no inode numbers, the first cluster is the closest
+            // stable identifier a file has
+            inode: entry.get_cluster() as u64,
+            mode: if is_directory { S_IFDIR } else { S_IFREG },
+            links: 1,
+            size: size as u64,
+            block_size: cluster_size as u32,
+            blocks: self.clusters_for_size(size) as u32,
+
+            // FAT only keeps a date for the last access, so the time of day
+            // is always midnight
+            accessed_time: DirectoryEntry::dos_datetime_to_unix(entry.last_accessed_date, 0),
+            modified_time: DirectoryEntry::dos_datetime_to_unix(
+                entry.modified_date,
+                entry.modified_time,
+            ),
+            created_time: DirectoryEntry::dos_datetime_to_unix(
+                entry.creation_date,
+                entry.creation_time,
+            ),
+        }
     }
 
     fn cluster_size(&self) -> usize {

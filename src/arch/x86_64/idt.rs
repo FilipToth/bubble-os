@@ -176,6 +176,9 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         17 => syscall::nanosleep(stack),
         18 => syscall::brk(stack),
         19 => syscall::sbrk(stack),
+        20 => syscall::lseek(stack),
+        21 => syscall::fstat(stack),
+        22 => syscall::stat(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

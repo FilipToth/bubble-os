@@ -8,7 +8,7 @@ use crate::log;
 use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
-    fs::fs::{normalize_path_components, Directory, File},
+    fs::fs::{normalize_path_components, Directory, File, FileStat},
     io::LogType,
     mem::{
         paging::{entry::EntryFlags, Page, PageTable},
@@ -995,6 +995,55 @@ pub fn write_current_file_descriptor(fd: usize, bytes: &[u8]) -> Option<usize> {
     let current_process = processes.get_mut(current_index)?;
 
     current_process.write_fd(fd, bytes)
+}
+
+/// Metadata for one of the current process' open file descriptors.
+///
+/// ## Arguments
+///
+/// - `fd` the descriptor to describe
+pub fn stat_current_file_descriptor(fd: usize) -> Option<FileStat> {
+    let processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get(current_index)?;
+
+    current_process.stat_fd(fd)
+}
+
+/// Metadata for a path, which may name either a file or a directory.
+///
+/// ## Arguments
+///
+/// - `path` the absolute or cwd-relative path to describe
+pub fn stat_from_path(path: &str) -> Option<FileStat> {
+    // files are the common case, and a directory lookup on a file path fails
+    // rather than matching something wrong, so the order only costs a miss
+    if let Some(file) = find_file_from_path(path) {
+        let stat = file.read().stat();
+        if stat.is_some() {
+            return stat;
+        }
+    }
+
+    find_directory_from_path(path)?.stat()
+}
+
+/// Moves the offset of one of the current process' open file descriptors.
+///
+/// ## Arguments
+///
+/// - `fd` the descriptor to seek
+/// - `offset` how far to move, relative to `whence`
+/// - `whence` `SEEK_SET`, `SEEK_CUR` or `SEEK_END`
+///
+/// ## Returns
+/// The new offset.
+pub fn seek_current_file_descriptor(fd: usize, offset: isize, whence: usize) -> Option<usize> {
+    let mut processes = PROCESSES.lock();
+    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
+    let current_process = processes.get_mut(current_index)?;
+
+    current_process.seek_fd(fd, offset, whence)
 }
 
 pub fn truncate_current_file_descriptor(fd: usize, size: usize) -> Option<()> {

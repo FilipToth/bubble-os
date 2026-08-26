@@ -1,12 +1,12 @@
 use core::{cmp::min, mem::size_of, ptr};
 
-use alloc::{alloc::dealloc, string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use spin::{Mutex, RwLock};
 
 use crate::{
     arch::x86_64::registers::FullInterruptStackFrame,
     elf::ElfRegion,
-    fs::fs::{Directory, File},
+    fs::fs::{Directory, File, FileStat, S_IFCHR},
     io::LogType,
     log,
     mem::{
@@ -45,6 +45,15 @@ pub struct Process {
     /// handed out a page at a time.
     pub heap_break: usize,
 }
+
+/// `lseek` whence: the offset is absolute.
+pub const SEEK_SET: usize = 0;
+
+/// `lseek` whence: the offset is relative to the current position.
+pub const SEEK_CUR: usize = 1;
+
+/// `lseek` whence: the offset is relative to the end of the file.
+pub const SEEK_END: usize = 2;
 
 #[derive(Clone)]
 pub enum FileDescriptor {
@@ -167,40 +176,29 @@ impl Process {
                 }
 
                 let file = open_file.file.read();
-                let file_region = file.read()?;
-                let file_bytes = file_region.as_slice();
 
-                if open_file.offset >= file_bytes.len() {
-                    Self::free_file_region(&file_region);
+                // the size comes straight from userspace, so the buffer is
+                // sized against what the file can actually supply rather than
+                // against what was asked for
+                let remaining = file.size().saturating_sub(open_file.offset);
+                let to_read = min(size, remaining);
+                if to_read == 0 {
                     return Some(Vec::new());
                 }
 
-                let requested_end = open_file
-                    .offset
-                    .checked_add(size)
-                    .unwrap_or(file_bytes.len());
-                let end = min(requested_end, file_bytes.len());
-                let bytes = &file_bytes[open_file.offset..end];
-                open_file.offset = end;
+                // only the requested window is pulled off the disk, reading
+                // the whole file for every call made a buffered reader walk
+                // the cluster chain from the start on every chunk
+                let mut buffer = alloc::vec![0u8; to_read];
+                let bytes_read = file.read_at(open_file.offset, &mut buffer)?;
 
-                let mut buffer = Vec::with_capacity(bytes.len());
-                buffer.extend_from_slice(bytes);
-                Self::free_file_region(&file_region);
+                buffer.truncate(bytes_read);
+                open_file.offset += bytes_read;
 
                 Some(buffer)
             }
             _ => None,
         }
-    }
-
-    fn free_file_region(region: &crate::mem::Region) {
-        if region.size == 0 {
-            return;
-        }
-
-        let ptr = region.get_ptr::<u8>();
-        let layout = region.construct_layout();
-        unsafe { dealloc(ptr, layout) };
     }
 
     pub fn write_fd(&mut self, fd: usize, bytes: &[u8]) -> Option<usize> {
@@ -221,6 +219,69 @@ impl Process {
                 open_file.offset += bytes_written;
 
                 Some(bytes_written)
+            }
+            _ => None,
+        }
+    }
+
+    /// Metadata for an open file descriptor.
+    ///
+    /// ## Arguments
+    ///
+    /// - `fd` the descriptor to describe
+    ///
+    /// ## Returns
+    /// The metadata, or `None` when the descriptor is not open.
+    pub fn stat_fd(&self, fd: usize) -> Option<FileStat> {
+        let descriptor = self.fd_table.get(fd)?.as_ref()?;
+        match descriptor {
+            FileDescriptor::File(open_file) => open_file.file.read().stat(),
+
+            // the standard streams are the console, not files. stdio reads
+            // this to pick its buffering, so they have to answer
+            FileDescriptor::Stdin | FileDescriptor::Stdout | FileDescriptor::Stderr => {
+                Some(FileStat {
+                    mode: S_IFCHR,
+                    links: 1,
+                    block_size: 1,
+                    ..FileStat::default()
+                })
+            }
+        }
+    }
+
+    /// Moves the read/write offset of an open file descriptor.
+    ///
+    /// ## Arguments
+    ///
+    /// - `fd` the descriptor to seek
+    /// - `offset` how far to move, relative to `whence`
+    /// - `whence` [`SEEK_SET`], [`SEEK_CUR`] or [`SEEK_END`]
+    ///
+    /// ## Returns
+    /// The new offset, or `None` when the descriptor is not a file, the
+    /// whence is unknown, or the result would be negative.
+    pub fn seek_fd(&mut self, fd: usize, offset: isize, whence: usize) -> Option<usize> {
+        let descriptor = self.fd_table.get_mut(fd)?.as_mut()?;
+        match descriptor {
+            FileDescriptor::File(open_file) => {
+                let base = match whence {
+                    SEEK_SET => 0,
+                    SEEK_CUR => open_file.offset,
+                    SEEK_END => open_file.file.read().size(),
+                    _ => return None,
+                };
+
+                // seeking past the end is allowed and leaves a hole that reads
+                // as end of file, seeking before the start is not
+                let new_offset = if offset >= 0 {
+                    base.checked_add(offset as usize)?
+                } else {
+                    base.checked_sub(offset.unsigned_abs())?
+                };
+
+                open_file.offset = new_offset;
+                Some(new_offset)
             }
             _ => None,
         }
