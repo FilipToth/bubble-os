@@ -37,7 +37,7 @@ extern "C" fn rust_main(argc: usize, argv: *const *const u8, envp: *const *const
         ulib::exit(1);
     };
 
-    let fd = match ulib::open(path) {
+    let fd = match ulib::open(path, ulib::O_RDONLY) {
         Ok(fd) => fd,
         Err(error) => {
             ulib::stdout(b"cat: could not open ");

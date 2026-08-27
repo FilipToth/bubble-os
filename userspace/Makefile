@@ -1,4 +1,4 @@
-.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo prepare
+.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo prepare clean
 
 all: prepare sample sample2 faulttest brktest shell edit ls cat statinfo
 
@@ -45,3 +45,9 @@ cat:
 statinfo:
 	cargo rustc --manifest-path statinfo/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target statinfo/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64 -C link-arg=-z -C link-arg=max-page-size=0x1000
 	cp statinfo/target/x86_64-bubble-userspace/release/statinfo bin/statinfo.elf
+
+clean:
+	rm -rf bin obj
+	@for crate in shell edit ls cat statinfo; do \
+		cargo clean --manifest-path $$crate/Cargo.toml; \
+	done

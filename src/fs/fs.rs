@@ -11,6 +11,45 @@ use crate::mem::Region;
 
 pub type DirectoryItems = (Vec<Arc<dyn Directory>>, Vec<Arc<RwLock<dyn File>>>);
 
+/// Open flags, using the BSD numbering newlib's `fcntl.h` uses.
+///
+/// These are the values the libc already hands to its `_open` stub, so the
+/// porting layer passes them straight through instead of remapping bits. That
+/// couples the ABI to newlib's header, so the values have to be checked
+/// against the one that actually gets vendored: a wrong bit here does not fail
+/// to build, it silently truncates a file that should have been appended to.
+///
+/// The three access modes are a two bit value rather than independent flags,
+/// which is why they need [`O_ACCMODE`] to read them out.
+pub const O_RDONLY: usize = 0x0000;
+
+/// Open for writing only.
+pub const O_WRONLY: usize = 0x0001;
+
+/// Open for reading and writing.
+pub const O_RDWR: usize = 0x0002;
+
+/// Masks the access mode out of the flags.
+pub const O_ACCMODE: usize = 0x0003;
+
+/// Every write goes to the end of the file, wherever the offset was.
+pub const O_APPEND: usize = 0x0008;
+
+/// Create the file when it does not exist.
+pub const O_CREAT: usize = 0x0200;
+
+/// Truncate the file to zero length on open.
+pub const O_TRUNC: usize = 0x0400;
+
+/// With [`O_CREAT`], fail when the file already exists.
+///
+/// The only race free way to find out whether you were the one who created
+/// something, which a mode string cannot express at all.
+pub const O_EXCL: usize = 0x0800;
+
+/// Every flag this kernel understands.
+pub const O_SUPPORTED: usize = O_ACCMODE | O_APPEND | O_CREAT | O_TRUNC | O_EXCL;
+
 /// File type and permission bits, laid out the way POSIX `st_mode` is.
 ///
 /// Only the two type bits are ever set. Nothing here has an owner, so the

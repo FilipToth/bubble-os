@@ -8,7 +8,10 @@ use crate::log;
 use crate::{
     arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
     elf,
-    fs::fs::{normalize_path_components, Directory, File, FileStat},
+    fs::fs::{
+        normalize_path_components, Directory, File, FileStat, O_ACCMODE, O_APPEND, O_CREAT,
+        O_EXCL, O_RDONLY, O_RDWR, O_SUPPORTED, O_TRUNC, O_WRONLY,
+    },
     io::LogType,
     mem::{
         paging::{entry::EntryFlags, Page, PageTable},
@@ -853,35 +856,79 @@ pub fn find_directory_from_path(path: &str) -> Option<Arc<dyn Directory>> {
     }
 }
 
-pub fn curr_process_open_file(path: &str, readable: bool, writable: bool) -> Option<usize> {
-    let file = find_file_from_path(path)?;
-
-    let mut processes = PROCESSES.lock();
-    let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-    let current_process = processes.get_mut(current_index)?;
-
-    Some(current_process.open_file(file, readable, writable))
-}
-
-/// Creates a new regular file and opens it for the current process.
+/// Opens a file for the current process, applying the open flags.
+///
+/// This is where `O_CREAT`, `O_EXCL` and `O_TRUNC` are honoured, so the
+/// creation path and the plain open path are one operation rather than two
+/// syscalls a caller has to sequence itself.
 ///
 /// ## Arguments
 ///
-/// - `path` the absolute or cwd-relative path of the new file
-/// - `readable` whether the descriptor should allow reads
-/// - `writable` whether the descriptor should allow writes
+/// - `path` the absolute or cwd-relative path
+/// - `flags` the open flags, an access mode plus any of `O_CREAT`,
+/// `O_EXCL`, `O_TRUNC` and `O_APPEND`
 ///
 /// ## Returns
-/// The new file descriptor, or `None` when the path is invalid, already exists,
-/// or its parent directory cannot be found.
-pub fn curr_process_create_file(path: &str, readable: bool, writable: bool) -> Option<usize> {
-    let file = create_file_from_path(path)?;
+/// The new file descriptor, or the reason the open was refused.
+pub fn curr_process_open_file(path: &str, flags: usize) -> Result<usize, Errno> {
+    if flags & !O_SUPPORTED != 0 {
+        return Err(Errno::Inval);
+    }
+
+    let (readable, writable) = match flags & O_ACCMODE {
+        O_RDONLY => (true, false),
+        O_WRONLY => (false, true),
+        O_RDWR => (true, true),
+
+        // the access mode is a two bit value and only three of the four are
+        // defined, the fourth is not a combination of the others
+        _ => return Err(Errno::Inval),
+    };
+
+    let existing = find_file_from_path(path);
+
+    let file = match existing {
+        Some(file) => {
+            // O_EXCL is only meaningful with O_CREAT, and together they mean
+            // the caller wants to know it was the one that created the file
+            if flags & O_CREAT != 0 && flags & O_EXCL != 0 {
+                return Err(Errno::Exist);
+            }
+
+            file
+        }
+        None => {
+            if flags & O_CREAT == 0 {
+                return Err(Errno::NoEnt);
+            }
+
+            let Some(file) = create_file_from_path(path) else {
+                return Err(Errno::NoEnt);
+            };
+
+            file
+        }
+    };
+
+    if flags & O_TRUNC != 0 {
+        // truncating through a descriptor that cannot write would be a way
+        // around the access mode
+        if !writable {
+            return Err(Errno::Inval);
+        }
+
+        if file.write().truncate(0).is_none() {
+            return Err(Errno::Io);
+        }
+    }
 
     let mut processes = PROCESSES.lock();
     let current_index = CURRENT_INDEX.load(Ordering::SeqCst);
-    let current_process = processes.get_mut(current_index)?;
+    let Some(current_process) = processes.get_mut(current_index) else {
+        return Err(Errno::Srch);
+    };
 
-    Some(current_process.open_file(file, readable, writable))
+    Ok(current_process.open_file(file, readable, writable, flags & O_APPEND != 0))
 }
 
 /// Creates a directory for the current process.

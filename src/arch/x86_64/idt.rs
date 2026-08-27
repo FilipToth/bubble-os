@@ -168,7 +168,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         9 => syscall::open(stack),
         10 => syscall::close(stack),
         11 => syscall::truncate(stack),
-        12 => syscall::create(stack),
+        // 12 was create, folded into open as O_CREAT
         13 => syscall::mkdir(stack),
         14 => syscall::unlink(stack),
         15 => syscall::rmdir(stack),
@@ -179,6 +179,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         20 => syscall::lseek(stack),
         21 => syscall::fstat(stack),
         22 => syscall::stat(stack),
+        23 => syscall::getpid(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

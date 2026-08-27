@@ -126,11 +126,9 @@ fn file_buffer() -> &'static mut [u8; FILE_CAPACITY] {
 }
 
 fn open_or_create(path: &[u8]) -> Option<usize> {
-    if let Ok(fd) = ulib::open(path) {
-        return Some(fd);
-    }
-
-    ulib::create(path).ok()
+    // one call now that the kernel understands O_CREAT, the open-then-create
+    // pair could disagree if something else made the file in between
+    ulib::open_or_create(path, ulib::O_RDWR).ok()
 }
 
 fn read_line(buffer: &mut [u8]) -> usize {

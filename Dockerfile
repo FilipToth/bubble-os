@@ -20,4 +20,6 @@ RUN wget -O /usr/local/bin/xargo \
     https://github.com/FilipToth/xargo/releases/download/target/xargo \
     && chmod +x /usr/local/bin/xargo
 
-CMD ["make", "full_build"]
+# compose overrides this with `sleep infinity` and drives builds through
+# `docker compose exec`. This keeps `docker run <image>` doing a full build
+CMD ["make", "-f", "build.mk", "full_build"]

@@ -1,115 +1,46 @@
+# Host entry point. Everything that actually compiles runs in the container,
+# which is the only place with GNU ld, nasm, mtools and grub. The build rules
+# themselves live in build.mk; this file just forwards to them.
+#
+# The exception is gdb, which runs here and attaches to the QEMU stub the
+# container publishes on port 1234.
+
 arch ?= x86_64
 kernel := build/kernel-$(arch).bin
-iso := build/os-$(arch).iso
-target ?= $(arch)-bubble-os
-rust_os := target/$(target)/debug/libbubble_os.a
-disk_path := build/disk.img
 
-linker_script := src/arch/$(arch)/boot/linker.ld
-grub_cfg := src/arch/$(arch)/boot/grub.cfg
-assembly_source_files := $(wildcard src/arch/$(arch)/boot/*.s)
-assembly_object_files := $(patsubst src/arch/$(arch)/boot/%.s, \
-						 build/arch/$(arch)/boot/%.o, $(assembly_source_files))
-resources := $(wildcard resources/*)
-user_binaries := $(wildcard userspace/bin/*)
-base_qemu := qemu-system-x86_64 \
-			 -nographic -serial mon:stdio \
-			 -m 256M \
-			 -cdrom $(iso) \
-			 -boot d \
-			 -s \
-			 -no-reboot \
-			 -machine q35 \
-			 -drive file=$(disk_path),if=none,id=disk0,format=raw \
-			 -device ahci,id=ahci \
-			 -device ide-hd,drive=disk0,bus=ahci.0 \
-			 -netdev socket,id=n0,udp=127.0.0.1:1234,localaddr=127.0.0.1:1235 \
-			 -device e1000,netdev=n0
+service := builder
+compose := docker compose
+in_container := $(compose) exec -T $(service) make -f build.mk
 
-grub_rescue := $(shell command -v grub2-mkrescue >/dev/null 2>&1 && echo grub2-mkrescue || echo grub-mkrescue)
+# Targets that only produce files. No TTY, so output stays clean and this
+# still works somewhere without one
+build_targets := kernel userspace libc disk iso full_build clean
 
-.PHONY: all clean run iso kernel disk userspace
+# Targets that hand the terminal to QEMU, which needs a real TTY to drive
+# its serial console
+run_targets := run build_and_run int_run debug_run
 
-all: $(kernel)
+.PHONY: up down shell gdb $(build_targets) $(run_targets)
 
-full_build: init_build userspace disk kernel_start iso
+$(build_targets): up
+	$(in_container) $@
 
-init_build:
-	mkdir -p build
+$(run_targets): up
+	$(compose) exec $(service) make -f build.mk $@
 
-clean:
-	cargo clean
-	rm -r build
+# idempotent, and cheap once the container is already running
+up:
+	$(compose) up -d $(service)
 
-build_and_run: userspace disk kernel_start iso run
-int_run: userspace disk kernel_start iso run_w_debug_interrupts
+down:
+	$(compose) down
 
-debug_run:
-	@echo "Starting QEMU and waiting for debugger..."
-	@$(base_qemu) -S & \
-	pid=$$!; \
-	until nc -z localhost 1234; do sleep 0.1; done; \
-	echo "Waiting for Debugger"; \
-	wait $$pid
+# a shell in the build container, for poking at things by hand
+shell: up
+	$(compose) exec $(service) bash
 
-run:
-	$(base_qemu)
-
-run_w_debug_interrupts:
-	$(base_qemu) -d int
-
+# Attaches to QEMU running inside the container. Start it with `make
+# debug_run` in another terminal first, which stops before the first
+# instruction and waits
 gdb:
 	gdb "$(kernel)" -ex "target remote :1234"
-
-iso: $(iso)
-
-disk:
-	qemu-img create -f raw $(disk_path) 128M
-	mkfs.vfat -F 32 -v $(disk_path)
-
-	mmd -i $(disk_path) ::res
-	mmd -i $(disk_path) ::res/dir
-	mmd -i $(disk_path) ::bin
-
-	@for file in $(resources); do \
-		echo $$(basename $$file); \
-		mcopy -i $(disk_path) "$$file" ::res/$$(basename $$file); \
-	done
-
-	@for file in $(user_binaries); do \
-		echo $$(basename $$file); \
-		mcopy -i $(disk_path) "$$file" ::bin/$$(basename $$file); \
-	done
-
-userspace:
-	make -C userspace
-
-$(iso): $(kernel) $(grub_cfg)
-	mkdir -p build/isofiles/boot/grub
-	cp $(kernel) build/isofiles/boot/kernel.bin
-	cp $(grub_cfg) build/isofiles/boot/grub
-	$(grub_rescue) -o $(iso) build/isofiles 2> /dev/null
-# rm -r build/isofiles
-
-$(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
-	ld -n --gc-sections -T $(linker_script) -o $(kernel) build/arch/$(arch)/boot/kernel_start.o $(assembly_object_files) $(rust_os)
-kernel:
-	RUST_TARGET_PATH=$(shell pwd) xargo build --target $(target)
-
-test: kernel_start_test $(iso) run_without_building
-
-kernel_start:
-	mkdir -p build/arch/$(arch)/boot/
-	echo "building: kernel_start"
-	nasm -felf64 src/arch/$(arch)/boot/kernel_start.asm -o build/arch/$(arch)/boot/kernel_start.o
-
-kernel_start_test:
-	mkdir -p build/arch/$(arch)/boot/
-	echo "building: kernel_start_test"
-	nasm -felf64 src/arch/$(arch)/boot/kernel_start_test.asm -o build/arch/$(arch)/boot/kernel_start.o
-
-# compile assembly files
-build/arch/$(arch)/boot/%.o: src/arch/$(arch)/boot/%.s
-	mkdir -p $(shell dirname $@)
-	echo $<
-	nasm -felf64 $< -o $@

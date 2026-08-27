@@ -17,7 +17,7 @@ const SYS_CD: usize = 8;
 const SYS_OPEN: usize = 9;
 const SYS_CLOSE: usize = 10;
 const SYS_TRUNCATE: usize = 11;
-const SYS_CREATE: usize = 12;
+// 12 was create, folded into open as O_CREAT
 const SYS_MKDIR: usize = 13;
 const SYS_UNLINK: usize = 14;
 const SYS_RMDIR: usize = 15;
@@ -28,6 +28,13 @@ const SYS_SBRK: usize = 19;
 const SYS_LSEEK: usize = 20;
 const SYS_FSTAT: usize = 21;
 const SYS_STAT: usize = 22;
+const SYS_GETPID: usize = 23;
+
+/// Maximum bytes an argument blob may occupy, matching the kernel's limit.
+pub const ARGV_MAX_BYTES: usize = 4096;
+
+/// Maximum number of arguments, including `argv[0]`.
+pub const ARGV_MAX_COUNT: usize = 64;
 
 /// `lseek` whence: the offset is absolute.
 pub const SEEK_SET: usize = 0;
@@ -367,13 +374,136 @@ const PATH_MAX: usize = 512;
 /// ## Returns
 /// The exit status of the program, or the error that stopped it launching.
 pub fn system(command: &[u8]) -> Result<usize> {
-    let (program, args) = split_command_line(command);
-    if program.is_empty() {
+    let mut argv = ArgvBlob::new();
+    if !parse_command_line(command, &mut argv) {
         return Err(Errno::INVAL);
     }
 
-    let pid = spawn(program, args)?;
+    run(&argv)
+}
+
+/// Runs an already parsed argument vector and waits for it to finish.
+///
+/// Lets a caller that has parsed a command line for its own reasons, like a
+/// shell checking for builtins, avoid parsing it a second time.
+///
+/// ## Arguments
+///
+/// - `argv` the argument vector, with the program name at index 0
+///
+/// ## Returns
+/// The exit status of the program.
+pub fn run(argv: &ArgvBlob) -> Result<usize> {
+    // argv[0] is the name as it was typed, which is also what gets resolved
+    // against PATH. The child still sees the typed name, not the resolved
+    // path, the way exec does it
+    let mut program = [0u8; PATH_MAX];
+    let name = argv.program_name();
+    if name.is_empty() || name.len() > program.len() {
+        return Err(Errno::INVAL);
+    }
+
+    program[..name.len()].copy_from_slice(name);
+    let program = &program[..name.len()];
+
+    let pid = spawn(program, argv)?;
     wait_for_process(pid)
+}
+
+/// Splits a command line into arguments, honouring quotes.
+///
+/// A single or double quoted run is one argument no matter what whitespace it
+/// contains, and the quotes themselves are not part of it. A backslash escapes
+/// the next byte. This is only possible because argv reaches the kernel as a
+/// blob; when it was a whitespace-joined string every one of these collapsed.
+///
+/// ## Arguments
+///
+/// - `command` the raw command line
+/// - `argv` the blob the arguments are written into
+///
+/// ## Returns
+/// Whether the line parsed and fit. An unterminated quote is still accepted,
+/// closing at the end of the line, which is what an interactive shell does.
+pub fn parse_command_line(command: &[u8], argv: &mut ArgvBlob) -> bool {
+    let mut index = 0;
+    let mut quote: Option<u8> = None;
+    let mut in_argument = false;
+
+    // starts the argument being built if one is not already open
+    macro_rules! open_argument {
+        () => {
+            if !in_argument {
+                if !argv.start_argument() {
+                    return false;
+                }
+
+                in_argument = true;
+            }
+        };
+    }
+
+    while index < command.len() {
+        let byte = command[index];
+        index += 1;
+
+        if let Some(closing) = quote {
+            if byte == closing {
+                quote = None;
+            } else {
+                open_argument!();
+                if !argv.push_byte(byte) {
+                    return false;
+                }
+            }
+
+            continue;
+        }
+
+        if byte == b'\'' || byte == b'"' {
+            quote = Some(byte);
+
+            // an empty quoted string is still an argument, so open one here
+            // rather than waiting for a byte that may never come
+            open_argument!();
+            continue;
+        }
+
+        if byte.is_ascii_whitespace() {
+            if in_argument {
+                if !argv.finish_argument() {
+                    return false;
+                }
+
+                in_argument = false;
+            }
+
+            continue;
+        }
+
+        // a backslash takes the next byte literally, including a quote, a
+        // space, or another backslash
+        let byte = if byte == b'\\' && index < command.len() {
+            let escaped = command[index];
+            index += 1;
+            escaped
+        } else {
+            byte
+        };
+
+        open_argument!();
+        if !argv.push_byte(byte) {
+            return false;
+        }
+    }
+
+    // an unterminated quote closes at the end of the line, which is what an
+    // interactive shell does rather than rejecting the whole command
+    if in_argument && !argv.finish_argument() {
+        return false;
+    }
+
+    true
 }
 
 /// Launches a program without waiting for it.
@@ -389,9 +519,9 @@ pub fn system(command: &[u8]) -> Result<usize> {
 ///
 /// ## Returns
 /// The new pid, or the error that stopped it launching.
-pub fn spawn(program: &[u8], args: &[u8]) -> Result<usize> {
+pub fn spawn(program: &[u8], argv: &ArgvBlob) -> Result<usize> {
     if program.contains(&b'/') {
-        return execute(program, args);
+        return execute(program, argv);
     }
 
     let path = getenv(b"PATH").unwrap_or(DEFAULT_PATH);
@@ -403,7 +533,7 @@ pub fn spawn(program: &[u8], args: &[u8]) -> Result<usize> {
             continue;
         };
 
-        match execute(candidate, args) {
+        match execute(candidate, argv) {
             Ok(pid) => return Ok(pid),
 
             // a missing candidate just means the next directory gets a turn,
@@ -414,22 +544,15 @@ pub fn spawn(program: &[u8], args: &[u8]) -> Result<usize> {
     }
 
     // nothing on the search path, try the working directory
-    execute(program, args).map_err(|error| match error {
+    execute(program, argv).map_err(|error| match error {
         Errno::NOENT => last_error,
         error => error,
     })
 }
 
-/// Splits a command line into the program name and its argument string.
-///
-/// ## Arguments
-///
-/// - `command` the command line to split
-pub fn split_command_line(command: &[u8]) -> (&[u8], &[u8]) {
-    match command.iter().position(|byte| byte.is_ascii_whitespace()) {
-        Some(index) => (&command[..index], trim_ascii_spaces(&command[index + 1..])),
-        None => (command, b""),
-    }
+/// The pid of the calling process.
+pub fn getpid() -> Result<usize> {
+    decode(unsafe { syscall0(SYS_GETPID) })
 }
 
 /// Strips leading and trailing ASCII whitespace.
@@ -553,6 +676,29 @@ unsafe fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: u
     ret
 }
 
+#[inline(always)]
+unsafe fn syscall5(
+    number: usize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+) -> usize {
+    let ret: usize;
+    asm!(
+        "int 0x80",
+        inlateout("rax") number => ret,
+        in("rdi") arg0,
+        in("rsi") arg1,
+        in("rdx") arg2,
+        in("r10") arg3,
+        in("r8") arg4,
+    );
+
+    ret
+}
+
 pub fn write(fd: usize, bytes: &[u8]) -> Result<usize> {
     decode(unsafe { syscall3(SYS_WRITE, fd, bytes.as_ptr() as usize, bytes.len()) })
 }
@@ -562,7 +708,7 @@ pub fn write_file(fd: usize, bytes: &[u8]) -> Result<usize> {
 }
 
 pub fn write_existing_file(path: &[u8], bytes: &[u8]) -> bool {
-    let Ok(fd) = open(path) else {
+    let Ok(fd) = open(path, O_WRONLY) else {
         return false;
     };
 
@@ -613,16 +759,139 @@ pub fn read_stdin_char() -> u8 {
 ///
 /// ## Returns
 /// The new process PID, which is always at least 1.
-pub fn execute(path: &[u8], args: &[u8]) -> Result<usize> {
+pub fn execute(path: &[u8], argv: &ArgvBlob) -> Result<usize> {
     decode(unsafe {
-        syscall4(
+        syscall5(
             SYS_EXECUTE,
             path.as_ptr() as usize,
             path.len(),
-            args.as_ptr() as usize,
-            args.len(),
+            argv.bytes().as_ptr() as usize,
+            argv.bytes().len(),
+            argv.count(),
         )
     })
+}
+
+/// A packed argument vector, ready to hand to [`execute`].
+///
+/// The kernel takes argv as NUL-separated bytes plus a count rather than as a
+/// single string, so an argument may contain spaces or quotes. Building it
+/// here keeps the packing in one place.
+pub struct ArgvBlob {
+    buffer: [u8; ARGV_MAX_BYTES],
+    len: usize,
+    count: usize,
+}
+
+impl ArgvBlob {
+    pub const fn new() -> Self {
+        Self {
+            buffer: [0; ARGV_MAX_BYTES],
+            len: 0,
+            count: 0,
+        }
+    }
+
+    /// The packed bytes, every entry NUL-terminated.
+    pub fn bytes(&self) -> &[u8] {
+        &self.buffer[..self.len]
+    }
+
+    /// How many entries the blob holds.
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Appends one argument.
+    ///
+    /// ## Returns
+    /// Whether it fit, both in bytes and against the argument count limit.
+    pub fn push(&mut self, argument: &[u8]) -> bool {
+        if self.count == ARGV_MAX_COUNT {
+            return false;
+        }
+
+        // an argument may not contain a NUL, it is the separator
+        if argument.contains(&0) {
+            return false;
+        }
+
+        let end = self.len + argument.len() + 1;
+        if end > self.buffer.len() {
+            return false;
+        }
+
+        self.buffer[self.len..end - 1].copy_from_slice(argument);
+        self.buffer[end - 1] = 0;
+        self.len = end;
+        self.count += 1;
+        true
+    }
+
+    /// The first entry, which is the program name the child will see.
+    pub fn program_name(&self) -> &[u8] {
+        self.entry(0).unwrap_or(&[])
+    }
+
+    /// One entry by index, without its NUL terminator.
+    pub fn entry(&self, index: usize) -> Option<&[u8]> {
+        if index >= self.count {
+            return None;
+        }
+
+        self.iter().nth(index)
+    }
+
+    /// Every entry in order.
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
+        // the trailing NUL of the last entry would otherwise yield an extra
+        // empty slice after it
+        self.buffer[..self.len]
+            .split(|byte| *byte == 0)
+            .take(self.count)
+    }
+
+    /// Begins an argument that is appended to a byte at a time.
+    ///
+    /// Lets a tokenizer build arguments straight into the blob instead of
+    /// assembling each one in a buffer of its own first.
+    pub fn start_argument(&mut self) -> bool {
+        self.count < ARGV_MAX_COUNT && self.len < self.buffer.len()
+    }
+
+    /// Appends one byte to the argument being built.
+    pub fn push_byte(&mut self, byte: u8) -> bool {
+        // a NUL would end the argument early, and the caller cannot mean it
+        if byte == 0 || self.len + 1 >= self.buffer.len() {
+            return false;
+        }
+
+        self.buffer[self.len] = byte;
+        self.len += 1;
+        true
+    }
+
+    /// Terminates the argument being built and counts it.
+    pub fn finish_argument(&mut self) -> bool {
+        if self.count == ARGV_MAX_COUNT || self.len >= self.buffer.len() {
+            return false;
+        }
+
+        self.buffer[self.len] = 0;
+        self.len += 1;
+        self.count += 1;
+        true
+    }
+}
+
+impl Default for ArgvBlob {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub fn yield_now() {
@@ -661,12 +930,29 @@ pub fn cd(path: &[u8]) -> Result<()> {
     decode(unsafe { syscall2(SYS_CD, path.as_ptr() as usize, path.len()) }).map(|_| ())
 }
 
-pub fn open(path: &[u8]) -> Result<usize> {
-    decode(unsafe { syscall2(SYS_OPEN, path.as_ptr() as usize, path.len()) })
+/// Opens a file.
+///
+/// ## Arguments
+///
+/// - `path` the path to open
+/// - `flags` an access mode, one of [`O_RDONLY`], [`O_WRONLY`] or [`O_RDWR`],
+/// optionally combined with [`O_CREAT`], [`O_EXCL`], [`O_TRUNC`] and
+/// [`O_APPEND`]
+pub fn open(path: &[u8], flags: usize) -> Result<usize> {
+    decode(unsafe { syscall3(SYS_OPEN, path.as_ptr() as usize, path.len(), flags) })
 }
 
+/// Creates a new file, failing when it already exists.
+///
+/// The same thing as `open` with `O_CREAT | O_EXCL`, kept as its own name
+/// because that combination reads as noise at a call site.
 pub fn create(path: &[u8]) -> Result<usize> {
-    decode(unsafe { syscall2(SYS_CREATE, path.as_ptr() as usize, path.len()) })
+    open(path, O_RDWR | O_CREAT | O_EXCL)
+}
+
+/// Opens a file, creating it when it does not exist yet.
+pub fn open_or_create(path: &[u8], flags: usize) -> Result<usize> {
+    open(path, flags | O_CREAT)
 }
 
 pub fn mkdir(path: &[u8]) -> Result<()> {
@@ -684,6 +970,34 @@ pub fn rmdir(path: &[u8]) -> Result<()> {
 pub fn close(fd: usize) -> Result<()> {
     decode(unsafe { syscall1(SYS_CLOSE, fd) }).map(|_| ())
 }
+
+/// Open for reading only.
+///
+/// The values are newlib's, so the libc porting layer can pass its own
+/// `O_*` straight through without remapping bits. The access modes are a two
+/// bit value rather than independent flags, hence [`O_ACCMODE`].
+pub const O_RDONLY: usize = 0x0000;
+
+/// Open for writing only.
+pub const O_WRONLY: usize = 0x0001;
+
+/// Open for reading and writing.
+pub const O_RDWR: usize = 0x0002;
+
+/// Masks the access mode out of the flags.
+pub const O_ACCMODE: usize = 0x0003;
+
+/// Every write goes to the end of the file.
+pub const O_APPEND: usize = 0x0008;
+
+/// Create the file when it does not exist.
+pub const O_CREAT: usize = 0x0200;
+
+/// Truncate the file to zero length on open.
+pub const O_TRUNC: usize = 0x0400;
+
+/// With [`O_CREAT`], fail when the file already exists.
+pub const O_EXCL: usize = 0x0800;
 
 /// `st_mode` mask that selects the file type bits.
 pub const S_IFMT: u32 = 0o170_000;

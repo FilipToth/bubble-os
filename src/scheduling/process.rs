@@ -69,6 +69,11 @@ pub struct OpenFile {
     pub offset: usize,
     pub readable: bool,
     pub writable: bool,
+
+    /// Set by `O_APPEND`. Every write moves to the end of the file first,
+    /// which has to happen per write rather than once at open, otherwise two
+    /// descriptors appending to one file would overwrite each other.
+    pub append: bool,
 }
 
 impl Process {
@@ -130,17 +135,27 @@ impl Process {
         fd_table
     }
 
+    /// Registers an open file and returns its descriptor.
+    ///
+    /// ## Arguments
+    ///
+    /// - `file` the file to register
+    /// - `readable` whether reads are allowed
+    /// - `writable` whether writes are allowed
+    /// - `append` whether every write seeks to the end first
     pub fn open_file(
         &mut self,
         file: Arc<RwLock<dyn File>>,
         readable: bool,
         writable: bool,
+        append: bool,
     ) -> usize {
         let descriptor = Some(FileDescriptor::File(OpenFile {
             file: file,
             offset: 0,
             readable: readable,
             writable: writable,
+            append: append,
         }));
 
         for fd in 3..self.fd_table.len() {
@@ -210,6 +225,12 @@ impl Process {
                 }
 
                 let mut file = open_file.file.write();
+
+                // O_APPEND is per write, not a one time seek at open
+                if open_file.append {
+                    open_file.offset = file.size();
+                }
+
                 let write_end = open_file.offset.checked_add(bytes.len())?;
                 if write_end > file.size() {
                     file.truncate(write_end)?;

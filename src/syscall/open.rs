@@ -1,4 +1,4 @@
-// syscall 9 - open a regular file descriptor
+// syscall 9 - open a file descriptor, creating the file when asked
 
 use alloc::format;
 
@@ -13,6 +13,7 @@ use crate::{
 pub fn open(stack: &FullInterruptStackFrame) -> SyscallResult {
     let buffer_addr = stack.rdi;
     let buffer_size = stack.rsi;
+    let flags = stack.rdx;
 
     let Some(page_table) = scheduling::get_current_process_page_table() else {
         return Some(Err(Errno::Srch));
@@ -35,11 +36,9 @@ pub fn open(stack: &FullInterruptStackFrame) -> SyscallResult {
         }
     };
 
-    // the lookup only reports whether it found the file, so a missing file
-    // and an unreadable one both surface here as ENOENT
-    let Some(fd) = scheduling::curr_process_open_file(path, true, true) else {
-        return Some(Err(Errno::NoEnt));
-    };
+    if path.is_empty() {
+        return Some(Err(Errno::Inval));
+    }
 
-    Some(Ok(fd))
+    Some(scheduling::curr_process_open_file(path, flags))
 }

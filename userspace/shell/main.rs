@@ -65,8 +65,29 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
         }
 
         let command = &input_buffer[..input_len];
-        if command.starts_with(b"cd ") {
-            let path = ulib::trim_ascii_spaces(&command[3..]);
+
+        // parse once, here. Builtins used to slice the raw line, so a quoted
+        // argument reached them with its quotes still attached while external
+        // programs got them stripped, and the two disagreed about what a file
+        // was called
+        let mut argv = ulib::ArgvBlob::new();
+        if !ulib::parse_command_line(command, &mut argv) {
+            ulib::stdout(b"Command line too long or too complex\n");
+            continue;
+        }
+
+        let Some(name) = argv.entry(0) else {
+            continue;
+        };
+
+        let argument = argv.entry(1);
+
+        if name == b"cd" {
+            let Some(path) = argument else {
+                ulib::stdout(b"Usage: cd <path>\n");
+                continue;
+            };
+
             match ulib::cd(path) {
                 Ok(()) => cwd.update(path),
                 Err(error) => print_error(b"cd", error),
@@ -75,9 +96,14 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"write ") {
-            let bytes = ulib::trim_ascii_spaces(&command[6..]);
-            if ulib::write_existing_file(b"/res/resource.txt", bytes) {
+        if name == b"write" {
+            let mut text = [0u8; 256];
+            let Some(len) = join_arguments(&argv, &mut text) else {
+                ulib::stdout(b"Usage: write <text>\n");
+                continue;
+            };
+
+            if ulib::write_existing_file(b"/res/resource.txt", &text[..len]) {
                 ulib::stdout(b"Wrote to res/resource.txt\n");
             } else {
                 ulib::stdout(b"Failed to write to res/resource.txt\n");
@@ -86,8 +112,12 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"touch ") {
-            let path = ulib::trim_ascii_spaces(&command[6..]);
+        if name == b"touch" {
+            let Some(path) = argument else {
+                ulib::stdout(b"Usage: touch <path>\n");
+                continue;
+            };
+
             match ulib::create(path) {
                 Ok(fd) => {
                     let _ = ulib::close(fd);
@@ -99,8 +129,12 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"mkdir ") {
-            let path = ulib::trim_ascii_spaces(&command[6..]);
+        if name == b"mkdir" {
+            let Some(path) = argument else {
+                ulib::stdout(b"Usage: mkdir <path>\n");
+                continue;
+            };
+
             match ulib::mkdir(path) {
                 Ok(()) => {
                     ulib::stdout(b"Created directory\n");
@@ -111,8 +145,12 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"unlink ") {
-            let path = ulib::trim_ascii_spaces(&command[7..]);
+        if name == b"unlink" {
+            let Some(path) = argument else {
+                ulib::stdout(b"Usage: unlink <path>\n");
+                continue;
+            };
+
             match ulib::unlink(path) {
                 Ok(()) => {
                     ulib::stdout(b"Removed file\n");
@@ -123,8 +161,12 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"rmdir ") {
-            let path = ulib::trim_ascii_spaces(&command[6..]);
+        if name == b"rmdir" {
+            let Some(path) = argument else {
+                ulib::stdout(b"Usage: rmdir <path>\n");
+                continue;
+            };
+
             match ulib::rmdir(path) {
                 Ok(()) => {
                     ulib::stdout(b"Removed directory\n");
@@ -135,7 +177,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command == b"uptime" {
+        if name == b"uptime" {
             let mut timespec = ulib::Timespec::zero();
             if ulib::clock_gettime(ulib::CLOCK_MONOTONIC, &mut timespec).is_ok() {
                 ulib::stdout(b"Up for ");
@@ -148,7 +190,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command == b"date" {
+        if name == b"date" {
             let unix_time = ulib::time();
             if unix_time != 0 {
                 ulib::stdout(b"Unix time: ");
@@ -161,9 +203,8 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command.starts_with(b"sleep ") {
-            let argument = ulib::trim_ascii_spaces(&command[6..]);
-            let slept = match parse_number(argument) {
+        if name == b"sleep" {
+            let slept = match argument.and_then(parse_number) {
                 Some(seconds) => ulib::sleep(seconds as i64).is_ok(),
                 None => false,
             };
@@ -175,7 +216,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command == b"env" {
+        if name == b"env" {
             for entry in ulib::environ() {
                 ulib::stdout(entry);
                 ulib::stdout(b"\n");
@@ -184,13 +225,25 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
             continue;
         }
 
-        if command == b"status" {
+        if name == b"pid" {
+            match ulib::getpid() {
+                Ok(pid) => {
+                    print_number(pid);
+                    ulib::stdout(b"\n");
+                }
+                Err(error) => print_error(b"pid", error),
+            }
+
+            continue;
+        }
+
+        if name == b"status" {
             print_number(last_status);
             ulib::stdout(b"\n");
             continue;
         }
 
-        launch(command, &mut last_status);
+        launch(&argv, &mut last_status);
     }
 }
 
@@ -362,15 +415,15 @@ fn split_next_path_component(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
     }
 }
 
-fn launch(command: &[u8], last_status: &mut usize) {
-    let status = match ulib::system(command) {
+fn launch(argv: &ulib::ArgvBlob, last_status: &mut usize) {
+    let status = match ulib::run(argv) {
         Ok(status) => status,
         Err(ulib::Errno::NOENT) => {
             ulib::stdout(b"Program or command not found...\n");
             return;
         }
         Err(error) => {
-            print_error(command, error);
+            print_error(argv.program_name(), error);
             return;
         }
     };
@@ -384,6 +437,44 @@ fn launch(command: &[u8], last_status: &mut usize) {
         print_number(status - FAULT_STATUS_BASE);
         ulib::stdout(b"\n");
     }
+}
+
+/// Joins the arguments after the command name with single spaces.
+///
+/// The `write` builtin takes free text rather than a path, so it wants the
+/// words back together. Quoting still works, `write 'a  b'` keeps its spacing
+/// because that was one argument.
+///
+/// ## Returns
+/// The number of bytes written, or `None` when there were no arguments or
+/// they did not fit.
+fn join_arguments(argv: &ulib::ArgvBlob, buffer: &mut [u8]) -> Option<usize> {
+    let mut len = 0;
+
+    for argument in argv.iter().skip(1) {
+        if len > 0 {
+            if len == buffer.len() {
+                return None;
+            }
+
+            buffer[len] = b' ';
+            len += 1;
+        }
+
+        let end = len.checked_add(argument.len())?;
+        if end > buffer.len() {
+            return None;
+        }
+
+        buffer[len..end].copy_from_slice(argument);
+        len = end;
+    }
+
+    if len == 0 {
+        return None;
+    }
+
+    Some(len)
 }
 
 /// Prints a failed command as `name: reason`.

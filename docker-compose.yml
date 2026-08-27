@@ -1,13 +1,30 @@
 version: "3.9"
 
 services:
-  image:
+  builder:
     build:
       context: .
       dockerfile: Dockerfile
     platform: linux/amd64
     working_dir: /workspace
+    # keeps the container alive for `docker compose exec`, the build commands
+    # are driven from the host Makefile rather than by the image CMD
+    command: sleep infinity
+    ports:
+      # the QEMU gdb stub, so gdb can run on the host and attach in
+      - "1234:1234"
     volumes:
       - .:/workspace
+      # These live in the container's writable layer, which used to be thrown
+      # away on every `run --rm`. That is what made each build re-download the
+      # crate registry and rebuild core from scratch
+      - cargo-registry:/root/.cargo/registry
+      - cargo-git:/root/.cargo/git
+      - xargo-cache:/root/.xargo
     stdin_open: true
     tty: true
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  xargo-cache:

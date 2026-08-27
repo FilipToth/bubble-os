@@ -98,7 +98,7 @@ fn report(path: &[u8], info: &Stat) {
 /// The two reach the metadata by different routes, a path lookup against an
 /// open descriptor, so a disagreement means one of them is wrong.
 fn compare_with_fstat(path: &[u8], from_path: &Stat) {
-    let Ok(fd) = ulib::open(path) else {
+    let Ok(fd) = ulib::open(path, ulib::O_RDONLY) else {
         return;
     };
 
