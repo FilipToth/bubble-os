@@ -243,6 +243,7 @@ pub unsafe fn init_idt() {
     IDT.double_fault
         .set_handler_fn(double_fault_isr)
         .set_stack_index(DOUBLE_FAULT_STACK_INDEX as u16);
+
     IDT.general_protection_fault.set_handler_fn(gpf_isr);
     IDT.page_fault.set_handler_fn(page_fault_isr);
     IDT.stack_segment_fault

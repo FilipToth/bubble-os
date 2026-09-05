@@ -1,6 +1,6 @@
-.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo prepare clean
+.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo hello prepare clean
 
-all: prepare sample sample2 faulttest brktest shell edit ls cat statinfo
+all: prepare sample sample2 faulttest brktest shell edit ls cat statinfo hello
 
 prepare:
 	mkdir -p bin
@@ -45,6 +45,42 @@ cat:
 statinfo:
 	cargo rustc --manifest-path statinfo/Cargo.toml -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target statinfo/x86_64-bubble-userspace.json --release -- -C linker=ld -C link-arg=-T -C link-arg=linker.ld -C link-arg=-m -C link-arg=elf_x86_64 -C link-arg=-z -C link-arg=max-page-size=0x1000
 	cp statinfo/target/x86_64-bubble-userspace/release/statinfo bin/statinfo.elf
+
+# ---------------------------------------------------------------------------
+# C programs
+#
+# These need build/libc/libc.a and the cross toolchain, neither of which this
+# makefile can produce. build.mk's `userspace` target depends on `libc` and
+# so guarantees both before recursing in here.
+#
+# The defaults below are what those paths are when make runs from the repo
+# root, so `make -C userspace` also works directly once libc exists.
+# ---------------------------------------------------------------------------
+
+cross ?= x86_64-elf
+toolchain ?= /opt/bubble-toolchain
+libc_dir ?= ../build/libc
+
+# -mcmodel=large: user programs link at 0x0000700040000000. The default small
+# model assumes every symbol sits in the low 2GB and emits absolute 32-bit
+# relocations for them, which cannot hold an address that high, so the link
+# dies with "relocation truncated to fit: R_X86_64_32". The large model uses
+# 64-bit absolute references throughout and works at any address. The Rust
+# crates avoid this without a code model flag only because rustc defaults to
+# a PIC relocation model and addresses everything rip-relative.
+cflags := -O2 -g -std=gnu11 -ffreestanding -fno-stack-protector \
+		  -mcmodel=large -Wall -Wextra -I$(toolchain)/$(cross)/include
+
+ldflags := -nostdlib -static -Wl,-z,max-page-size=0x1000
+
+# --start-group because libc.a and libgcc.a call into each other: libc needs
+# gcc's 128-bit division helpers, libgcc needs memcpy
+hello: prepare
+	$(cross)-gcc $(cflags) -c hello/main.c -o obj/hello.o
+	$(cross)-gcc $(ldflags) -T hello/linker.ld \
+		$(libc_dir)/crt0.o obj/hello.o \
+		-Wl,--start-group $(libc_dir)/libc.a -lgcc -Wl,--end-group \
+		-o bin/hello.elf
 
 clean:
 	rm -rf bin obj

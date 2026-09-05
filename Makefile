@@ -14,19 +14,35 @@ in_container := $(compose) exec -T $(service) make -f build.mk
 
 # Targets that only produce files. No TTY, so output stays clean and this
 # still works somewhere without one
-build_targets := kernel userspace libc disk iso full_build clean
+build_targets := kernel userspace newlib libc libc_clean hello disk iso full_build clean
 
 # Targets that hand the terminal to QEMU, which needs a real TTY to drive
 # its serial console
 run_targets := run build_and_run int_run debug_run
 
-.PHONY: up down shell gdb $(build_targets) $(run_targets)
+.PHONY: image up down shell gdb $(build_targets) $(run_targets)
 
 $(build_targets): up
 	$(in_container) $@
 
 $(run_targets): up
 	$(compose) exec $(service) make -f build.mk $@
+
+# Rebuilds the image, then recreates the container so `exec` actually lands
+# in the new one. Needed after editing the Dockerfile, e.g. to bump the
+# toolchain or newlib version.
+#
+# Most layers are cached, but a change above the cross toolchain in the
+# Dockerfile invalidates it, and rebuilding binutils and gcc takes roughly
+# half an hour.
+#
+# Recreating the container discards its writable layer, which is where
+# newlib's `make install` puts libc.a and the headers. That is why `libc`
+# depends on `newlib`: the object tree survives in its volume, so the
+# reinstall after a rebuild is quick.
+image:
+	$(compose) build $(service)
+	$(compose) up -d --force-recreate $(service)
 
 # idempotent, and cheap once the container is already running
 up:

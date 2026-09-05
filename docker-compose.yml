@@ -21,6 +21,11 @@ services:
       - cargo-registry:/root/.cargo/registry
       - cargo-git:/root/.cargo/git
       - xargo-cache:/root/.xargo
+      # newlib's object tree, so `down` followed by `up` does not throw away
+      # a several minute build. The source and install prefix stay in the
+      # image; only the intermediate build directory needs to outlive the
+      # container
+      - newlib-build:/opt/newlib/build
     stdin_open: true
     tty: true
 
@@ -28,3 +33,4 @@ volumes:
   cargo-registry:
   cargo-git:
   xargo-cache:
+  newlib-build:

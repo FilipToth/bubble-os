@@ -137,6 +137,37 @@ enable_paging:
 
     ret
 
+; SSE2 is part of the baseline x86-64 System V ABI, so a compiler targeting
+; it emits xmm registers freely: for floating point, but also for ordinary
+; struct copies and inlined memcpy. Without this every C program dies on a
+; #UD at its first such instruction.
+;
+; This cannot be sidestepped from the libc side. gcc rejects -mno-sse for
+; any function returning a double ("SSE register return with SSE disabled"),
+; and strtod and printf guarantee those exist in newlib.
+;
+; NOTE: this breaks an invariant the rest of the system was built on. Both
+; x86_64-bubble-os.json and x86_64-bubble-userspace.json set
+; "-mmx,-sse,+soft-float", so until now no code anywhere in the system
+; touched xmm. That is why the scheduler saves no FPU state and why an
+; interrupt can land on top of a user process without preserving any: there
+; was nothing to preserve. A C userspace cannot hold that line.
+;
+; So nothing saves or restores xmm state across a context switch yet, and two
+; C processes doing floating point will corrupt each other. That needs
+; FXSAVE/FXRSTOR in the scheduler, or lazy switching through CR0.TS.
+enable_sse:
+    mov eax, cr0
+    and ax, 0xFFFB          ; clear EM: with it set, SSE raises #UD
+    or ax, 1 << 1           ; set MP, so a later CR0.TS scheme sees FWAIT
+    mov cr0, eax
+
+    mov eax, cr4
+    or ax, 3 << 9           ; OSFXSR and OSXMMEXCPT
+    mov cr4, eax
+
+    ret
+
 start:
     mov esp, stack_top
     mov edi, ebx            ; move the multiboot header into ebx to be passed on as an arg
@@ -147,6 +178,7 @@ start:
 
     call set_up_page_tables
     call enable_paging
+    call enable_sse
 
     ; load the 64-bit GDT
     lgdt [gdt64.pointer]

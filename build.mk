@@ -33,7 +33,7 @@ base_qemu := qemu-system-x86_64 \
 
 grub_rescue := $(shell command -v grub2-mkrescue >/dev/null 2>&1 && echo grub2-mkrescue || echo grub-mkrescue)
 
-.PHONY: all full_build init_build clean kernel userspace libc disk iso \
+.PHONY: all full_build init_build clean kernel userspace libc newlib libc_clean hello disk iso \
 		kernel_start kernel_start_test test run run_w_debug_interrupts \
 		debug_run build_and_run int_run
 
@@ -89,18 +89,93 @@ disk:
 		mcopy -i $(disk_path) "$$file" ::bin/$$(basename $$file); \
 	done
 
-userspace:
+# Depends on libc because `all` over there now includes the C programs, which
+# need build/libc/libc.a and the x86_64-elf toolchain to exist first.
+userspace: libc
 	$(MAKE) -C userspace
 
-# The C library. newlib itself is a toolchain dependency built into the
-# image, not source, so this only builds the porting layer that sits on top
-# of it: crt0 and the syscall stubs.
-libc:
-	@if [ -d userspace/libc ]; then \
-		$(MAKE) -C userspace/libc; \
-	else \
-		echo "userspace/libc does not exist yet, nothing to build"; \
+# ---------------------------------------------------------------------------
+# C library
+#
+# Two halves. newlib is a toolchain dependency: its source is unpacked into
+# the image at /opt/newlib and it builds into a prefix outside the repo, so
+# nothing about it lands in the source tree. Our porting layer is real
+# source and lives in userspace/lib.
+#
+# They are joined by copying newlib's libc.a and adding syscalls.o to it.
+# --disable-newlib-supplied-syscalls leaves the `_*` symbols undefined in
+# libc.a, and putting the definitions in the same archive lets ld resolve
+# them in its normal repeated passes over a single archive. Keeping them in
+# a separate library would work too, but only with --start-group, since
+# syscalls.c calls back into libc for memset and strlen.
+# ---------------------------------------------------------------------------
+
+newlib_version ?= 4.6.0.20260123
+newlib_src := /opt/newlib/newlib-$(newlib_version)
+newlib_build := /opt/newlib/build
+
+toolchain := /opt/bubble-toolchain
+cross := x86_64-elf
+cross_lib := $(toolchain)/$(cross)/lib
+cross_include := $(toolchain)/$(cross)/include
+
+libc_out := build/libc
+
+# -mcmodel=large: user programs link at 0x0000700040000000. The default small
+# model assumes every symbol sits in the low 2GB and emits absolute 32-bit
+# relocations for them, which cannot hold an address that high, so the link
+# dies with "relocation truncated to fit: R_X86_64_32". The large model uses
+# 64-bit absolute references throughout and works at any address. The Rust
+# crates avoid this without a code model flag only because rustc defaults to
+# a PIC relocation model and addresses everything rip-relative.
+libc_cflags := -O2 -g -std=gnu11 -ffreestanding -fno-stack-protector \
+			   -mcmodel=large -Wall -Wextra -I$(cross_include)
+
+# newlib itself has to be built the same way, or its own objects carry the
+# relocations that cannot be resolved.
+newlib_target_cflags := -O2 -g -mcmodel=large
+
+# Configure is guarded on the build directory rather than declared as a
+# prerequisite: newlib decides for itself what is out of date, and letting
+# make second-guess it just reruns a five minute configure for nothing.
+# Delete /opt/newlib/build to force a reconfigure after changing the flags.
+newlib:
+	@if [ ! -d "$(newlib_src)" ]; then \
+		echo "newlib source missing at $(newlib_src)."; \
+		echo "The image predates it, rebuild with: docker compose build builder"; \
+		exit 1; \
 	fi
+	@if [ ! -f "$(newlib_build)/Makefile" ]; then \
+		echo "configuring newlib $(newlib_version)"; \
+		mkdir -p $(newlib_build); \
+		cd $(newlib_build) && CFLAGS_FOR_TARGET="$(newlib_target_cflags)" \
+			$(newlib_src)/configure \
+			--target=$(cross) \
+			--prefix=$(toolchain) \
+			--disable-multilib \
+			--disable-nls \
+			--disable-newlib-supplied-syscalls; \
+	fi
+	$(MAKE) -C $(newlib_build) CFLAGS_FOR_TARGET="$(newlib_target_cflags)" -j$(shell nproc)
+	$(MAKE) -C $(newlib_build) CFLAGS_FOR_TARGET="$(newlib_target_cflags)" install
+
+libc: newlib
+	mkdir -p $(libc_out)
+	$(cross)-gcc $(libc_cflags) -c userspace/lib/syscalls.c -o $(libc_out)/syscalls.o
+	$(cross)-gcc $(libc_cflags) -c userspace/lib/crt0.S -o $(libc_out)/crt0.o
+	cp $(cross_lib)/libc.a $(libc_out)/libc.a
+	$(cross)-ar rcs $(libc_out)/libc.a $(libc_out)/syscalls.o
+	@echo "libc: $(libc_out)/libc.a"
+
+libc_clean:
+	rm -rf $(libc_out) $(newlib_build)
+
+# The first C program, and the acceptance test for the whole libc chain.
+# `userspace` builds this too; the standalone target is for iterating on it
+# without rebuilding the five Rust crates.
+hello: libc
+	$(MAKE) -C userspace hello cross=$(cross) toolchain=$(toolchain) \
+		libc_dir=$(CURDIR)/$(libc_out)
 
 $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub
