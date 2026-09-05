@@ -26,6 +26,16 @@ use x86_64::instructions::tlb;
 pub mod process;
 
 pub static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the kernel is running on its own behalf rather than inside a
+/// process.
+///
+/// True at boot, before the first process is ever picked, and again whenever
+/// the scheduler parks with nothing runnable. It is what tells a timer
+/// interrupt that landed in ring 0 whether there is a process context sitting
+/// behind it that switching away would throw out.
+static IDLE: AtomicBool = AtomicBool::new(true);
+
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 /// The next pid to hand out.
@@ -132,20 +142,13 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
         return None;
     }
 
+    // `schedule` only passes a frame down here once it has established that
+    // the frame describes the current process running in ring 3, so it is
+    // always the right thing to save and always safe to switch away from
     if let Some(interrupt_stack) = interrupt_stack {
         match processes.get_mut(current_index) {
             Some(current) => {
-                // the bug happens when accessing anything from current after we call the exit syscall
-
-                // Avoid saving kernel
-                let _m = current.pid + 1;
-                let is_not_presched = !current.pre_schedule;
-                let rip = interrupt_stack.rip;
-
-                if is_not_presched && rip > 0x1FFFFF {
-                    // save current context
-                    current.context = interrupt_stack.clone();
-                }
+                current.context = interrupt_stack.clone();
             }
             None => {
                 log!(
@@ -199,7 +202,6 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
             CURRENT_INDEX.store(current_index, Ordering::SeqCst);
 
             let new_current = &mut processes[current_index];
-            new_current.pre_schedule = false;
             new_current.awaiting_process = None;
             new_current.sleep_until_tick = None;
 
@@ -221,13 +223,57 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
     }
 }
 
+/// Parks the CPU with interrupts on and nothing scheduled.
+///
+/// Marks the kernel idle first, which is what lets the next timer tick
+/// schedule at all: a tick that lands here has no process context behind it,
+/// so switching away costs nothing. That is how the first process gets picked
+/// up after boot, and how one becoming runnable again is noticed.
+///
+/// The error paths below also end here, where it is a give up rather than an
+/// idle. They still hold the memory controller lock, so the tick that arrives
+/// next spins on it.
+fn park() -> ! {
+    IDLE.store(true, Ordering::SeqCst);
+    unsafe { core::arch::asm!("sti") };
+    loop {}
+}
+
 pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
+    // A ring 0 frame belongs to kernel code running on behalf of the current
+    // process: a syscall, or the last few instructions of an interrupt
+    // trampoline. It cannot be stored as that process' context. It resumes
+    // onto a kernel stack, and every vector here is an IST one, so that stack
+    // is reused by the next interrupt long before anything would return to
+    // it. `jump` could not replay it either: it pushes ss and rsp
+    // unconditionally, which iretq only pops when the privilege level
+    // changes.
+    //
+    // Switching away regardless is what caused programs to run several times
+    // over: the process kept the last context that *was* saved, which for one
+    // that had not yet been caught in ring 3 is still its ELF entry point, so
+    // it restarted from _start. Any tick that landed inside a syscall rewound
+    // it, and a program that spends its life writing to the serial port
+    // spends its life inside syscalls.
+    //
+    // So return instead and let the kernel finish what it was doing. The tick
+    // is dropped, the process keeps the rest of its slice, and the next one
+    // catches it in ring 3. Only when the kernel is idle does the frame belong
+    // to nobody, and then switching away is exactly the point.
+    if let Some(frame) = interrupt_stack {
+        if frame.cs & 3 == 0 && !IDLE.load(Ordering::SeqCst) {
+            return;
+        }
+    }
+
+    // whatever is left is either a ring 3 frame, which describes the current
+    // process, or an idle kernel frame, which describes nobody and must not
+    // be written over a process context
+    let interrupt_stack = interrupt_stack.filter(|frame| frame.cs & 3 != 0);
+
     let process_to_jump = match next_process(interrupt_stack) {
         Some(p) => p,
-        None => {
-            unsafe { core::arch::asm!("sti") };
-            loop {}
-        }
+        None => park(),
     };
 
     // switch to user page table
@@ -239,8 +285,7 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
                 "schedule: memory controller is not initialized"
             );
 
-            unsafe { core::arch::asm!("sti") };
-            loop {}
+            park();
         };
 
         let Some(ring3_page_table) = process_to_jump.ring3_page_table else {
@@ -250,8 +295,7 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
                 process_to_jump.pid
             );
 
-            unsafe { core::arch::asm!("sti") };
-            loop {}
+            park();
         };
 
         if mc.switch_table(&ring3_page_table).is_none() {
@@ -262,13 +306,16 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
                 ring3_page_table.addr
             );
 
-            unsafe { core::arch::asm!("sti") };
-            loop {}
+            park();
         }
 
         // drop memory controller ref
         // and kernel page table ref
     };
+
+    // from here on every ring 0 frame belongs to this process, so a timer
+    // interrupt that lands in one has to hand control straight back
+    IDLE.store(false, Ordering::SeqCst);
 
     unsafe { jump(&process_to_jump.context) };
 }

@@ -24,8 +24,16 @@ macro_rules! interrupt_trampoline {
                 "mov rdi, rsp",
                 "call {isr}",
 
-                "sti",
-
+                // no sti here. iretq restores rflags from the frame the CPU
+                // pushed, which already carries the IF the interrupted code
+                // was running with, so re-enabling by hand is redundant.
+                //
+                // It is also harmful. Every vector that reaches this macro
+                // runs on an IST stack, which the CPU resets to the same
+                // address on every entry, so an interrupt taken in the window
+                // between sti and iretq re-enters on top of the frame being
+                // returned to and overwrites it. The window is short but the
+                // corruption is silent.
                 "pop r8",
                 "pop r9",
                 "pop r10",

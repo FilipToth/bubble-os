@@ -18,7 +18,6 @@ use crate::{
 #[derive(Clone)]
 pub struct Process {
     pub pid: usize,
-    pub pre_schedule: bool,
     pub blocking: bool,
     pub awaiting_process: Option<usize>,
 
@@ -106,7 +105,6 @@ impl Process {
 
         Some(Process {
             pid: pid,
-            pre_schedule: true,
             blocking: false,
             awaiting_process: None,
             sleep_until_tick: None,
