@@ -14,7 +14,8 @@ in_container := $(compose) exec -T $(service) make -f build.mk
 
 # Targets that only produce files. No TTY, so output stays clean and this
 # still works somewhere without one
-build_targets := kernel userspace newlib libc libc_clean hello disk iso full_build clean
+build_targets := kernel userspace newlib libc libc_clean hello lua lua_fetch lua_clean \
+                 disk iso full_build clean
 
 # Targets that hand the terminal to QEMU, which needs a real TTY to drive
 # its serial console

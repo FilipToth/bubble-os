@@ -33,7 +33,8 @@ base_qemu := qemu-system-x86_64 \
 
 grub_rescue := $(shell command -v grub2-mkrescue >/dev/null 2>&1 && echo grub2-mkrescue || echo grub-mkrescue)
 
-.PHONY: all full_build init_build clean kernel userspace libc newlib libc_clean hello disk iso \
+.PHONY: all full_build init_build clean kernel userspace libc newlib libc_clean hello \
+		lua lua_fetch lua_clean disk iso \
 		kernel_start kernel_start_test test run run_w_debug_interrupts \
 		debug_run build_and_run int_run
 
@@ -89,10 +90,11 @@ disk:
 		mcopy -i $(disk_path) "$$file" ::bin/$$(basename $$file); \
 	done
 
-# Depends on libc because `all` over there now includes the C programs, which
-# need build/libc/libc.a and the x86_64-elf toolchain to exist first.
-userspace: libc
-	$(MAKE) -C userspace
+# Depends on libc and lua_fetch because `all` over there now includes the C
+# programs, which need build/libc/libc.a, the x86_64-elf toolchain, and Lua's
+# unpacked source to exist first.
+userspace: libc lua_fetch
+	$(MAKE) -C userspace lua_src=$(lua_src)
 
 # ---------------------------------------------------------------------------
 # C library
@@ -189,6 +191,41 @@ libc_clean:
 hello: libc
 	$(MAKE) -C userspace hello cross=$(cross) toolchain=$(toolchain) \
 		libc_dir=$(CURDIR)/$(libc_out)
+
+# ---------------------------------------------------------------------------
+# Lua
+#
+# Third party source, so it is unpacked outside the repo the same way newlib
+# is, and userspace/Makefile compiles it from there.
+#
+# Fetched by a rule rather than in the Dockerfile on purpose: a Dockerfile
+# change means `make image`, which recreates the container and throws away
+# newlib's installed headers and libc.a. Worth moving into the image once the
+# port stops moving.
+# ---------------------------------------------------------------------------
+
+lua_version ?= 5.4.7
+lua_root := /opt/lua
+lua_src := $(lua_root)/lua-$(lua_version)/src
+
+lua_fetch:
+	@if [ ! -d "$(lua_src)" ]; then \
+		echo "fetching lua $(lua_version)"; \
+		mkdir -p $(lua_root); \
+		cd $(lua_root) \
+			&& wget -q "https://www.lua.org/ftp/lua-$(lua_version).tar.gz" \
+			&& tar -xf "lua-$(lua_version).tar.gz" \
+			&& rm -f "lua-$(lua_version).tar.gz"; \
+	fi
+
+# Iterating on the port without rebuilding the five Rust crates, the same way
+# `hello` works.
+lua: libc lua_fetch
+	$(MAKE) -C userspace lua cross=$(cross) toolchain=$(toolchain) \
+		libc_dir=$(CURDIR)/$(libc_out) lua_src=$(lua_src)
+
+lua_clean:
+	rm -rf $(lua_root) userspace/obj/lua userspace/bin/lua.elf
 
 $(iso): $(kernel) $(grub_cfg)
 	mkdir -p build/isofiles/boot/grub

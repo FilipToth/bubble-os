@@ -1,6 +1,7 @@
-.PHONY: all sample sample2 faulttest fputest brktest tempshell shell edit ls cat statinfo hello prepare clean
+.PHONY: all sample sample2 faulttest fputest brktest tempshell shell edit ls cat statinfo \
+		hello lua lua_compile lua_link prepare clean
 
-all: prepare sample sample2 faulttest fputest brktest shell edit ls cat statinfo hello
+all: prepare sample sample2 faulttest fputest brktest shell edit ls cat statinfo hello lua
 
 prepare:
 	mkdir -p bin
@@ -92,6 +93,57 @@ hello: prepare
 		$(libc_dir)/crt0.o obj/hello.o \
 		$(libs) \
 		-o bin/hello.elf
+
+# ---------------------------------------------------------------------------
+# Lua
+#
+# Kept apart from everything above because it is third party source compiled
+# out of /opt rather than anything in this tree. build.mk's `lua_fetch`
+# unpacks it and passes the path in; the default below is only so
+# `make -C userspace lua` works by hand.
+#
+# Deliberately not built through Lua's own makefile. Its posix targets define
+# LUA_USE_POSIX, which switches on dlopen, popen and readline, none of which
+# exist here. With no LUA_USE_ macro at all Lua takes its plain ANSI C path,
+# loadlib compiles to a "dynamic libraries not enabled" stub, and os.execute
+# and os.rename land on the system() and rename() in userspace/lib/syscalls.c.
+# ---------------------------------------------------------------------------
+
+lua_src ?= /opt/lua/lua-5.4.7/src
+
+# Same flags as the C programs above, minus -Wextra: this is not our source
+# and not ours to tidy.
+lua_cflags := -O2 -g -std=gnu11 -ffreestanding -fno-stack-protector \
+			  -mcmodel=large -I$(toolchain)/$(cross)/include -I$(lua_src)
+
+# everything except luac.c, which is the bytecode compiler and carries a
+# second main(). lua.c is the interpreter and is wanted
+lua_sources := $(filter-out $(lua_src)/luac.c, $(wildcard $(lua_src)/*.c))
+lua_objects := $(patsubst $(lua_src)/%.c, obj/lua/%.o, $(lua_sources))
+
+obj/lua:
+	mkdir -p obj/lua
+
+# order-only, so the directory existing does not make every object look out
+# of date, and so a parallel build cannot race on creating it
+obj/lua/%.o: $(lua_src)/%.c | obj/lua
+	$(cross)-gcc $(lua_cflags) -c $< -o $@
+
+lua_compile: $(lua_objects)
+
+# hello/linker.ld's layout, which is the only one carrying the init_array
+# sections crt0.S walks
+lua_link:
+	$(cross)-gcc $(ldflags) -T lua/linker.ld \
+		$(libc_dir)/crt0.o $(lua_objects) \
+		$(libs) \
+		-o bin/lua.elf
+
+# the two halves run through sub-makes rather than as prerequisites so the
+# order holds even under make -j
+lua: prepare
+	$(MAKE) lua_compile lua_src=$(lua_src)
+	$(MAKE) lua_link lua_src=$(lua_src)
 
 clean:
 	rm -rf bin obj

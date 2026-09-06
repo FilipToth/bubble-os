@@ -56,6 +56,15 @@ pub struct Process {
     pub heap_break: usize,
 }
 
+/// Block size reported for the standard streams.
+///
+/// newlib sizes a stdio buffer from `st_blksize`, so this is not cosmetic: at
+/// 1 every `putchar` filled the buffer and flushed, turning each character
+/// into its own `write` syscall and a serial busy-wait. Whether stdout is line
+/// buffered is decided separately, by `S_IFCHR` and `isatty`, so a real size
+/// here costs nothing in responsiveness.
+const CONSOLE_BLOCK_SIZE: u32 = 1024;
+
 /// `lseek` whence: the offset is absolute.
 pub const SEEK_SET: usize = 0;
 
@@ -284,7 +293,7 @@ impl Process {
                 Some(FileStat {
                     mode: S_IFCHR,
                     links: 1,
-                    block_size: 1,
+                    block_size: CONSOLE_BLOCK_SIZE,
                     ..FileStat::default()
                 })
             }
