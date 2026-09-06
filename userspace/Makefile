@@ -1,6 +1,6 @@
-.PHONY: all sample sample2 faulttest brktest tempshell shell edit ls cat statinfo hello prepare clean
+.PHONY: all sample sample2 faulttest fputest brktest tempshell shell edit ls cat statinfo hello prepare clean
 
-all: prepare sample sample2 faulttest brktest shell edit ls cat statinfo hello
+all: prepare sample sample2 faulttest fputest brktest shell edit ls cat statinfo hello
 
 prepare:
 	mkdir -p bin
@@ -17,6 +17,10 @@ sample2:
 faulttest:
 	nasm -f elf64 faulttest/main.s -o obj/faulttest.o
 	ld -T faulttest/linker.ld -m elf_x86_64 -z max-page-size=0x1000 obj/faulttest.o -o bin/faulttest.elf
+
+fputest:
+	nasm -f elf64 fputest/main.s -o obj/fputest.o
+	ld -T fputest/linker.ld -m elf_x86_64 -z max-page-size=0x1000 obj/fputest.o -o bin/fputest.elf
 
 brktest:
 	nasm -f elf64 brktest/main.s -o obj/brktest.o

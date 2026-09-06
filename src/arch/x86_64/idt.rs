@@ -110,6 +110,14 @@ extern "x86-interrupt" fn invalid_opcode_isr(stack: InterruptStackFrame) {
     handle_fault(&stack, 6, "invalid opcode");
 }
 
+extern "x86-interrupt" fn x87_floating_point_isr(stack: InterruptStackFrame) {
+    handle_fault(&stack, 16, "x87 floating point exception");
+}
+
+extern "x86-interrupt" fn simd_floating_point_isr(stack: InterruptStackFrame) {
+    handle_fault(&stack, 19, "SIMD floating point exception");
+}
+
 extern "x86-interrupt" fn stack_segment_fault_isr(stack: InterruptStackFrame, err_code: u64) {
     log!(
         crate::io::LogType::EXCEPTION,
@@ -253,6 +261,14 @@ pub unsafe fn init_idt() {
     // instruction would hit an unregistered vector and triple fault
     IDT.divide_error.set_handler_fn(divide_error_isr);
     IDT.invalid_opcode.set_handler_fn(invalid_opcode_isr);
+
+    // CR4.OSXMMEXCPT is set, so an unmasked SSE exception is delivered as #XM
+    // rather than #UD. Processes start with every SSE exception masked, so
+    // this only fires for one that changed MXCSR itself
+    IDT.simd_floating_point
+        .set_handler_fn(simd_floating_point_isr);
+
+    IDT.x87_floating_point.set_handler_fn(x87_floating_point_isr);
 
     IDT[IRQ0 as usize]
         .set_handler_addr(VirtAddr::new(timer_trampoline as u64))

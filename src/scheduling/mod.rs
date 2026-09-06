@@ -6,7 +6,7 @@ use spin::{Mutex, RwLock};
 
 use crate::log;
 use crate::{
-    arch::x86_64::{gdt::GDT, registers::FullInterruptStackFrame},
+    arch::x86_64::{fpu, gdt::GDT, registers::FullInterruptStackFrame},
     elf,
     fs::fs::{
         normalize_path_components, Directory, File, FileStat, O_ACCMODE, O_APPEND, O_CREAT,
@@ -149,6 +149,10 @@ fn next_process(interrupt_stack: Option<&FullInterruptStackFrame>) -> Option<Pro
         match processes.get_mut(current_index) {
             Some(current) => {
                 current.context = interrupt_stack.clone();
+
+                // nothing in the kernel touches xmm, so the registers still
+                // hold exactly what ring 3 left in them
+                fpu::save(current.fpu_state);
             }
             None => {
                 log!(
@@ -316,6 +320,10 @@ pub fn schedule(interrupt_stack: Option<&FullInterruptStackFrame>) {
     // from here on every ring 0 frame belongs to this process, so a timer
     // interrupt that lands in one has to hand control straight back
     IDLE.store(false, Ordering::SeqCst);
+
+    // last thing before the iretq in jump, which only moves general purpose
+    // registers, so nothing disturbs the register file in between
+    fpu::restore(process_to_jump.fpu_state);
 
     unsafe { jump(&process_to_jump.context) };
 }
@@ -527,6 +535,10 @@ pub fn exit_current(status: usize) {
 
     let removed = processes.remove(current_index);
     record_exit(removed.pid, status);
+
+    // safe to drop while this process' registers are still live: the next
+    // schedule restores over them, and nothing saves into a dead process
+    fpu::free_state(removed.fpu_state);
 
     elf::unmap(&removed.start_region);
 

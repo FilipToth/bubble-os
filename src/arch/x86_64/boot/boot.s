@@ -146,20 +146,17 @@ enable_paging:
 ; any function returning a double ("SSE register return with SSE disabled"),
 ; and strtod and printf guarantee those exist in newlib.
 ;
-; NOTE: this breaks an invariant the rest of the system was built on. Both
+; NOTE: this makes the register file per process state. Both
 ; x86_64-bubble-os.json and x86_64-bubble-userspace.json set
-; "-mmx,-sse,+soft-float", so until now no code anywhere in the system
-; touched xmm. That is why the scheduler saves no FPU state and why an
-; interrupt can land on top of a user process without preserving any: there
-; was nothing to preserve. A C userspace cannot hold that line.
-;
-; So nothing saves or restores xmm state across a context switch yet, and two
-; C processes doing floating point will corrupt each other. That needs
-; FXSAVE/FXRSTOR in the scheduler, or lazy switching through CR0.TS.
+; "-mmx,-sse,+soft-float", so no kernel or Rust userspace code touches xmm,
+; and until a C userspace existed there was nothing to preserve across a
+; switch. src/arch/x86_64/fpu.rs now saves and restores it eagerly, which
+; still depends on the kernel half of that invariant holding: dropping -sse
+; from the kernel target would corrupt user floating point silently.
 enable_sse:
     mov eax, cr0
     and ax, 0xFFFB          ; clear EM: with it set, SSE raises #UD
-    or ax, 1 << 1           ; set MP, so a later CR0.TS scheme sees FWAIT
+    or ax, 1 << 1           ; set MP, vestigial while TS is never set
     mov cr0, eax
 
     mov eax, cr4

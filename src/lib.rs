@@ -81,6 +81,10 @@ pub extern "C" fn rust_main(boot_info_addr: usize) {
     enable_nxe_bit();
     enable_write_protect_bit();
 
+    // has to happen before the first process exists: it runs FNINIT, which
+    // would clobber the x87 state of whoever was running otherwise
+    arch::x86_64::fpu::init();
+
     mem::init(&boot_info);
 
     unsafe {

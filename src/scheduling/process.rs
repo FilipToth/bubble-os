@@ -4,7 +4,7 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use spin::{Mutex, RwLock};
 
 use crate::{
-    arch::x86_64::registers::FullInterruptStackFrame,
+    arch::x86_64::{fpu, registers::FullInterruptStackFrame},
     elf::ElfRegion,
     fs::fs::{Directory, File, FileStat, S_IFCHR},
     io::LogType,
@@ -25,6 +25,17 @@ pub struct Process {
     /// reaches this value.
     pub sleep_until_tick: Option<u64>,
     pub context: FullInterruptStackFrame,
+
+    /// Address of this process' 512 byte FXSAVE area, freed by
+    /// `exit_current`.
+    ///
+    /// Held as an address rather than as the buffer itself because this
+    /// struct is cloned every time the scheduler picks a process, and an
+    /// inline array would be copied on every context switch. The clone shares
+    /// the address the way it already shares `stack`: only the entry that
+    /// lives in `PROCESSES` owns it.
+    pub fpu_state: usize,
+
     pub start_region: Arc<Mutex<ElfRegion>>,
     pub curr_working_dir: Arc<dyn Directory + Send + Sync>,
     pub stack: Stack,
@@ -103,12 +114,23 @@ impl Process {
             return None;
         }
 
+        let Some(fpu_state) = fpu::alloc_state() else {
+            log!(
+                LogType::ERR,
+                "process_from: failed to allocate FPU state for pid {}",
+                pid
+            );
+
+            return None;
+        };
+
         Some(Process {
             pid: pid,
             blocking: false,
             awaiting_process: None,
             sleep_until_tick: None,
             context: context,
+            fpu_state: fpu_state,
             start_region: entry.start_region,
             curr_working_dir: cwd,
             stack: stack,
