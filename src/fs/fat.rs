@@ -50,8 +50,12 @@ pub struct Fat32ExtendedBootSector {
     pub fat_type_label: [u8; 8],
 }
 
+/// Copy because this is a plain on-disk record: eleven bytes of name and a
+/// handful of integers, owning nothing. Move semantics bought nothing and
+/// made every "read an entry, change one field, write it back" into a fight
+/// with the borrow checker.
 #[repr(C, packed)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DirectoryEntry {
     pub name: [u8; 11],
     pub attributes: u8,

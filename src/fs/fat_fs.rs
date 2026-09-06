@@ -141,6 +141,22 @@ impl Directory for FATDirectory {
         let mut fs_guard = fs.lock();
         fs_guard.remove_directory(&self.entry, name)
     }
+
+    /// The first cluster, which is what FAT names a directory by. The root
+    /// carries 0 in its entry, so this goes through `directory_cluster` to
+    /// get the real one rather than an id that collides with nothing.
+    fn directory_id(&self) -> Option<usize> {
+        let fs = self.fs.upgrade()?;
+        let fs_guard = fs.lock();
+
+        Some(fs_guard.directory_cluster(&self.entry))
+    }
+
+    fn rename_entry(&self, name: &str, new_parent: usize, new_name: &str) -> Option<()> {
+        let fs = self.fs.upgrade()?;
+        let mut fs_guard = fs.lock();
+        fs_guard.rename(&self.entry, name, new_parent, new_name)
+    }
 }
 
 impl FATDirectory {
@@ -801,18 +817,27 @@ impl FATFileSystem {
         Some(empty)
     }
 
-    fn delete_directory_entry(&mut self, located: LocatedDirectoryEntry) -> Option<()> {
+    /// Marks a directory entry and its long filename entries deleted.
+    ///
+    /// Touches no clusters, so whatever the entry pointed at is still there
+    /// and still reachable from any other entry naming it. That is what a
+    /// rename needs: the name moves, the data does not.
+    fn clear_directory_entry(&mut self, located: &LocatedDirectoryEntry) -> Option<()> {
         for lfn_location in &located.lfn_locations {
             let mut lfn_entry = self.read_directory_entry(*lfn_location)?;
             lfn_entry.mark_deleted();
             self.persist_directory_entry(*lfn_location, &lfn_entry)?;
         }
 
-        let first_cluster = located.entry.get_cluster();
         let mut deleted_entry = located.entry;
         deleted_entry.mark_deleted();
-        self.persist_directory_entry(located.location, &deleted_entry)?;
+        self.persist_directory_entry(located.location, &deleted_entry)
+    }
 
+    fn delete_directory_entry(&mut self, located: LocatedDirectoryEntry) -> Option<()> {
+        self.clear_directory_entry(&located)?;
+
+        let first_cluster = located.entry.get_cluster();
         if first_cluster == 0 {
             return Some(());
         }
@@ -823,6 +848,100 @@ impl FATFileSystem {
         }
 
         Some(())
+    }
+
+    /// Moves a directory entry to a new name, and possibly a new directory.
+    ///
+    /// Only the entry moves. The cluster chain, the size and the timestamps
+    /// are carried across untouched, so no file data is read or written.
+    ///
+    /// Directories can be renamed where they are but not moved to a different
+    /// parent: that would need their `..` rewritten and a walk up the tree to
+    /// reject a move into their own subtree, and nothing asks for it yet.
+    ///
+    /// ## Arguments
+    ///
+    /// - `old_parent` the directory currently holding the entry
+    /// - `old_name` the name to move
+    /// - `new_parent_cluster` first cluster of the destination directory
+    /// - `new_name` the name to move it to
+    ///
+    /// ## Returns
+    /// `Some(())` on success, `None` when the source is missing, the
+    /// destination is occupied by something incompatible, or a directory was
+    /// asked to change parents.
+    fn rename(
+        &mut self,
+        old_parent: &DirectoryEntry,
+        old_name: &str,
+        new_parent_cluster: usize,
+        new_name: &str,
+    ) -> Option<()> {
+        let old_parent_cluster = self.directory_cluster(old_parent);
+        let source = self.find_entry_by_name(old_parent, old_name)?;
+
+        // renaming . or .. would rewrite the tree's own structure
+        let source_short_name = source.entry.name;
+        if Self::is_dot_name(&source_short_name) {
+            return None;
+        }
+
+        let same_directory = old_parent_cluster == new_parent_cluster;
+        let source_is_directory = source.entry.is_directory();
+
+        // a rename onto itself changes nothing and is not an error
+        if same_directory && source.name.eq_ignore_ascii_case(new_name) {
+            return Some(());
+        }
+
+        if source_is_directory && !same_directory {
+            return None;
+        }
+
+        // an existing destination is replaced, the way POSIX rename does, but
+        // only by something of the same kind
+        if let Some(destination) = self.find_entry_by_name_in_cluster(new_parent_cluster, new_name)
+        {
+            if destination.entry.is_directory() != source_is_directory {
+                return None;
+            }
+
+            if source_is_directory && !self.directory_is_empty(&destination.entry)? {
+                return None;
+            }
+
+            self.delete_directory_entry(destination)?;
+        }
+
+        let (slots, _) = self.load_directory_slots(new_parent_cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
+        let (short_name, lfn_entries) = Self::prepare_name_entries(&parsed, new_name)?;
+
+        // everything but the name comes across unchanged, the first cluster
+        // above all: that is what makes this a rename rather than a copy
+        let mut entry = source.entry;
+        entry.name = short_name;
+
+        // written before the source is cleared. A crash in the gap leaves the
+        // file reachable under both names, which is wrong but recoverable;
+        // clearing first and failing here would lose it outright
+        self.persist_new_entry(new_parent_cluster, &lfn_entries, &entry)?;
+        self.clear_directory_entry(&source)?;
+
+        Some(())
+    }
+
+    /// `find_entry_by_name` for a directory known by its cluster rather than
+    /// by its entry, which is all a rename has for the destination.
+    fn find_entry_by_name_in_cluster(
+        &mut self,
+        cluster: usize,
+        name: &str,
+    ) -> Option<LocatedDirectoryEntry> {
+        let (slots, _) = self.load_directory_slots(cluster)?;
+        let parsed = Self::parse_directory_entries(&slots);
+
+        Self::find_parsed_entry(&parsed, name).cloned()
     }
 
     fn rollback_allocated_chain(&mut self, cluster: usize) {

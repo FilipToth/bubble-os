@@ -77,13 +77,20 @@ cflags := -O2 -g -std=gnu11 -ffreestanding -fno-stack-protector \
 
 ldflags := -nostdlib -static -Wl,-z,max-page-size=0x1000
 
-# --start-group because libc.a and libgcc.a call into each other: libc needs
-# gcc's 128-bit division helpers, libgcc needs memcpy
+# --start-group because these call into each other: libc needs gcc's 128-bit
+# division helpers, libgcc needs memcpy, and libm needs both.
+#
+# -lm is separate from the merged libc.a on purpose. newlib keeps floor, ceil,
+# fmod, sqrt, pow, log and the trig functions in libm; only ldexp, frexp and
+# modf are in libc. Anything doing real arithmetic needs it, and leaving it out
+# shows up as undefined references rather than anything subtle.
+libs := -Wl,--start-group $(libc_dir)/libc.a -lm -lgcc -Wl,--end-group
+
 hello: prepare
 	$(cross)-gcc $(cflags) -c hello/main.c -o obj/hello.o
 	$(cross)-gcc $(ldflags) -T hello/linker.ld \
 		$(libc_dir)/crt0.o obj/hello.o \
-		-Wl,--start-group $(libc_dir)/libc.a -lgcc -Wl,--end-group \
+		$(libs) \
 		-o bin/hello.elf
 
 clean:

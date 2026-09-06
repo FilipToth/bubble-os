@@ -22,6 +22,19 @@ const FXSAVE_SIZE: usize = 512;
 /// FXSAVE and FXRSTOR raise #GP on a destination that is not 16-byte aligned.
 const FXSAVE_ALIGN: usize = 16;
 
+/// What is actually asked of the allocator.
+///
+/// The kernel heap does not honour the alignment in a `Layout`: it computes
+/// one in `block_align_size` and then drops it, `allocate_internal` takes it
+/// as `_align`, and the address handed back is always `block.address` plus
+/// the 32 byte block header. Block addresses drift by whatever sizes came
+/// before, so anything asking for more than 8 bytes of alignment gets it only
+/// by luck. That silence is why this looked fine until an unrelated change
+/// started allocating on every console read.
+///
+/// So over-allocate by one alignment and find the usable address by hand.
+const FXSAVE_ALLOC_SIZE: usize = FXSAVE_SIZE + FXSAVE_ALIGN;
+
 /// Every SSE exception masked, round to nearest, flush-to-zero off.
 ///
 /// FNINIT does not cover this: it only resets the x87 half of the state, and
@@ -57,6 +70,15 @@ pub fn init() {
     }
 }
 
+/// The aligned save area inside an allocation from `alloc_state`.
+///
+/// Derived rather than stored: the offset is fixed by the address the
+/// allocator returned, so both halves of a save and restore pair land on the
+/// same place without a second field to keep in step.
+fn aligned(area: usize) -> usize {
+    (area + FXSAVE_ALIGN - 1) & !(FXSAVE_ALIGN - 1)
+}
+
 /// Allocates an FPU save area holding the initial state.
 ///
 /// The area is deliberately not a field inside `Process`: that struct is
@@ -67,7 +89,7 @@ pub fn init() {
 /// ## Returns
 /// The address of the area, or `None` when the allocation failed.
 pub fn alloc_state() -> Option<usize> {
-    let Ok(layout) = Layout::from_size_align(FXSAVE_SIZE, FXSAVE_ALIGN) else {
+    let Ok(layout) = Layout::from_size_align(FXSAVE_ALLOC_SIZE, FXSAVE_ALIGN) else {
         return None;
     };
 
@@ -79,11 +101,13 @@ pub fn alloc_state() -> Option<usize> {
     unsafe {
         core::ptr::copy_nonoverlapping(
             core::ptr::addr_of!(TEMPLATE) as *const u8,
-            area,
+            aligned(area as usize) as *mut u8,
             FXSAVE_SIZE,
         );
     }
 
+    // the raw allocation, not the aligned address inside it, so free_state
+    // hands the allocator back exactly what it gave out
     Some(area as usize)
 }
 
@@ -97,7 +121,7 @@ pub fn free_state(area: usize) {
         return;
     }
 
-    let Ok(layout) = Layout::from_size_align(FXSAVE_SIZE, FXSAVE_ALIGN) else {
+    let Ok(layout) = Layout::from_size_align(FXSAVE_ALLOC_SIZE, FXSAVE_ALIGN) else {
         return;
     };
 
@@ -114,6 +138,7 @@ pub fn save(area: usize) {
         return;
     }
 
+    let area = aligned(area);
     unsafe {
         core::arch::asm!("fxsave64 [{area}]", area = in(reg) area);
     }
@@ -129,6 +154,7 @@ pub fn restore(area: usize) {
         return;
     }
 
+    let area = aligned(area);
     unsafe {
         core::arch::asm!("fxrstor64 [{area}]", area = in(reg) area);
     }

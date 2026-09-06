@@ -8,8 +8,10 @@
  *   - getenv        -> environ, set by crt0.S from that same frame
  *   - malloc        -> _sbrk, and the kernel's brk implementation
  *   - fopen/fread   -> _open, _read, _lseek, _close, _fstat
+ *   - printf %g     -> newlib's float formatting, and libm
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +39,16 @@ int main(int argc, char **argv)
 	snprintf(buffer, 64, "malloc and snprintf agree: %d", 6 * 7);
 	puts(buffer);
 	free(buffer);
+
+	/* %.14g is how Lua prints every number and strtod is how it reads them,
+	 * so this is the acceptance test for the whole floating point path: the
+	 * FPU state the scheduler switches, newlib built with float printf, and
+	 * libm on the link line. Getting it wrong is silent, the numbers just
+	 * come out as garbage or as a literal "g", with no build error.
+	 *
+	 * Expect: 3.14159265358979, 2, 0.5 */
+	double pi = strtod("3.14159265358979", NULL);
+	printf("%.14g %.14g %.14g\n", pi, floor(2.7), fmod(6.5, 3.0));
 
 	/* Only attempted when given a path, so the program is still useful
 	 * with no arguments. */

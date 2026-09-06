@@ -164,6 +164,19 @@ libc: newlib
 	$(cross)-gcc $(libc_cflags) -c userspace/lib/syscalls.c -o $(libc_out)/syscalls.o
 	$(cross)-gcc $(libc_cflags) -c userspace/lib/crt0.S -o $(libc_out)/crt0.o
 	cp $(cross_lib)/libc.a $(libc_out)/libc.a
+
+	@# newlib's system() is a stub that answers ENOSYS to everything, and
+	@# syscalls.c defines a real one. Two definitions of the same symbol in one
+	@# archive would resolve by whichever member the linker happened to extract
+	@# first, so drop newlib's rather than rely on that. It also carries
+	@# _system_r, which nothing in libc.a references
+	$(cross)-ar d $(libc_out)/libc.a libc_a-system.o
+
+	@# same for rename, which newlib builds as link + unlink. FAT has no hard
+	@# links so _link is ENOSYS and that path can never work; syscalls.c calls
+	@# the kernel directly instead. renamer.o carries the _rename_r half
+	$(cross)-ar d $(libc_out)/libc.a libc_a-rename.o libc_a-renamer.o
+
 	$(cross)-ar rcs $(libc_out)/libc.a $(libc_out)/syscalls.o
 	@echo "libc: $(libc_out)/libc.a"
 

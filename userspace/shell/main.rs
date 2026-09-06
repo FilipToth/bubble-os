@@ -57,8 +57,9 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
     loop {
         cwd.print_prompt();
 
+        // the kernel echoes the newline when the line is committed, so there
+        // is nothing to print here
         let input_len = read_command(&mut input_buffer);
-        ulib::stdout(b"\n");
 
         if input_len == 0 {
             continue;
@@ -140,6 +141,20 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
                     ulib::stdout(b"Created directory\n");
                 }
                 Err(error) => print_error(b"mkdir", error),
+            }
+
+            continue;
+        }
+
+        if name == b"mv" {
+            let (Some(from), Some(to)) = (argument, argv.entry(2)) else {
+                ulib::stdout(b"Usage: mv <from> <to>\n");
+                continue;
+            };
+
+            match ulib::rename(from, to) {
+                Ok(()) => {}
+                Err(error) => print_error(b"mv", error),
             }
 
             continue;
@@ -340,35 +355,36 @@ fn panic(_info: &PanicInfo) -> ! {
     ulib::exit(101);
 }
 
+/// Reads one command line.
+///
+/// The echo and backspace loop this used to be now lives in the kernel, where
+/// every program gets it rather than only this one. What comes back is a
+/// whole line ending in a newline, which is trimmed off here because the rest
+/// of the shell wants the command on its own.
 fn read_command(buffer: &mut [u8]) -> usize {
     let mut len = 0;
 
-    loop {
-        let input = ulib::read_stdin_char();
+    while len < buffer.len() {
+        let Ok(count) = ulib::read(ulib::STDIN, &mut buffer[len..]) else {
+            return len;
+        };
 
-        if input == b'\r' || input == b'\n' {
+        // ctrl-d, nothing more is coming
+        if count == 0 {
             return len;
         }
 
-        if input == b'\x08' || input == b'\x7F' {
-            if len > 0 {
-                len -= 1;
-                ulib::stdout(b"\x08 \x08");
-            }
+        len += count;
 
-            continue;
+        // a committed line always ends in a newline, so anything short of one
+        // means the line was longer than the buffer passed in and the rest is
+        // still waiting. Loop rather than treat the fragment as a command
+        if buffer[len - 1] == b'\n' {
+            return len - 1;
         }
-
-        if len >= buffer.len() {
-            continue;
-        }
-
-        buffer[len] = input;
-        len += 1;
-
-        let echo = [input];
-        ulib::stdout(&echo);
     }
+
+    len
 }
 
 fn print_number(mut number: usize) {

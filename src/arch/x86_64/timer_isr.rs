@@ -4,7 +4,7 @@ use x86_64::instructions::interrupts;
 
 use crate::{
     arch, interrupt_trampoline,
-    io::serial,
+    io::{console, serial},
     scheduling::{self, SCHEDULING_ENABLED},
     time,
 };
@@ -25,9 +25,18 @@ pub extern "C" fn timer_isr(stack: *mut FullInterruptStackFrame) {
     arch::x86_64::pit::end_of_interrupt(0);
 
     if sched_enabled {
-        if serial::serial_received() {
-            let input = serial::read_serial();
-            scheduling::process_input(input);
+        // drain the whole FIFO rather than one byte per tick. The 16550 holds
+        // sixteen bytes and its own interrupt is masked, so taking one per
+        // tick capped input at PIT_HZ bytes per second and lost the rest
+        // inside the UART
+        let mut received = false;
+        while serial::serial_received() {
+            console::push(serial::read_serial());
+            received = true;
+        }
+
+        if received {
+            scheduling::wake_input_waiters();
         }
 
         let stack = unsafe { &mut *stack };

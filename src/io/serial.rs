@@ -33,9 +33,13 @@ pub fn serial_received() -> bool {
     inb(PORT + 5) & 0x01 != 0
 }
 
-pub fn read_serial() -> char {
-    while !serial_received() {}
-    inb(PORT) as char
+/// Takes one byte out of the receive FIFO.
+///
+/// The caller has to have checked `serial_received` first: reading an empty
+/// FIFO returns whatever the register holds rather than blocking, and this
+/// runs from the timer ISR where spinning is not an option.
+pub fn read_serial() -> u8 {
+    inb(PORT)
 }
 
 pub fn is_transmit_empty() -> bool {

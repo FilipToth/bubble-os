@@ -167,7 +167,7 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
     let rax = match syscall_number {
         1 => syscall::exit(stack),
         2 => syscall::write(stack),
-        3 => syscall::read(stack),
+        3 => syscall::read(&mut *stack),
         4 => syscall::execute(stack),
         5 => syscall::yld(stack),
         6 => syscall::wait_for_process(stack),
@@ -188,6 +188,8 @@ extern "C" fn syscall_isr(stack: *mut FullInterruptStackFrame) {
         21 => syscall::fstat(stack),
         22 => syscall::stat(stack),
         23 => syscall::getpid(stack),
+        24 => syscall::read_char(&mut *stack),
+        25 => syscall::rename(stack),
         _ => {
             log!(
                 crate::io::LogType::SYS,

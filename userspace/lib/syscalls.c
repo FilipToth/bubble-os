@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/times.h>
 #include <sys/types.h>
@@ -55,6 +56,8 @@ extern int errno;
 #define SYS_FSTAT 21
 #define SYS_STAT 22
 #define SYS_GETPID 23
+#define SYS_READ_CHAR 24
+#define SYS_RENAME 25
 
 /* ------------------------------------------------------------------------
  * ABI types and constants
@@ -381,6 +384,238 @@ int _yield(void)
 }
 
 /* ------------------------------------------------------------------------
+ * system
+ *
+ * newlib ships a stub that answers ENOSYS to everything, so build.mk drops
+ * its object from our copy of libc.a and this takes over. Two definitions of
+ * the same symbol in one archive would otherwise resolve by whichever member
+ * the linker happened to extract first.
+ *
+ * There is no shell to hand the string to. /bin/shell.elf has no -c mode, and
+ * the kernel refuses to launch it a second time anyway, so this parses the
+ * command itself and executes it directly. The parsing rules are the ones the
+ * shell uses, quoting and backslashes included, so a command behaves the same
+ * whether it was typed or passed to system().
+ *
+ * What that costs: none of the things a real sh would do. No pipes, no
+ * redirection, no globbing, no && or ;, no variable expansion. A caller that
+ * wants any of those gets its command line treated as one program name and
+ * some arguments.
+ * ---------------------------------------------------------------------- */
+
+/* Longest resolved program path a PATH search will build. */
+#define BUBBLE_PATH_MAX 256
+
+/* Where to look when the environment carries no PATH. */
+#define BUBBLE_DEFAULT_PATH "/bin"
+
+/* The exit status a shell reports for a command it could not find. */
+#define BUBBLE_STATUS_NOT_FOUND 127
+
+/* Splits a command line into arguments in place.
+ *
+ * Quotes group, a backslash outside quotes takes the next byte literally, and
+ * an unterminated quote closes at the end of the line rather than failing the
+ * whole command. Both removals only ever shorten the text, so the result is
+ * written over the input as it is consumed.
+ *
+ * Returns the argument count, or -1 when there are more than `max_count`.
+ */
+static int bubble_split_command(char *command, char **argv, size_t max_count)
+{
+    size_t read = 0;
+    size_t write = 0;
+    size_t count = 0;
+    char quote = '\0';
+    int in_argument = 0;
+
+    while (command[read] != '\0') {
+        char byte = command[read++];
+
+        if (quote != '\0') {
+            if (byte == quote) {
+                quote = '\0';
+            } else {
+                command[write++] = byte;
+            }
+
+            continue;
+        }
+
+        if (byte == '\'' || byte == '"') {
+            quote = byte;
+
+            /* an empty quoted string is still an argument, so open one now
+             * rather than waiting for a byte that may never come */
+            if (!in_argument) {
+                if (count == max_count) {
+                    return -1;
+                }
+
+                argv[count++] = &command[write];
+                in_argument = 1;
+            }
+
+            continue;
+        }
+
+        if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r'
+            || byte == '\v' || byte == '\f') {
+            if (in_argument) {
+                command[write++] = '\0';
+                in_argument = 0;
+            }
+
+            continue;
+        }
+
+        if (byte == '\\' && command[read] != '\0') {
+            byte = command[read++];
+        }
+
+        if (!in_argument) {
+            if (count == max_count) {
+                return -1;
+            }
+
+            argv[count++] = &command[write];
+            in_argument = 1;
+        }
+
+        command[write++] = byte;
+    }
+
+    if (in_argument) {
+        command[write++] = '\0';
+    }
+
+    argv[count] = NULL;
+    return (int)count;
+}
+
+/* Builds "<directory>/<program>" for one PATH entry.
+ *
+ * Returns 0, or -1 when the result would not fit.
+ */
+static int bubble_join_path(char *out, size_t out_size, const char *directory,
+                            size_t directory_length, const char *program)
+{
+    size_t program_length = strlen(program);
+    size_t length = 0;
+
+    /* an empty PATH entry means the working directory */
+    if (directory_length > 0) {
+        if (directory_length + 1 + program_length + 1 > out_size) {
+            return -1;
+        }
+
+        memcpy(out, directory, directory_length);
+        length = directory_length;
+
+        if (out[length - 1] != '/') {
+            out[length++] = '/';
+        }
+    } else if (program_length + 1 > out_size) {
+        return -1;
+    }
+
+    memcpy(out + length, program, program_length);
+    out[length + program_length] = '\0';
+
+    return 0;
+}
+
+int system(const char *command)
+{
+    /* roughly 4.5 KiB of frame here, and _execve builds another blob of the
+     * same size below it. Comfortable against a 512 KiB stack, worth knowing
+     * if that number ever shrinks */
+    char buffer[BUBBLE_ARGV_MAX_BYTES];
+    char *argv[BUBBLE_ARGV_MAX_COUNT + 1];
+    char candidate[BUBBLE_PATH_MAX];
+
+    const char *path;
+    size_t length;
+    int count;
+    int pid = -1;
+    int status = 0;
+
+    /* POSIX wants a nonzero answer when a command processor exists, which is
+     * how a caller asks whether system() is worth using at all */
+    if (command == NULL) {
+        return 1;
+    }
+
+    length = strlen(command);
+    if (length >= sizeof(buffer)) {
+        errno = E2BIG;
+        return -1;
+    }
+
+    memcpy(buffer, command, length + 1);
+
+    count = bubble_split_command(buffer, argv, BUBBLE_ARGV_MAX_COUNT);
+    if (count < 0) {
+        errno = E2BIG;
+        return -1;
+    }
+
+    /* an empty command line succeeds without doing anything, the way sh
+     * treats one */
+    if (count == 0) {
+        return 0;
+    }
+
+    if (strchr(argv[0], '/') != NULL) {
+        /* a path, taken as given rather than searched for */
+        pid = _execve(argv[0], argv, NULL);
+    } else {
+        path = getenv("PATH");
+        if (path == NULL) {
+            path = BUBBLE_DEFAULT_PATH;
+        }
+
+        while (*path != '\0') {
+            const char *separator = strchr(path, ':');
+            size_t entry_length =
+                separator != NULL ? (size_t)(separator - path) : strlen(path);
+
+            if (bubble_join_path(candidate, sizeof(candidate), path,
+                                 entry_length, argv[0]) == 0) {
+                pid = _execve(candidate, argv, NULL);
+                if (pid > 0) {
+                    break;
+                }
+            }
+
+            if (separator == NULL) {
+                break;
+            }
+
+            path = separator + 1;
+        }
+
+        /* nothing on the search path, so try the working directory */
+        if (pid <= 0) {
+            pid = _execve(argv[0], argv, NULL);
+        }
+    }
+
+    if (pid <= 0) {
+        /* not an error in system()'s terms: the child ran and failed, as far
+         * as the caller is concerned. -1 is reserved for not being able to
+         * make a child at all */
+        return BUBBLE_STATUS_NOT_FOUND << 8;
+    }
+
+    if (_wait_for_process(pid, &status) < 0) {
+        return -1;
+    }
+
+    return status;
+}
+
+/* ------------------------------------------------------------------------
  * Files
  * ---------------------------------------------------------------------- */
 
@@ -438,6 +673,27 @@ int _unlink(char *name)
     }
 
     return (int)bubble_check(bubble_syscall2(SYS_UNLINK, name, strlen(name)));
+}
+
+/* Moves a directory entry, which is the only way to rename on FAT.
+ *
+ * newlib's own rename() is _link() plus _unlink(), and FAT has no hard links,
+ * so that path can never work. build.mk drops newlib's rename.o and renamer.o
+ * from our copy of libc.a and this takes over, the same as system().
+ *
+ * Directories can be renamed where they are but not moved to another parent;
+ * the kernel refuses that rather than leaving a `..` pointing at the wrong
+ * place.
+ */
+int rename(const char *old_path, const char *new_path)
+{
+    if (old_path == NULL || new_path == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+
+    return (int)bubble_check(bubble_syscall5(SYS_RENAME, old_path, strlen(old_path), new_path,
+                                             strlen(new_path), 0));
 }
 
 /* No hard links on FAT. */

@@ -166,6 +166,32 @@ pub trait Directory: DirectoryClone + Send + Sync {
     /// or is not a regular file.
     fn unlink_file(&self, name: &str) -> Option<()>;
 
+    /// How the filesystem identifies this directory.
+    ///
+    /// Exists only so `rename_entry` can name a second directory: `Directory`
+    /// is a per-directory trait and a rename spans two of them, which cannot
+    /// be reached through an `Arc<dyn Directory>`. The value is opaque and
+    /// only meaningful to the filesystem that produced it, so it must never
+    /// be compared across two of them.
+    fn directory_id(&self) -> Option<usize>;
+
+    /// Moves an entry in this directory to a new name, and possibly into a
+    /// different directory.
+    ///
+    /// Only the name moves; no file contents are read or written.
+    ///
+    /// ## Arguments
+    ///
+    /// - `name` the entry to move
+    /// - `new_parent` `directory_id` of the destination directory
+    /// - `new_name` the name to move it to
+    ///
+    /// ## Returns
+    /// `Some(())` on success, `None` when the source does not exist, the
+    /// destination is occupied by something that cannot be replaced, or the
+    /// filesystem does not support the move.
+    fn rename_entry(&self, name: &str, new_parent: usize, new_name: &str) -> Option<()>;
+
     /// Removes an empty directory directly inside this directory.
     ///
     /// ## Arguments

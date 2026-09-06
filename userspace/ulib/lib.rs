@@ -29,6 +29,8 @@ const SYS_LSEEK: usize = 20;
 const SYS_FSTAT: usize = 21;
 const SYS_STAT: usize = 22;
 const SYS_GETPID: usize = 23;
+const SYS_READ_CHAR: usize = 24;
+const SYS_RENAME: usize = 25;
 
 /// Maximum bytes an argument blob may occupy, matching the kernel's limit.
 pub const ARGV_MAX_BYTES: usize = 4096;
@@ -740,13 +742,39 @@ pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
     decode(unsafe { syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len()) })
 }
 
-/// Blocks until a key is pressed and returns it.
+/// Blocks until a key is pressed and returns it, raw.
 ///
-/// The keyboard handler writes the character straight into the waiting
-/// process' `rax`, so this never carries an error number, but it is decoded
-/// like any other return in case that path ever does start failing.
+/// Nothing is echoed and nothing is edited, so this is what a program that
+/// paints its own screen wants. `read` on `STDIN` is the other half: it waits
+/// for a whole line and echoes it as it is typed. Which of the two a program
+/// calls is what decides whether its input is echoed; there is no mode to
+/// set.
 pub fn read_stdin_char() -> u8 {
-    decode(unsafe { syscall1(SYS_READ, STDIN) }).unwrap_or(0) as u8
+    decode(unsafe { syscall0(SYS_READ_CHAR) }).unwrap_or(0) as u8
+}
+
+/// Moves a path to another path.
+///
+/// Only the directory entry moves, so this costs the same whatever the file
+/// is worth. A directory can be renamed where it is but not moved into a
+/// different parent.
+///
+/// ## Arguments
+///
+/// - `old_path` the path to move
+/// - `new_path` the path to move it to
+pub fn rename(old_path: &[u8], new_path: &[u8]) -> Result<()> {
+    decode(unsafe {
+        syscall5(
+            SYS_RENAME,
+            old_path.as_ptr() as usize,
+            old_path.len(),
+            new_path.as_ptr() as usize,
+            new_path.len(),
+            0,
+        )
+    })
+    .map(|_| ())
 }
 
 /// Launches an ELF binary.

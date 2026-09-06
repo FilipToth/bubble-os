@@ -13,7 +13,16 @@ use x86_64::instructions::tlb;
 
 mod loader;
 
-const USER_STACK_PAGES: usize = 32;
+/// Pages of stack every process gets, eagerly mapped, with one guard page
+/// below courtesy of the stack allocator.
+///
+/// 512 KiB. The old 128 KiB was fine for the Rust programs but too tight for a
+/// C one: Lua's recursive descent parser at LUAI_MAXCCALLS of 200 can want
+/// around 100 KiB on its own, before newlib's stdio and the program's own
+/// frames. There is no demand paging, so this is physical memory per process
+/// whether or not it is touched, and it is one number for every program rather
+/// than something the ELF gets to ask for.
+const USER_STACK_PAGES: usize = 128;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

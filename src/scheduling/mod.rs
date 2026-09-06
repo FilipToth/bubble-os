@@ -430,15 +430,17 @@ pub fn sleep_current_until(deadline_tick: u64) {
     current.sleep_until_tick = Some(deadline_tick);
 }
 
-pub fn process_input(input: char) {
+/// Wakes every process blocked waiting for console input.
+///
+/// The bytes themselves stay in the console ring rather than being written
+/// into a process' `rax`: a read now answers with a count, which only the
+/// read syscall can work out, so each woken process re-runs its read and
+/// takes what it can. Whoever gets there first wins and the rest find the
+/// ring empty and block again, which is why waking all of them is fine even
+/// though handing all of them the same byte was not.
+pub fn wake_input_waiters() {
     let mut processes = PROCESSES.lock();
     for process in processes.iter_mut() {
-        if !process.blocking {
-            continue;
-        }
-
-        // process is awaiting input
-        process.context.rax = input as usize;
         process.blocking = false;
     }
 }
@@ -1020,6 +1022,37 @@ pub fn curr_process_unlink_file(path: &str) -> bool {
     };
 
     parent.unlink_file(name).is_some()
+}
+
+/// Moves a path to another path, resolving both against the current process'
+/// working directory.
+///
+/// Only the directory entry moves, so this is cheap however large the file
+/// is, and it cannot cross filesystems. There is only one mounted today.
+///
+/// ## Arguments
+///
+/// - `old_path` the path to move
+/// - `new_path` the path to move it to
+///
+/// ## Returns
+/// Whether the rename happened.
+pub fn curr_process_rename(old_path: &str, new_path: &str) -> bool {
+    let Some((old_parent, old_name)) = resolve_parent_directory_and_name(old_path) else {
+        return false;
+    };
+
+    let Some((new_parent, new_name)) = resolve_parent_directory_and_name(new_path) else {
+        return false;
+    };
+
+    let Some(new_parent_id) = new_parent.directory_id() else {
+        return false;
+    };
+
+    old_parent
+        .rename_entry(old_name, new_parent_id, new_name)
+        .is_some()
 }
 
 /// Removes an empty directory for the current process.

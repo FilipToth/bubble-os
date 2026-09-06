@@ -55,7 +55,14 @@ const STACK_ALLOCATOR_PAGES: usize = 4096;
 /// A slot of its own gives each process a private subtree instead, which
 /// `free_user_subtables` reclaims like any other user mapping.
 pub const USER_STACK_REGION_START: usize = 0x0000_7080_0000_0000;
-const USER_STACK_ALLOCATOR_PAGES: usize = 4096;
+/// Pages of address space the ring 3 stack region spans.
+///
+/// Each stack costs `USER_STACK_PAGES + 1` of these, the extra being its guard
+/// page, so this divided by that is the ceiling on live processes. Widened
+/// alongside the stack size to keep that ceiling near 128; it reserves address
+/// space inside a PML4 slot that holds 512 GiB and maps no frames, so the only
+/// thing it costs is the arithmetic here.
+const USER_STACK_ALLOCATOR_PAGES: usize = 16384;
 
 pub struct MemoryController {
     pub active_table: PageTable,

@@ -19,8 +19,15 @@ is the **address**, not the buffer: `Process` is `#[derive(Clone)]` and is clone
 on every call to `next_process`, so an inline `[u8; 512]` would be memcpy'd per
 switch to serve a buffer only touched at save and restore.
 
-`FXSAVE` `#GP`s on an unaligned operand, so allocate with
-`Layout::from_size_align(512, 16)`.
+`FXSAVE` `#GP`s on an operand that is not 16-byte aligned, and the kernel heap
+**does not honour the alignment in a `Layout`** — `allocate_internal` takes it
+as `_align` and drops it, always returning `block.address` plus the 32 byte
+header. So over-allocate by one alignment and find the usable address inside
+it by hand; store the raw allocation so `free_state` gives back what it got.
+
+This bit once already: it looked correct until an unrelated change started
+allocating on every console read, which shifted later block addresses off 16
+and turned every process launch into a ring 0 `#GP` inside `fxrstor64`.
 
 ### Initial state
 
