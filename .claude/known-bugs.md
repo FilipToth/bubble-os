@@ -39,6 +39,16 @@ they should say so rather than hang.
 by 2 to re-execute the entry instruction. Correct while `CD 80` is the only way
 in, silently wrong the day a `syscall` instruction path is added.
 
+## Interrupts
+
+**`register_interrupt` installs handlers ring 3 can invoke.** Its `is_ring3`
+flag maps to the opposite DPL (`src/arch/x86_64/idt.rs`): true gives Ring0,
+false gives Ring3. The only caller, the e1000 driver, passes `false` meaning
+"not for userspace" and would get a gate any program can trigger with a bare
+`int`. Dead while the network stack is commented out, and the first thing to
+bite when it is switched back on. Compare `IDT[0x80]`, which sets Ring3
+deliberately because `int 0x80` is the syscall entry.
+
 ## Syscalls and filesystem
 
 **Filesystem errors collapse to `ENOENT`.** `mkdir` over an existing directory

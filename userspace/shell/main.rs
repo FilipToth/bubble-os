@@ -52,7 +52,7 @@ $$$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  $$/  $$$$$$$/        $$$$$$/   $$$$$$/
 
 "#);
 
-    ulib::stdout(b"\nWelcome to the Bubble OS Kernel Shell :D\n\n");
+    ulib::stdout(b"\nWelcome to the Bubble OS Shell :D\n\n");
 
     loop {
         cwd.print_prompt();

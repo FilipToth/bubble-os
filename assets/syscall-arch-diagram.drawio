@@ -1,0 +1,100 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="5KaYtpMx8LCh-Zru4gd3">
+    <mxGraphModel dx="1178" dy="693" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-5" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="FCCdac5tDL8s2sO8jPnu-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-9" connectable="0" parent="FCCdac5tDL8s2sO8jPnu-5" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="int 0x80" vertex="1">
+          <mxGeometry relative="1" x="-0.5668" y="-2" as="geometry">
+            <mxPoint x="2" y="11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;b&gt;Shell&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;Rust/ulib&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="70" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-6" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-4" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-10" connectable="0" parent="FCCdac5tDL8s2sO8jPnu-6" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="int 0x80" vertex="1">
+          <mxGeometry relative="1" x="-0.0619" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;b&gt;Editor&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;Rust/ulib&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="205" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-7" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="FCCdac5tDL8s2sO8jPnu-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-8" connectable="0" parent="FCCdac5tDL8s2sO8jPnu-7" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="int 0x80" vertex="1">
+          <mxGeometry relative="1" x="-0.4751" y="1" as="geometry">
+            <mxPoint x="-1" y="5" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;b&gt;Lua&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;C/newlib&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="340" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-31" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-15" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-4" parent="1" style="rhombus;whiteSpace=wrap;html=1;shapeInside=1;" value="Syscall Interface" vertex="1">
+          <mxGeometry height="50" width="130" x="200" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-13" parent="1" style="swimlane;startSize=0;" value="" vertex="1">
+          <mxGeometry height="260" width="480" x="190" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-14" parent="FCCdac5tDL8s2sO8jPnu-13" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="x86-64 kernel" vertex="1">
+          <mxGeometry height="20" width="85" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-17" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-16" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-21" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-16" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-25" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="FCCdac5tDL8s2sO8jPnu-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-26" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="FCCdac5tDL8s2sO8jPnu-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-28" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-27" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Syscall Interrupt Service Routine" vertex="1">
+          <mxGeometry height="60" width="120" x="205" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-20" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-19" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="VFS" vertex="1">
+          <mxGeometry height="60" width="120" x="370" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Scheduler&lt;div&gt;(execute, yield, exit, etc)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="370" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-19" parent="1" style="whiteSpace=wrap;html=1;rounded=1;" value="AHCI / SATA" vertex="1">
+          <mxGeometry height="60" width="120" x="535" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-24" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="FCCdac5tDL8s2sO8jPnu-23" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Memory Manager" vertex="1">
+          <mxGeometry height="60" width="120" x="370" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-23" parent="1" style="whiteSpace=wrap;html=1;rounded=1;" value="Paging / Heap" vertex="1">
+          <mxGeometry height="60" width="120" x="535" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-29" edge="1" parent="1" source="FCCdac5tDL8s2sO8jPnu-27" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="FCCdac5tDL8s2sO8jPnu-1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="FCCdac5tDL8s2sO8jPnu-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Return from interrupt" vertex="1">
+          <mxGeometry height="60" width="120" x="205" y="380" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -144,7 +144,7 @@ execute_cd:
 
 
 section .data
-    welcome_msg dw 0xA, "Welcome to the Bubble OS Kernel Shell :D", 0xA, 0xA
+    welcome_msg dw 0xA, "Welcome to the Bubble OS Shell :D", 0xA, 0xA
     welcome_msg_len equ $ - welcome_msg
 
     err_msg dw "Program or command not found...", 0xA
